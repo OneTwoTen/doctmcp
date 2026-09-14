@@ -92,15 +92,15 @@ Capability yêu cầu: `write`.
 
 ```text
 readOnlyHint: false
-destructiveHint: false
+destructiveHint: true
 openWorldHint: false
 ```
 
-Lưu ý `overwrite: true` có thể phá dữ liệu cũ; annotation ở mức tool không thay thế policy/approval. M1 mặc định overwrite false để giảm rủi ro.
+Tool có thể thay thế nội dung hiện có hoặc di chuyển file, vì vậy `destructiveHint` là `true`. Annotation ở mức tool không thay thế policy/approval. M1 mặc định overwrite false để giảm rủi ro.
 
 ## Atomicity
 
-Không được để file ở trạng thái một phần nếu validation/patch thất bại. Với `write`/`patch`, ưu tiên temp file + rename khi phù hợp. Nếu không đảm bảo atomic trên platform cụ thể, tài liệu implementation phải nêu rõ.
+Không được để file ở trạng thái một phần nếu validation/patch thất bại. `overwrite: true` và `patch` dùng temp file + rename, đồng thời giữ permission mode của file hiện có. Tạo file mới dùng `wx` để bảo đảm no-clobber; hiện chưa cam kết crash-atomic cho new-file creation. Nếu không đảm bảo atomic trên platform cụ thể, tài liệu implementation phải nêu rõ.
 
 ## Test bắt buộc
 
@@ -118,3 +118,13 @@ Không được để file ở trạng thái một phần nếu validation/patch
 ## Acceptance criteria
 
 Không action nào có thể sửa file ngoài workspace hoặc âm thầm overwrite dữ liệu khi caller không yêu cầu rõ.
+
+## Trạng thái implementation
+
+Đang triển khai trong issue #6: schema discriminated, bốn action, giới hạn input, atomic write/patch, workspace resolver và MCP contract test đã có trên nhánh làm việc.
+
+## History
+
+| Ngày | Thay đổi | Lý do | Trạng thái |
+|---|---|---|---|
+| 2026-09-14 | Triển khai `filesystem.write` với `write`, `patch`, `mkdir`, `move` | Hoàn thiện capability write read-only tách khỏi `filesystem.delete` | in-progress |
