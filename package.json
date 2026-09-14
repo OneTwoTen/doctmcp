@@ -13,6 +13,7 @@
     "check:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:local": "bun scripts/test-local-mcp.ts",
     "ci": "bun run check && bun run typecheck && bun test"
   },
   "devDependencies": {

@@ -1,30 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { commandRequestSchema } from "./index";
+import * as schemas from "./index";
 
-describe("commandRequestSchema", () => {
-  test("accepts a valid command request", () => {
-    const result = commandRequestSchema.safeParse({
-      type: "command.request",
-      commandId: "cmd-1",
-      deviceId: "device-1",
-      tool: "system.info",
-      arguments: {},
-      createdAt: "2026-09-14T08:00:00.000Z",
-    });
+// Negative type tests: typecheck fails if any tool-execution schemas are reintroduced
+// @ts-expect-error commandRequestSchema must not be exported
+type _AssertNoCommandRequestSchema = import("./index").commandRequestSchema;
 
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects an empty device id", () => {
-    const result = commandRequestSchema.safeParse({
-      type: "command.request",
-      commandId: "cmd-1",
-      deviceId: "",
-      tool: "system.info",
-      arguments: {},
-      createdAt: "2026-09-14T08:00:00.000Z",
-    });
-
-    expect(result.success).toBe(false);
+describe("schemas", () => {
+  test("starts clean without parallel RPC schemas or unused placeholders", () => {
+    expect(Object.keys(schemas)).toEqual([]);
   });
 });
