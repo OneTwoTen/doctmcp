@@ -266,7 +266,9 @@ export class WorkspacePathResolver {
         isPathInside(join(workspace.root, denyPath), operationPath) ||
         isPathInside(join(workspace.root, denyPath), target.canonicalPath) ||
         (capability === "delete" &&
-          isPathInside(operationPath, join(workspace.root, denyPath))),
+          isPathInside(operationPath, join(workspace.root, denyPath))) ||
+        (capability === "delete" &&
+          isPathInside(target.canonicalPath, join(workspace.root, denyPath))),
     );
     if (denied) {
       throw new ToolDomainError(
