@@ -219,19 +219,21 @@ export class WorkspacePathResolver {
     }
     rejectUnsafeRelativePath(path);
     const operationPath = resolve(join(workspace.root, path));
+    const finalEntryIsSymlink =
+      capability === "delete" &&
+      (await lstat(operationPath)
+        .then((entry) => entry.isSymbolicLink())
+        .catch(() => false));
     const target = await canonicalizeTarget(workspace.root, operationPath);
+    // realpath() cannot resolve a dangling final symlink. Delete must still
+    // operate on the link itself, provided its parent remains in the workspace.
+    if (finalEntryIsSymlink && !target.exists) {
+      target.exists = true;
+    }
     const canonicalInsideWorkspace = isPathInside(
       workspace.root,
       target.canonicalPath,
     );
-    let finalEntryIsSymlink = false;
-    if (capability === "delete") {
-      try {
-        finalEntryIsSymlink = (await lstat(operationPath)).isSymbolicLink();
-      } catch {
-        // A missing path is handled by the caller that performs the operation.
-      }
-    }
     let finalEntryParentInsideWorkspace = false;
     if (finalEntryIsSymlink) {
       try {
@@ -262,7 +264,11 @@ export class WorkspacePathResolver {
     const denied = workspace.deny.some(
       (denyPath) =>
         isPathInside(join(workspace.root, denyPath), operationPath) ||
-        isPathInside(join(workspace.root, denyPath), target.canonicalPath),
+        isPathInside(join(workspace.root, denyPath), target.canonicalPath) ||
+        (capability === "delete" &&
+          isPathInside(operationPath, join(workspace.root, denyPath))) ||
+        (capability === "delete" &&
+          isPathInside(target.canonicalPath, join(workspace.root, denyPath))),
     );
     if (denied) {
       throw new ToolDomainError(
