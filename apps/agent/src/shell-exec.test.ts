@@ -3,6 +3,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -127,6 +128,7 @@ describe("shell.exec", () => {
     const { root, harness } = await setup();
     const nested = join(root, "nested");
     await mkdir(nested);
+    const canonicalNested = await realpath(nested);
 
     const result = await harness.client.callTool({
       name: "shell.exec",
@@ -140,7 +142,7 @@ describe("shell.exec", () => {
 
     expect(result.isError).toBeFalsy();
     expect((result.structuredContent as { stdout: string }).stdout.trim()).toBe(
-      nested,
+      canonicalNested,
     );
   });
 
