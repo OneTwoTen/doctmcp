@@ -121,10 +121,10 @@ Không action nào có thể sửa file ngoài workspace hoặc âm thầm overw
 
 ## Trạng thái implementation
 
-Đang triển khai trong issue #6: schema discriminated, bốn action, giới hạn input, atomic write/patch, workspace resolver và MCP contract test đã có trên nhánh làm việc.
+**Đã hoàn tất.** Issue #6 được triển khai và merge qua PR #14. Tool có discriminated schema cho đủ bốn action, giới hạn input, no-clobber mặc định, atomic overwrite/patch có giữ permission mode, workspace/capability enforcement, symlink boundary test và MCP `tools/call` coverage cho toàn bộ action.
 
 ## History
 
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
-| 2026-09-14 | Triển khai `filesystem.write` với `write`, `patch`, `mkdir`, `move` | Hoàn thiện capability write read-only tách khỏi `filesystem.delete` | in-progress |
+| 2026-09-14 | Triển khai `filesystem.write` với `write`, `patch`, `mkdir`, `move` qua PR #14 | Hoàn thiện capability write tách khỏi `filesystem.delete` | complete |
