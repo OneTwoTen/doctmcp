@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { ToolDomainError } from "./errors";
 import type { ToolContext, ToolDefinition } from "./registry";
+import { resolveExecutable } from "./system";
 import { WorkspacePathResolver, type WorkspaceRegistry } from "./workspace";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -38,9 +39,18 @@ const stringWithoutNullByte = z
 const shellExecInput = z
   .object({
     workspace: z.string().min(1),
-    command: stringWithoutNullByte.trim().min(1),
+    command: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1024)
+      .refine((value) => !value.includes("\0"), "NUL bytes are not allowed"),
     args: z.array(stringWithoutNullByte).default([]),
-    cwd: z.string().min(1).default("."),
+    cwd: z
+      .string()
+      .min(1)
+      .refine((value) => !value.includes("\0"), "NUL bytes are not allowed")
+      .default("."),
     timeoutMs: z.number().int().positive().optional(),
   })
   .strict();
@@ -204,6 +214,7 @@ async function runProcess(
   cwd: string,
   timeoutMs: number,
   options: ResolvedShellExecOptions,
+  environment: NodeJS.ProcessEnv,
   signal: AbortSignal,
 ): Promise<ProcessResult> {
   if (signal.aborted) {
@@ -225,7 +236,7 @@ async function runProcess(
     try {
       child = spawn(command, [...args], {
         cwd,
-        env: buildProcessEnvironment(options.environmentAllowlist),
+        env: environment,
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
@@ -249,7 +260,6 @@ async function runProcess(
             child.kill("SIGKILL");
           }
         }, options.killGraceMs);
-        killTimer.unref?.();
       }
     };
 
@@ -279,7 +289,6 @@ async function runProcess(
     signal.addEventListener("abort", onAbort, { once: true });
 
     const timeout = setTimeout(() => requestTermination("timeout"), timeoutMs);
-    timeout.unref?.();
 
     const cleanup = (): void => {
       clearTimeout(timeout);
@@ -371,7 +380,28 @@ export function createShellExecTool(
         );
       }
 
-      if (resolvedOptions.deniedCommands.has(normalizeCommandName(command))) {
+      const requestedCommandName = normalizeCommandName(command);
+      if (resolvedOptions.deniedCommands.has(requestedCommandName)) {
+        throw new ToolDomainError(
+          "PERMISSION_DENIED",
+          "Command is denied by local shell policy",
+        );
+      }
+
+      const environment = buildProcessEnvironment(
+        resolvedOptions.environmentAllowlist,
+      );
+      const executablePath = await resolveExecutable(command, {
+        cwd: resolvedCwd.operationPath,
+        pathValue: environment.PATH ?? "",
+        pathExt: environment.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+      });
+      if (!executablePath) {
+        throw new ToolDomainError("PROCESS_FAILED", "Command was not found");
+      }
+      if (
+        resolvedOptions.deniedCommands.has(normalizeCommandName(executablePath))
+      ) {
         throw new ToolDomainError(
           "PERMISSION_DENIED",
           "Command is denied by local shell policy",
@@ -379,11 +409,12 @@ export function createShellExecTool(
       }
 
       const result = await runProcess(
-        command,
+        executablePath,
         args,
         resolvedCwd.operationPath,
         effectiveTimeoutMs,
         resolvedOptions,
+        environment,
         context.signal,
       );
 
