@@ -82,6 +82,13 @@ workspace id
  -> operation
 ```
 
+Resolver phải giữ riêng hai path sau khi kiểm tra:
+
+- `operationPath`: path lexical tuyệt đối mà filesystem operation thực sự dùng;
+- `canonicalPath`: path đã canonicalize để kiểm tra containment và deny policy.
+
+Với destructive operation, nếu path cuối là symlink thì dùng `operationPath` để xoá chính symlink, không dùng `canonicalPath` vì giá trị đó trỏ tới target.
+
 Không kiểm tra policy bằng string prefix đơn giản vì dễ lỗi với sibling prefix, separator và symlink.
 
 ## Filesystem safety defaults

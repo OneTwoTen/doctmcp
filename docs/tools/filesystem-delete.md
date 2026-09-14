@@ -20,7 +20,7 @@ Có thể bổ sung `expectedType: "file" | "directory"` nếu implementation c�
 
 ## Semantics
 
-- `path` phải nằm trong workspace và qua permission resolver chung.
+- `path` phải nằm trong workspace và qua permission resolver chung. Resolver trả `operationPath` cho thao tác filesystem và `canonicalPath` cho containment/permission; không dùng `canonicalPath` để xoá.
 - `recursive` mặc định false.
 - directory không rỗng + `recursive: false` phải bị từ chối.
 - không follow symlink để xoá target ngoài workspace; nếu path chính là symlink, semantics phải là xoá link chứ không recursive vào target.

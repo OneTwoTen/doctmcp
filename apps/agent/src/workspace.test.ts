@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  lstat,
   mkdir,
   mkdtemp,
   realpath,
@@ -8,11 +9,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { ToolDomainError } from "./errors";
 import { createMcpTestHarness } from "./test-harness";
 import {
   createWorkspaceTool,
+  isPathInside,
   WorkspacePathResolver,
   WorkspaceRegistry,
 } from "./workspace";
@@ -209,10 +211,12 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
     const resolver = new WorkspacePathResolver(registry);
 
     const canonicalRoot = await realpath(root);
-    expect((await resolver.resolve("project", "readme.txt")).path).toBe(
-      join(canonicalRoot, "readme.txt"),
+    const resolvedFile = await resolver.resolve("project", "readme.txt");
+    expect(resolvedFile.operationPath).toBe(join(canonicalRoot, "readme.txt"));
+    expect(resolvedFile.canonicalPath).toBe(resolvedFile.operationPath);
+    expect((await resolver.resolve("project", ".")).operationPath).toBe(
+      canonicalRoot,
     );
-    expect((await resolver.resolve("project", ".")).path).toBe(canonicalRoot);
     for (const unsafe of [
       "../outside",
       "a/../../outside",
@@ -227,14 +231,16 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
 
   test("uses containment instead of a string prefix", async () => {
     const { root, registry } = await setup();
-    const sibling = `${root}-sibling`;
-    await mkdir(sibling);
-    roots.push(sibling);
+    const canonicalRoot = await realpath(root);
+    const sibling = `${canonicalRoot}-sibling`;
+    expect(isPathInside(canonicalRoot, sibling)).toBe(false);
+    expect(isPathInside(canonicalRoot, join(canonicalRoot, "child"))).toBe(
+      true,
+    );
+    expect(basename(sibling)).toBeDefined();
+    const resolver = new WorkspacePathResolver(registry);
     await expect(
-      new WorkspacePathResolver(registry).resolve(
-        "project",
-        `../${sibling.split("/").pop()}`,
-      ),
+      resolver.resolve("project", `../${basename(sibling)}`),
     ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
   });
 
@@ -249,6 +255,35 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
     await expect(
       resolver.resolve("project", "link-out/secret.txt"),
     ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
+  });
+
+  test("keeps delete operation on the symlink instead of its target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-symlink-delete-"));
+    roots.push(root);
+    const target = join(root, "actual.txt");
+    const link = join(root, "link.txt");
+    await writeFile(target, "target");
+    try {
+      await symlink(target, link);
+    } catch {
+      return;
+    }
+    const registry = await WorkspaceRegistry.create([
+      {
+        id: "project",
+        name: "Project",
+        root,
+        capabilities: { read: true, delete: true },
+      },
+    ]);
+    const resolved = await new WorkspacePathResolver(registry).resolve(
+      "project",
+      "link.txt",
+      "delete",
+    );
+    expect(resolved.operationPath).toBe(join(await realpath(root), "link.txt"));
+    expect(resolved.canonicalPath).toBe(await realpath(target));
+    expect((await lstat(resolved.operationPath)).isSymbolicLink()).toBe(true);
   });
 
   test("denies configured subtree before capability", async () => {

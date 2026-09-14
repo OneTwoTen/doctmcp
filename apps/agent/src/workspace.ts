@@ -76,18 +76,21 @@ async function canonicalizeRoot(root: string): Promise<string> {
 
 async function canonicalizeTarget(
   root: string,
-  target: string,
-): Promise<{ path: string; exists: boolean }> {
+  operationPath: string,
+): Promise<{ canonicalPath: string; exists: boolean }> {
   try {
-    const path = await realpath(target);
-    return { path, exists: true };
+    const canonicalPath = await realpath(operationPath);
+    return { canonicalPath, exists: true };
   } catch {
-    let candidate = target;
+    let candidate = operationPath;
     const missing: string[] = [];
     while (true) {
       try {
         const existing = await realpath(candidate);
-        return { path: join(existing, ...missing.reverse()), exists: false };
+        return {
+          canonicalPath: join(existing, ...missing.reverse()),
+          exists: false,
+        };
       } catch {
         const parent = resolve(candidate, "..");
         if (parent === candidate || !isPathInside(root, parent)) {
@@ -128,13 +131,13 @@ export class WorkspaceRegistry {
           root,
           join(root, denyPath),
         );
-        if (!isPathInside(root, canonicalDeny.path)) {
+        if (!isPathInside(root, canonicalDeny.canonicalPath)) {
           throw new ToolDomainError(
             "PATH_OUTSIDE_WORKSPACE",
             "Deny path is outside workspace",
           );
         }
-        deny.push(relative(root, canonicalDeny.path));
+        deny.push(relative(root, canonicalDeny.canonicalPath));
       }
       const capabilities = Object.freeze({
         read: config.capabilities.read === true,
@@ -183,9 +186,12 @@ export class WorkspaceRegistry {
 }
 
 export interface ResolvedWorkspacePath {
-  workspace: WorkspaceMetadata;
-  path: string;
-  exists: boolean;
+  readonly workspace: WorkspaceMetadata;
+  /** Absolute lexical path that the filesystem operation must use. */
+  readonly operationPath: string;
+  /** Canonical path used only for containment and permission checks. */
+  readonly canonicalPath: string;
+  readonly exists: boolean;
 }
 
 export class WorkspacePathResolver {
@@ -204,24 +210,22 @@ export class WorkspacePathResolver {
       );
     }
     rejectUnsafeRelativePath(path);
-    const target = await canonicalizeTarget(
-      workspace.root,
-      join(workspace.root, path),
-    );
-    if (!isPathInside(workspace.root, target.path)) {
+    const operationPath = resolve(join(workspace.root, path));
+    const target = await canonicalizeTarget(workspace.root, operationPath);
+    if (!isPathInside(workspace.root, target.canonicalPath)) {
       throw new ToolDomainError(
         "PATH_OUTSIDE_WORKSPACE",
         "Path resolves outside workspace",
       );
     }
-    if (capability === "delete" && target.path === workspace.root) {
+    if (capability === "delete" && target.canonicalPath === workspace.root) {
       throw new ToolDomainError(
         "PERMISSION_DENIED",
         "Workspace root cannot be deleted",
       );
     }
     const denied = workspace.deny.some((denyPath) =>
-      isPathInside(join(workspace.root, denyPath), target.path),
+      isPathInside(join(workspace.root, denyPath), target.canonicalPath),
     );
     if (denied) {
       throw new ToolDomainError(
@@ -235,7 +239,12 @@ export class WorkspacePathResolver {
         `Capability '${capability}' is not enabled`,
       );
     }
-    return { workspace, path: target.path, exists: target.exists };
+    return {
+      workspace,
+      operationPath,
+      canonicalPath: target.canonicalPath,
+      exists: target.exists,
+    };
   }
 }
 
