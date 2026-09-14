@@ -7,6 +7,7 @@ export * from "./filesystem-read";
 export * from "./filesystem-write";
 export * from "./registry";
 export * from "./server";
+export * from "./shell-exec";
 export * from "./system";
 export * from "./test-harness";
 export * from "./workspace";

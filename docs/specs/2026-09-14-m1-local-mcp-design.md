@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2), M1.2 (#3), M1.3 (#4), M1.4 (#5) và M1.5 (#6) đã hoàn tất; workspace registry, path resolver, permission core và các tool `workspace`, `system`, `filesystem.read`, `filesystem.write` đã có trong codebase. Các tool còn lại của M1 là `filesystem.delete` và `shell.exec`; public server, device pairing và ChatGPT thuộc milestone sau.
+**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2) đến M1.6 (#7) đã hoàn tất trên `main`; workspace registry, path resolver, permission core và các tool `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete` đã có trong codebase. M1.7 / #8 (`shell.exec`) đang triển khai qua PR #16; M1.8 / #9 là acceptance test cuối milestone. Public server, device pairing và ChatGPT thuộc milestone sau.
 
 ## Mục tiêu
 
@@ -120,7 +120,7 @@ Khai báo annotations từ đầu khi SDK hỗ trợ:
 - `workspace`, `system`, `filesystem.read`: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`;
 - `filesystem.write`: `readOnlyHint: false`, `destructiveHint: true`, `openWorldHint: false`;
 - `filesystem.delete`: `readOnlyHint: false`, `destructiveHint: true`, `openWorldHint: false`;
-- `shell.exec`: không được coi annotations là security enforcement; hành vi phụ thuộc command nên permission local vẫn là nguồn quyết định.
+- `shell.exec`: `readOnlyHint: false`, `destructiveHint: true`, `openWorldHint: true`; annotation không thay thế local permission/policy.
 
 `idempotentHint` chỉ bật cho operation thực sự có semantics idempotent rõ ràng.
 
@@ -128,12 +128,14 @@ Khai báo annotations từ đầu khi SDK hỗ trợ:
 
 M1 chỉ cần execution đồng bộ có giới hạn:
 
-- `cwd` phải resolve qua workspace;
+- direct process spawn bằng `command` + `args`, không implicit raw shell string hoặc `shell:true`;
+- `cwd` phải resolve qua workspace với capability `execute`;
 - timeout bắt buộc có default và max;
 - stdout/stderr có output limit;
-- process phải được terminate khi timeout/cancel;
-- environment truyền vào phải có policy rõ, không dump toàn bộ environment ra result;
-- shell execution phải đi qua permission layer.
+- process phải được terminate khi timeout/cancel và khi output vượt policy hiện hành;
+- environment child dùng local allowlist, không inherit toàn bộ `process.env` mặc định;
+- executable phải được resolve trước spawn và command deny policy phải kiểm tra tên đã normalize/resolved, không chỉ prefix của raw command string;
+- exit code khác `0` vẫn là structured process result.
 
 Không tạo custom `job` trong M1. Long-running execution là scope sau; ưu tiên đánh giá MCP Tasks extension khi thực sự cần.
 
@@ -181,3 +183,5 @@ Không mock MCP layer cho acceptance test cuối M1.
 | 2026-09-14 | Hoàn tất issue #4 với tool `system` (`info`, `which`) qua PR #12 | Bổ sung capability read-only tiếp theo trên Local MCP foundation | complete |
 | 2026-09-14 | Hoàn tất issue #5 với tool `filesystem.read` qua PR #13 | Bổ sung read/list/stat/search có output limits, UTF-8 boundary và symlink/deny hardening | complete |
 | 2026-09-14 | Hoàn tất issue #6 với tool `filesystem.write` qua PR #14 | Bổ sung capability thay đổi filesystem với no-clobber, permission boundary và MCP contract coverage | complete |
+| 2026-09-14 | Hoàn tất issue #7 với tool `filesystem.delete` qua PR #15 | Tách destructive capability và khóa root/recursive/symlink/deny boundary | complete |
+| 2026-09-14 | Triển khai issue #8 với `shell.exec` qua PR #16 | Bổ sung direct process execution có execute permission, timeout, bounded output, command và environment policy | in-progress |
