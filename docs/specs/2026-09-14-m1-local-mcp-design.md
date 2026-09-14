@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, chưa triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1 chỉ hoàn thiện MCP server chạy trên máy local và kiểm thử trực tiếp bằng MCP client; chưa có public server, device pairing hay ChatGPT.
+**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. Issue #3 đã triển khai workspace registry, path resolver, permission core và tool `workspace`; các filesystem/shell tool còn lại, public server, device pairing và ChatGPT chưa có.
 
 ## Mục tiêu
 
@@ -170,3 +170,4 @@ Không mock MCP layer cho acceptance test cuối M1.
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
 | 2026-09-14 | Chốt Local MCP-first và catalog 6 tool theo capability/risk boundary | Giảm scope, dễ test trước khi thêm transport và ChatGPT | approved |
+| 2026-09-14 | Hoàn tất issue #3 ở lớp workspace/permission foundation | Tạo boundary dùng chung trước khi triển khai filesystem và shell tool | in-progress |
