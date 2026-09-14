@@ -73,24 +73,29 @@ Các regression chi tiết này tiếp tục nằm trong test chuyên biệt c�
 
 ## Tầng 3 — MCP contract/acceptance
 
-Acceptance suite chính nằm tại:
+Hai suite khóa contract M1 nằm tại:
 
 ```text
 apps/agent/src/m1-acceptance.test.ts
+apps/agent/src/m1-tool-contract.test.ts
 ```
 
-Catalog 6 tool được tạo qua `createLocalToolCatalog()` trong `apps/agent/src/local-tool-catalog.ts`. Đây là registration path dùng chung cho acceptance test để tránh hard-code một catalog khác với runtime.
+`createLocalToolCatalog()` trong `apps/agent/src/local-tool-catalog.ts` là nguồn tạo 6 tool. Production assembly path nằm ở `createLocalMcpRuntime()` trong `apps/agent/src/local-mcp-runtime.ts`; runtime này luôn dựng server qua `createLocalToolCatalog()`. Acceptance test kết nối MCP client thật vào chính runtime instance đó qua test transport của SDK, vì vậy không tồn tại catalog registration path riêng chỉ dành cho test.
+
+Transport/bootstrap executable cụ thể có thể thay đổi ở milestone sau, nhưng việc assembly Local MCP server + catalog M1 phải luôn đi qua `createLocalMcpRuntime()`.
 
 ### `tools/list`
 
-Assert:
+Contract test assert:
 
-- đúng 6 tool;
-- tên đúng;
-- description không rỗng;
-- có input/output schema;
-- action schema đúng với catalog đã chốt;
-- annotations đúng risk class đã chốt.
+- đúng chính xác 6 tool và đúng tên;
+- description phải khớp exact contract, không chỉ khác rỗng;
+- annotations phải khớp exact object, bao gồm cả việc có/không có `idempotentHint`;
+- mỗi discriminated action có exact property set và exact required set;
+- các constraint quan trọng như `minLength`, `min/max`, integer/boolean/array type và default public trong JSON Schema phải khớp contract;
+- có output schema cho toàn bộ tool.
+
+Không snapshot toàn bộ JSON Schema serialization nội bộ của SDK vì snapshot đó có thể vỡ khi SDK chỉ đổi cách biểu diễn tương đương. Test khóa semantics public của schema thay vì khóa formatting/serialization detail không có ý nghĩa contract.
 
 ### `tools/call`
 
@@ -133,20 +138,21 @@ Process-tree termination, cancellation và Windows `.cmd/.bat` behavior tiếp t
 ## Test isolation
 
 - Mỗi test destructive tạo temp workspace riêng bằng OS temp directory.
-- Cleanup chạy trong lifecycle kể cả khi assert fail.
+- Cleanup dùng `Promise.allSettled()` cho cả đóng MCP session và xoá temp roots: một lỗi close không được phép ngăn phần filesystem cleanup chạy.
+- Nếu close hoặc cleanup có lỗi, lifecycle vẫn báo test failure sau khi đã cố dọn toàn bộ resource.
 - Không chạm repository hoặc home directory thật cho write/delete test.
 - Không phụ thuộc executable tùy chọn; shell smoke test dùng runtime hiện tại qua `process.execPath`.
 - Không cần network Internet, public server hoặc ChatGPT.
 
 ## Chạy test
 
-Chạy riêng acceptance suite:
+Chạy riêng toàn bộ M1 MCP acceptance/contract suite:
 
 ```sh
 bun run test:local
 ```
 
-Root script này chạy trực tiếp `apps/agent/src/m1-acceptance.test.ts` bằng `bun test`. Không còn script smoke test riêng ngoài test runner, tránh việc một đường test cũ chỉ cover một phần catalog.
+Root script này chạy cả `m1-acceptance.test.ts` và `m1-tool-contract.test.ts` bằng `bun test`. Không còn script smoke test riêng ngoài test runner, tránh việc một đường test cũ chỉ cover một phần catalog.
 
 Quality gate của M1:
 
@@ -156,7 +162,7 @@ bun run typecheck
 bun test
 ```
 
-`bun test` tự discover acceptance suite, vì vậy root `ci` bao phủ #9 mà không cần gọi thêm một script ngoài test runner.
+`bun test` tự discover cả hai M1 suite, vì vậy root `ci` bao phủ #9 mà không cần gọi thêm một script ngoài test runner.
 
 Ngoài quality job chính, Windows `shell.exec` integration job đã được thêm từ #8 và phải tiếp tục xanh để chặn regression `.cmd/.bat`/process-tree theo platform.
 
@@ -165,7 +171,8 @@ Ngoài quality job chính, Windows `shell.exec` integration job đã được th
 - toàn bộ matrix trên có test ở acceptance hoặc test chuyên biệt tương ứng;
 - không có skipped test để che thiếu behavior chính;
 - success + denied path đều được kiểm tra;
-- acceptance test sử dụng MCP client/server thật;
+- acceptance test sử dụng MCP client/server thật qua production runtime assembly path;
+- `tools/list` contract khóa exact description/annotations/action field shape và các schema constraint public quan trọng;
 - regression `shell.exec` về timeout/output/cancel + process-tree/cross-platform tiếp tục xanh;
 - `bun run check`, `bun run typecheck`, `bun test` đều xanh;
 - test chạy lặp lại không làm bẩn working tree hoặc máy developer.
