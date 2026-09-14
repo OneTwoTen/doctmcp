@@ -257,6 +257,37 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
     ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
   });
 
+  test("does not bypass deny subtree through a symlink", async () => {
+    const { root, registry } = await setup();
+    const publicRoot = join(root, "public");
+    await mkdir(publicRoot);
+    await writeFile(join(publicRoot, "file.txt"), "public");
+    try {
+      await symlink(publicRoot, join(root, "denied", "link"));
+    } catch {
+      return;
+    }
+    const resolver = new WorkspacePathResolver(registry);
+    await expect(
+      resolver.resolve("project", "denied/link/file.txt", "read"),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
+  test("denies allowed path symlinked into a deny subtree", async () => {
+    const { root, registry } = await setup();
+    const deniedFile = join(root, "denied", "file.txt");
+    await writeFile(deniedFile, "denied");
+    try {
+      await symlink(deniedFile, join(root, "allowed-link.txt"));
+    } catch {
+      return;
+    }
+    const resolver = new WorkspacePathResolver(registry);
+    await expect(
+      resolver.resolve("project", "allowed-link.txt", "read"),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
   test("keeps delete operation on the symlink instead of its target", async () => {
     const root = await mkdtemp(join(tmpdir(), "doctmcp-symlink-delete-"));
     roots.push(root);
@@ -282,6 +313,38 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
       "delete",
     );
     expect(resolved.operationPath).toBe(join(await realpath(root), "link.txt"));
+    expect(resolved.canonicalPath).toBe(await realpath(target));
+    expect((await lstat(resolved.operationPath)).isSymbolicLink()).toBe(true);
+  });
+
+  test("allows deleting an in-workspace symlink to an outside target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-symlink-outside-"));
+    const outside = await mkdtemp(join(tmpdir(), "doctmcp-symlink-target-"));
+    roots.push(root, outside);
+    const target = join(outside, "outside.txt");
+    const link = join(root, "link-out.txt");
+    await writeFile(target, "outside");
+    try {
+      await symlink(target, link);
+    } catch {
+      return;
+    }
+    const registry = await WorkspaceRegistry.create([
+      {
+        id: "project",
+        name: "Project",
+        root,
+        capabilities: { read: true, delete: true },
+      },
+    ]);
+    const resolved = await new WorkspacePathResolver(registry).resolve(
+      "project",
+      "link-out.txt",
+      "delete",
+    );
+    expect(resolved.operationPath).toBe(
+      join(await realpath(root), "link-out.txt"),
+    );
     expect(resolved.canonicalPath).toBe(await realpath(target));
     expect((await lstat(resolved.operationPath)).isSymbolicLink()).toBe(true);
   });

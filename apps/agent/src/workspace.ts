@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { z } from "zod";
 import { ToolDomainError } from "./errors";
@@ -212,20 +212,38 @@ export class WorkspacePathResolver {
     rejectUnsafeRelativePath(path);
     const operationPath = resolve(join(workspace.root, path));
     const target = await canonicalizeTarget(workspace.root, operationPath);
-    if (!isPathInside(workspace.root, target.canonicalPath)) {
+    const canonicalInsideWorkspace = isPathInside(
+      workspace.root,
+      target.canonicalPath,
+    );
+    let finalEntryIsSymlink = false;
+    if (capability === "delete") {
+      try {
+        finalEntryIsSymlink = (await lstat(operationPath)).isSymbolicLink();
+      } catch {
+        // A missing path is handled by the caller that performs the operation.
+      }
+    }
+    const mayUnlinkOutsideSymlink =
+      capability === "delete" &&
+      finalEntryIsSymlink &&
+      isPathInside(workspace.root, operationPath);
+    if (!canonicalInsideWorkspace && !mayUnlinkOutsideSymlink) {
       throw new ToolDomainError(
         "PATH_OUTSIDE_WORKSPACE",
         "Path resolves outside workspace",
       );
     }
-    if (capability === "delete" && target.canonicalPath === workspace.root) {
+    if (capability === "delete" && operationPath === workspace.root) {
       throw new ToolDomainError(
         "PERMISSION_DENIED",
         "Workspace root cannot be deleted",
       );
     }
-    const denied = workspace.deny.some((denyPath) =>
-      isPathInside(join(workspace.root, denyPath), target.canonicalPath),
+    const denied = workspace.deny.some(
+      (denyPath) =>
+        isPathInside(join(workspace.root, denyPath), operationPath) ||
+        isPathInside(join(workspace.root, denyPath), target.canonicalPath),
     );
     if (denied) {
       throw new ToolDomainError(
