@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2), M1.2 (#3) và M1.3 (#4) đã hoàn tất; workspace registry, path resolver, permission core, tool `workspace` và tool `system` đã có trên `main` sau khi PR tương ứng được merge. Các filesystem/shell tool còn lại, public server, device pairing và ChatGPT chưa có.
+**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2), M1.2 (#3), M1.3 (#4) và M1.5 (#6) đã hoàn tất; workspace registry, path resolver, permission core, tool `workspace`, tool `system` và tool `filesystem.write` đã có trên `main` sau khi các PR tương ứng được merge. Các filesystem/shell tool còn lại, public server, device pairing và ChatGPT chưa có.
 
 ## Mục tiêu
 
@@ -118,7 +118,7 @@ Không gửi stack trace, credential, environment secret hoặc nội dung nhạ
 Khai báo annotations từ đầu khi SDK hỗ trợ:
 
 - `workspace`, `system`, `filesystem.read`: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`;
-- `filesystem.write`: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: false`;
+- `filesystem.write`: `readOnlyHint: false`, `destructiveHint: true`, `openWorldHint: false`;
 - `filesystem.delete`: `readOnlyHint: false`, `destructiveHint: true`, `openWorldHint: false`;
 - `shell.exec`: không được coi annotations là security enforcement; hành vi phụ thuộc command nên permission local vẫn là nguồn quyết định.
 
@@ -178,4 +178,5 @@ Không mock MCP layer cho acceptance test cuối M1.
 |---|---|---|---|
 | 2026-09-14 | Chốt Local MCP-first và catalog 6 tool theo capability/risk boundary | Giảm scope, dễ test trước khi thêm transport và ChatGPT | approved |
 | 2026-09-14 | Hoàn tất issue #3 ở lớp workspace/permission foundation qua PR #11 | Tạo boundary dùng chung trước khi triển khai filesystem và shell tool | complete |
+| 2026-09-14 | Hoàn tất issue #6 với tool `filesystem.write` qua PR #14 | Bổ sung capability thay đổi filesystem với no-clobber, permission boundary và MCP contract coverage | complete |
 | 2026-09-14 | Hoàn tất issue #4 với tool `system` (`info`, `which`) | Bổ sung capability read-only tiếp theo trên Local MCP foundation | complete |
