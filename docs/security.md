@@ -1,29 +1,124 @@
-# Security
+# Bảo mật
 
-`doctmcp` có khả năng đọc/ghi file và thực thi lệnh local nên security là yêu cầu kiến trúc, không phải tính năng bổ sung sau.
+`doctmcp` có thể đọc/ghi file và thực thi lệnh trên máy local, vì vậy security là yêu cầu kiến trúc từ đầu, không phải phần bổ sung sau.
 
-## Trust boundaries
+## Trust boundary
 
-- ChatGPT/plugin -> public server.
-- Public server -> authenticated device session.
-- Local agent -> local operating system.
-- Local tool -> filesystem/process/network resources.
+Các ranh giới chính:
 
-## Quy tắc nền
+- MCP client/ChatGPT → public server.
+- Public server → authenticated device/session.
+- Custom transport → local MCP runtime.
+- Local MCP runtime → permission engine.
+- Local tool → filesystem/process/network/resource của hệ điều hành.
 
-- Chỉ dùng TLS/WSS ngoài local development.
-- Không expose local agent trực tiếp ra Internet.
-- Không ghi log token hoặc credential đầy đủ.
-- Validate mọi message nhận qua network trước khi sử dụng.
-- Áp permission trên agent, không chỉ trên server.
-- Normalize path trước khi kiểm tra filesystem policy.
-- Command timeout, output limit và cancellation phải được thiết kế trước khi mở shell rộng rãi.
-- Credential thiết bị phải revoke/rotate được.
+Mỗi boundary phải validate dữ liệu ở mức phù hợp. Không dựa vào việc lớp phía trước đã validate để bỏ kiểm tra ở lớp sau khi hậu quả có thể ảnh hưởng máy local.
 
-## Server compromise assumption
+## Nguyên tắc nền
 
-Permission quan trọng phải được enforce lại ở local agent. Không giả định public server luôn đáng tin tuyệt đối đối với quyền của hệ điều hành local.
+- Không expose local MCP runtime trực tiếp ra Internet chỉ để public server kết nối vào.
+- Local chủ động mở outbound connection tới public server.
+- Ngoài local development, dùng TLS/WSS cho kết nối remote.
+- Không ghi log token, pairing code thực, private key hoặc credential đầy đủ.
+- Permission quan trọng phải được enforce tại local runtime.
+- Path filesystem phải normalize/canonicalize trước khi áp allow/deny policy.
+- Tool có side effect phải có timeout/cancellation hoặc giới hạn tương ứng khi khả thi.
+- Credential thiết bị phải có khả năng revoke/rotate trước khi dùng production.
+
+## MCP không thay thế permission
+
+MCP mô tả capability và tool call, nhưng việc một tool tồn tại trong `tools/list` không đồng nghĩa mọi request đều được phép thực thi.
+
+Local runtime phải kiểm tra permission trước khi gọi implementation thật.
+
+Ví dụ:
+
+```text
+tools/call filesystem.read
+        │
+        ▼
+validate input
+        │
+        ▼
+canonicalize path
+        │
+        ▼
+permission check
+        │
+        ├─ deny -> structured tool error
+        │
+        └─ allow -> read file
+```
+
+## Giả định public server có thể bị compromise
+
+Public server không được coi là boundary duy nhất bảo vệ hệ điều hành local.
+
+Nếu public server bị compromise, permission local vẫn phải hạn chế được capability theo policy đã cấu hình. Đây là lý do permission không được chỉ đặt ở server.
+
+## Filesystem
+
+Yêu cầu tối thiểu:
+
+- canonical path check;
+- deny ưu tiên hơn allow;
+- chống path traversal;
+- kiểm tra symlink/canonical target khi policy phụ thuộc path;
+- giới hạn kích thước đọc/ghi khi cần;
+- không expose thư mục secret theo mặc định.
+
+## Shell
+
+`shell.exec` là capability nhạy cảm nhất trong M1.
+
+Trước khi coi tool này đủ an toàn cho remote use cần có ít nhất:
+
+- timeout;
+- output size limit;
+- cwd policy;
+- environment filtering;
+- permission/approval policy;
+- structured exit status;
+- không tự động log toàn bộ command output nếu có thể chứa secret.
+
+Không dựa vào blacklist vài command nguy hiểm như lớp bảo vệ duy nhất.
+
+## Pairing và device credential
+
+Pairing code chỉ là credential ngắn hạn, dùng một lần. Nó không được tái sử dụng làm device token dài hạn.
+
+Device credential phải:
+
+- gắn với immutable device identity;
+- revoke được;
+- rotate được;
+- không xuất hiện đầy đủ trong log;
+- không được gửi qua chat nếu không có lý do thật sự cần thiết.
 
 ## Audit
 
-Phase sau nên có audit metadata: user, device, tool, thời điểm, trạng thái và duration. Không mặc định lưu toàn bộ nội dung file, command output hoặc secret vào audit log.
+Khi thêm audit, mặc định chỉ nên lưu metadata cần thiết:
+
+- user/session;
+- device;
+- tool;
+- thời điểm;
+- duration;
+- success/failure;
+- error code không nhạy cảm.
+
+Không mặc định lưu toàn bộ nội dung file, command output hoặc argument có thể chứa secret.
+
+## Security testing
+
+Feature security-sensitive phải có denied-path test.
+
+Ví dụ:
+
+- path ngoài allow root;
+- path nằm trong deny root;
+- expired/reused pairing code;
+- revoked device credential;
+- shell timeout;
+- oversized output;
+- invalid bridge handshake.

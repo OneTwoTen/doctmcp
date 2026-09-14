@@ -1,69 +1,146 @@
 # doctmcp
 
-`doctmcp` là cầu nối giữa ChatGPT và các máy cục bộ của người dùng thông qua một MCP server công khai và một local agent chạy trên Windows, macOS hoặc Linux.
+`doctmcp` là dự án kết nối ChatGPT và các MCP client với máy cục bộ của người dùng mà không cần mở cổng public trên máy local.
 
-## Mục tiêu
+Mục tiêu cuối cùng là để ChatGPT gọi các capability trên Windows, macOS hoặc Linux thông qua một public server. Tuy nhiên, thứ tự triển khai hiện tại cố ý đi từ phần dễ kiểm thử nhất: **hoàn thiện MCP ở local trước, sau đó chứng minh public server gọi MCP local thành công, rồi mới tích hợp ChatGPT**.
 
-Kiến trúc cốt lõi:
+## Trạng thái hiện tại
+
+Repository đã có monorepo Bun, TypeScript strict, Biome, CI và các package nền. Phần MCP runtime và networking thật chưa được triển khai.
+
+Thứ tự phát triển đã chốt:
+
+1. **M1 — Local MCP**: local runtime chạy MCP server thật và expose các tool cơ bản.
+2. **M2 — Server → Local**: public server đóng vai MCP client, giao tiếp với MCP server local qua custom WebSocket transport.
+3. **M3 — Device management**: device identity, session, pairing, auth, reconnect và heartbeat.
+4. **M4 — Public MCP endpoint**: public server expose MCP endpoint cho client bên ngoài.
+5. **M5 — ChatGPT integration**: kết nối plugin/app của ChatGPT và hoàn thiện UX nhiều thiết bị.
+
+Xem chi tiết tại [roadmap](docs/roadmap.md).
+
+## Kiến trúc mục tiêu
 
 ```text
-ChatGPT
-   │ MCP
-   ▼
-Public Server
-   │ WebSocket/TLS
-   ▼
-Local Agent
-   │
-   ├─ filesystem
-   ├─ shell
-   ├─ git
-   └─ system
+ChatGPT / MCP client
+        │
+        │ MCP
+        ▼
+┌────────────────────────┐
+│     Public Server      │
+│                        │
+│ Public MCP endpoint    │
+│ Device router          │
+│ MCP client             │
+└───────────┬────────────┘
+            │
+            │ custom WebSocket transport
+            │ local chủ động kết nối ra ngoài
+            ▼
+┌────────────────────────┐
+│      Local Runtime     │
+│                        │
+│ MCP server             │
+│ Permission engine      │
+│ ├─ system.*            │
+│ ├─ filesystem.*        │
+│ ├─ shell.*             │
+│ └─ git.*               │
+└────────────────────────┘
 ```
 
-Public server chịu trách nhiệm xác thực, pairing, định tuyến lệnh và quản lý phiên thiết bị. Local agent chủ động kết nối ra server nên không cần expose cổng của máy local ra Internet.
+`tools/list`, `tools/call`, kết quả tool, lỗi MCP và cancellation phải đi theo semantics của MCP. Dự án không tạo thêm một RPC `command.request/command.result` song song chỉ để thực hiện lại chức năng của MCP.
+
+Protocol riêng của `doctmcp` chỉ dành cho phần nằm ngoài MCP, ví dụ device handshake, authentication, pairing, heartbeat và metadata session.
 
 ## Tech stack
 
-- Runtime: Bun 1.4.2
-- Language: TypeScript 7
-- Monorepo: Bun workspaces
-- Public server: Bun, dự kiến dùng Elysia cho HTTP/MCP API
-- Local transport: WebSocket over TLS
-- Validation: shared schemas trong `packages/schemas`
-- Shared wire contract: `packages/protocol`
-- Lint/format: Biome
-- CI/CD: GitHub Actions
+- Runtime: **Bun 1.4.2**.
+- Ngôn ngữ: **TypeScript 7**, strict mode.
+- Monorepo: Bun workspaces.
+- Validation: shared schema trong `packages/schemas`.
+- Device/control-plane contract: `packages/protocol`.
+- Lint/format: **Biome 2.5.x**.
+- Test: `bun test`.
+- CI: GitHub Actions.
+- MCP: ưu tiên SDK TypeScript chính thức khi bắt đầu M1.
 
-## Cấu trúc
+Framework HTTP cho public server chưa phải quyết định cần khóa ở M1; chỉ thêm khi M2/M4 thực sự cần.
+
+## Cấu trúc repository
 
 ```text
 apps/
-  server/        Public MCP/relay server
-  agent/         Local agent
+  server/        Public server; về sau chứa MCP client, device router và public MCP endpoint
+  agent/         Local runtime; sẽ chứa MCP server, permission engine và local tools
 packages/
-  protocol/      Message contract giữa server và agent
-  schemas/       Shared validation/schema
-  config/        Shared project config
-  test-utils/    Shared test helpers
-docs/            Tài liệu kiến trúc và phát triển
+  protocol/      Contract control-plane ngoài MCP
+  schemas/       Runtime validation dùng chung
+  config/        Cấu hình dùng chung khi thực sự cần
+  test-utils/    Helper dùng chung cho test
+docs/            Kiến trúc, roadmap, security, workflow và decision notes
+.github/         GitHub Actions
+AGENTS.md        Quy tắc chung cho contributor và AI agent
 ```
 
-Xem thêm `docs/architecture.md`, `docs/protocol.md`, `docs/security.md` và `AGENTS.md`.
+Tên thư mục `apps/agent` hiện được giữ để tránh thay đổi scaffold không cần thiết. Về mặt kiến trúc, thành phần này là **local MCP runtime**, không phải một RPC agent tự định nghĩa protocol riêng.
 
-## Nguyên tắc ban đầu
+## Chuẩn bị máy
 
-- Không expose local agent trực tiếp ra Internet.
-- Pairing code chỉ dùng một lần và có thời hạn; không dùng làm credential dài hạn.
-- Mọi thao tác local phải đi qua permission policy.
-- Server và agent dùng chung một protocol contract.
-- Tool MCP bên ngoài không cần ánh xạ 1:1 với implementation tool bên local.
-- Ưu tiên test trước khi triển khai behavior mới.
+Yêu cầu:
 
-## Trạng thái
+- Bun 1.4.2.
+- Git.
 
-Dự án đang ở giai đoạn bootstrap kiến trúc. Phase đầu tập trung vào luồng tối thiểu `agent ↔ server ↔ ChatGPT`, pairing thiết bị và các tool local cơ bản.
+Cài dependencies:
+
+```sh
+bun install
+```
+
+Kiểm tra repository:
+
+```sh
+bun run check
+bun run typecheck
+bun test
+```
+
+Khi có implementation runtime:
+
+```sh
+bun run dev:agent
+bun run dev:server
+```
+
+Xem hướng dẫn chi tiết tại [development.md](docs/development.md).
+
+## Nguyên tắc kiến trúc
+
+- Không expose local runtime trực tiếp ra Internet.
+- Local là phía chủ động tạo kết nối tới public server.
+- MCP là protocol cho tool discovery/call/result; không duplicate semantics này trong protocol riêng.
+- Permission quan trọng phải được enforce tại local trước khi tool chạy.
+- `packages/protocol` không được biến thành một RPC framework song song với MCP.
+- Tool có side effect phải có test cho permission, error và giới hạn an toàn tương ứng.
+- Ưu tiên test đỏ trước implementation khi behavior có thể kiểm thử độc lập.
+
+## Tài liệu
+
+Bắt đầu từ [docs/README.md](docs/README.md).
+
+Các tài liệu chính:
+
+- [Kiến trúc](docs/architecture.md)
+- [Roadmap](docs/roadmap.md)
+- [Protocol và transport](docs/protocol.md)
+- [Bảo mật](docs/security.md)
+- [Permission](docs/permissions.md)
+- [Pairing thiết bị](docs/pairing.md)
+- [Phát triển local](docs/development.md)
+- [Quy trình làm việc với AI agent](docs/agent-workflow.md)
+
+Ngôn ngữ mặc định của tài liệu dự án là **tiếng Việt**. Tên kỹ thuật, code, command, API identifier và thuật ngữ cần tương thích có thể giữ tiếng Anh.
 
 ## License
 
-MIT License. Xem `LICENSE`.
+MIT License. Xem [LICENSE](LICENSE).

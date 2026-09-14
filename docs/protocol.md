@@ -1,41 +1,100 @@
-# Protocol
+# Protocol và transport
 
-Protocol định nghĩa message trao đổi giữa public server và local agent.
+Tài liệu này xác định ranh giới giữa **MCP** và protocol riêng của `doctmcp`.
 
-## Version
+## Nguyên tắc chính
 
-Phiên bản ban đầu là `1`. Agent gửi version trong `agent.hello`. Server phải từ chối rõ ràng nếu không hỗ trợ version đó.
+`doctmcp` không tạo một RPC protocol thứ hai để thực thi tool.
 
-## Message envelope
+Các hành vi sau thuộc MCP:
 
-Các message dùng discriminated union với field `type`.
+- initialization/capability negotiation;
+- `tools/list`;
+- `tools/call`;
+- tool result;
+- MCP error;
+- cancellation/lifecycle message tương ứng khi được dùng.
 
-Các nhóm ban đầu:
+Các hành vi trên phải đi qua MCP message và semantics chuẩn, kể cả khi transport bên dưới là custom WebSocket bridge.
 
-- `agent.hello`: agent xác nhận device và protocol version sau khi kết nối.
-- `heartbeat`: giữ session và đo trạng thái online.
-- `command.request`: server yêu cầu agent thực thi một local tool.
-- `command.result`: agent trả kết quả hoặc structured error.
+## Custom WebSocket transport
 
-## Command identity
-
-Mỗi command có `commandId` duy nhất. Server dùng id này để correlate result với request đang chờ. Agent phải xử lý duplicate command id an toàn trước khi hỗ trợ retry.
-
-## Tool naming
-
-Tool local nên dùng namespace ổn định, ví dụ:
+M2 sử dụng transport tùy biến để truyền MCP message giữa public server và local runtime.
 
 ```text
-filesystem.read
-filesystem.write
-filesystem.list
-shell.exec
-git.status
-system.info
+Public Server                       Local Runtime
+
+MCP Client                          MCP Server
+    │                                   ▲
+    ▼                                   │
+BridgeClientTransport             BridgeServerTransport
+    │                                   ▲
+    └──────── WebSocket ────────────────┘
 ```
 
-Không encode device id, user id hoặc version vào tên tool.
+Transport có trách nhiệm:
 
-## Error
+- nhận MCP message từ SDK;
+- serialize/forward qua WebSocket;
+- deserialize message nhận được;
+- đưa message trở lại MCP SDK;
+- phát hiện close/error;
+- hỗ trợ lifecycle cần thiết của transport.
 
-Không trả stack trace hoặc secret qua protocol mặc định. Error wire tối thiểu gồm `code` và `message`; diagnostics nhạy cảm chỉ ghi vào local/server log phù hợp.
+Transport **không** định nghĩa lại tool name, tool arguments, command id hoặc result schema riêng khi MCP đã sở hữu các khái niệm đó.
+
+## Control plane của doctmcp
+
+Protocol riêng chỉ dùng cho dữ liệu nằm ngoài MCP session, ví dụ:
+
+- bridge hello/handshake;
+- device/session identity;
+- authentication metadata;
+- heartbeat/online state;
+- reconnect metadata;
+- pairing lifecycle;
+- bridge protocol version.
+
+Tên message cụ thể chưa cần khóa trước M2/M3. Khi triển khai, schema phải nằm trong `packages/protocol` và có runtime validation tương ứng nếu message đi qua network boundary.
+
+## Versioning
+
+Phải phân biệt:
+
+- **MCP protocol version**: do MCP specification/SDK quản lý.
+- **doctmcp bridge protocol version**: chỉ dành cho control plane/custom transport của dự án nếu thật sự cần.
+
+Không dùng bridge version để giả lập hoặc thay thế MCP version.
+
+Breaking change của bridge protocol phải có một trong các chiến lược:
+
+- reject rõ ràng version không hỗ trợ;
+- hỗ trợ song song một khoảng version;
+- migration/rollout strategy khi local runtime có thể chưa update cùng lúc public server.
+
+## Error boundary
+
+MCP tool error nên đi theo MCP result/error phù hợp.
+
+Bridge/control-plane error chỉ dùng cho lỗi transport/session, ví dụ:
+
+- unauthorized device;
+- unsupported bridge version;
+- invalid handshake;
+- session replaced;
+- transport closed.
+
+Không trả stack trace, secret hoặc credential đầy đủ qua bridge mặc định.
+
+## Điều không được làm
+
+Không thêm protocol kiểu sau chỉ để thực hiện lại `tools/call`:
+
+```text
+command.request
+execute_tool
+tool.execute
+command.result
+```
+
+Nếu một message mới chứa `tool + arguments + result` thì trước tiên phải chứng minh vì sao MCP hiện tại không giải quyết được use case đó.
