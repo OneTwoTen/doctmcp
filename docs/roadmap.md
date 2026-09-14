@@ -4,7 +4,7 @@ Roadmap này mô tả thứ tự triển khai đã chốt. Mục tiêu là giả
 
 ## M1 — Local MCP
 
-**Implementation đã đủ 8/8 work item. Issue #9 là quality gate cuối để khóa M1 bằng MCP acceptance suite và toàn bộ repository checks.** Mục tiêu của milestone là local runtime hoạt động như một MCP server hoàn chỉnh ở mức tối thiểu và test được offline bằng MCP client thật.
+**M1 hoàn tất 8/8 work item.** Local runtime đã có đủ catalog 6 tool và acceptance suite MCP thật để khóa contract, permission/security boundary và vertical flow offline. M2 là milestone phát triển tiếp theo.
 
 Các work item M1:
 
@@ -15,7 +15,7 @@ Các work item M1:
 - ✅ M1.5 / #6 — Tool `filesystem.write` (`write`, `patch`, `mkdir`, `move`) qua PR #14.
 - ✅ M1.6 / #7 — Tool destructive `filesystem.delete` qua PR #15.
 - ✅ M1.7 / #8 — Tool `shell.exec` với direct spawn, timeout, output limit, execute permission, process-tree hardening và Windows regression coverage qua PR #16.
-- 🚧 M1.8 / #9 — MCP contract/acceptance suite toàn M1; implementation đã có trên branch của issue và chỉ được coi là hoàn tất sau khi quality gate xanh.
+- ✅ M1.8 / #9 — MCP contract/acceptance suite toàn M1 qua PR #17.
 
 Catalog M1 chốt 6 tool theo capability/risk boundary:
 
@@ -68,7 +68,7 @@ Không thuộc M1:
 
 Tài liệu chi tiết: [`specs/2026-09-14-m1-local-mcp-design.md`](specs/2026-09-14-m1-local-mcp-design.md), [`tools/`](tools/README.md), [`testing/m1-local-mcp.md`](testing/m1-local-mcp.md).
 
-Acceptance criteria:
+Acceptance criteria đã được khóa bằng test:
 
 - test client initialize được local MCP server;
 - `tools/list` trả đúng 6 tool/schema/annotations;
@@ -82,11 +82,9 @@ Acceptance criteria:
 - test không cần public server, Internet hoặc ChatGPT;
 - `bun run check`, `bun run typecheck`, `bun test` xanh.
 
-Sau khi #9 đạt quality gate và merge, **M2 là milestone phát triển tiếp theo**.
-
 ## M2 — Public server gọi local MCP
 
-Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
+**Milestone tiếp theo.** Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
 
 Phạm vi:
 
