@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { ToolDomainError } from "./errors";
+import { ToolDomainError, type ToolErrorCode } from "./errors";
 import { createShellExecTool, type ShellExecToolOptions } from "./shell-exec";
 import { WorkspaceRegistry } from "./workspace";
 
@@ -80,7 +80,7 @@ describe("shell.exec process hardening", () => {
     expect(isProcessAlive(pid)).toBe(false);
   }
 
-  function expectDomainError(error: unknown, code: string): void {
+  function expectDomainError(error: unknown, code: ToolErrorCode): void {
     expect(error).toBeInstanceOf(ToolDomainError);
     expect((error as ToolDomainError).code).toBe(code);
   }
