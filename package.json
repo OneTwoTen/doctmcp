@@ -1,0 +1,22 @@
+{
+  "name": "doctmcp",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "bun --cwd apps/server run dev",
+    "dev:agent": "bun --cwd apps/agent run dev",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "ci": "bun run check && bun run typecheck && bun test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "typescript": "^7.0.0"
+  }
+}
