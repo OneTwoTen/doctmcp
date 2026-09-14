@@ -64,6 +64,8 @@ export async function createMcpTestHarness(
     await serverInstance.connect(serverTransport);
     await client.connect(clientTransport);
   } catch (error) {
+    // Bootstrap có thể fail sau khi server đã connect. Rollback cả hai phía
+    // ngay tại đây vì caller chưa nhận được harness để tự cleanup.
     const cleanupErrors = await closeHarnessParts(client, serverInstance);
     if (cleanupErrors.length > 0) {
       throw new AggregateError(
