@@ -2,10 +2,7 @@ import {
   createLocalToolCatalog,
   type LocalToolCatalogOptions,
 } from "./local-tool-catalog";
-import {
-  createLocalMcpServer,
-  type LocalMcpServerInstance,
-} from "./server";
+import { createLocalMcpServer, type LocalMcpServerInstance } from "./server";
 import type { WorkspaceRegistry } from "./workspace";
 
 export interface CreateLocalMcpRuntimeOptions extends LocalToolCatalogOptions {
