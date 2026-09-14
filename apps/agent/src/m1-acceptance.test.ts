@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLocalToolCatalog } from "./local-tool-catalog";
+import { createLocalMcpRuntime } from "./local-mcp-runtime";
 import { createMcpTestHarness, type McpTestHarness } from "./test-harness";
 import { WorkspaceRegistry } from "./workspace";
 
@@ -174,10 +174,21 @@ describe("M1 local MCP acceptance", () => {
   const harnesses: McpTestHarness[] = [];
 
   afterEach(async () => {
-    await Promise.all(harnesses.splice(0).map((harness) => harness.close()));
-    await Promise.all(
+    const closeResults = await Promise.allSettled(
+      harnesses.splice(0).map((harness) => harness.close()),
+    );
+    const cleanupResults = await Promise.allSettled(
       roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
     );
+    const failures = [...closeResults, ...cleanupResults].filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((failure) => failure.reason),
+        "M1 acceptance cleanup failed",
+      );
+    }
   });
 
   async function setup() {
@@ -218,7 +229,7 @@ describe("M1 local MCP acceptance", () => {
     ]);
 
     const harness = await createMcpTestHarness({
-      tools: createLocalToolCatalog(registry, {
+      serverInstance: createLocalMcpRuntime(registry, {
         shellExec: {
           defaultTimeoutMs: 100,
           maxTimeoutMs: 500,
