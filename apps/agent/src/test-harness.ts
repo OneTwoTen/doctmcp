@@ -55,7 +55,8 @@ export async function createMcpTestHarness(
         serverInstance.close(),
       ]);
       const failures = results.filter(
-        (result): result is PromiseRejectedResult => result.status === "rejected",
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
       );
       if (failures.length > 0) {
         throw new AggregateError(
