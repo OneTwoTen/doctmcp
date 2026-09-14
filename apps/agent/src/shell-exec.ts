@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { win32 } from "node:path";
 import { z } from "zod";
