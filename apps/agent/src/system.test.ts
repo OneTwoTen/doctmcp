@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { basename } from "node:path";
-import { createSystemTool } from "./system";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { createSystemTool, resolveExecutable } from "./system";
 import { createMcpTestHarness } from "./test-harness";
 
 describe("system tool", () => {
@@ -56,6 +67,77 @@ describe("system tool", () => {
       expect(result.structuredContent).toMatchObject({ found: true });
     } finally {
       await harness.close();
+    }
+  });
+
+  test("supports POSIX and Windows PATH/PATHEXT resolution", async () => {
+    const cases = [
+      {
+        options: {
+          platform: "linux" as const,
+          pathValue: "/usr/local/bin:/usr/bin",
+          isFile: async (candidate: string) => candidate === "/usr/bin/bun",
+          canonicalize: async (candidate: string) => candidate,
+        },
+        expected: "/usr/bin/bun",
+      },
+      {
+        options: {
+          platform: "darwin" as const,
+          pathValue: "/opt/homebrew/bin:/usr/bin",
+          isFile: async (candidate: string) =>
+            candidate === "/opt/homebrew/bin/bun",
+          canonicalize: async (candidate: string) => candidate,
+        },
+        expected: "/opt/homebrew/bin/bun",
+      },
+      {
+        options: {
+          platform: "win32" as const,
+          pathValue: "C:\\Tools;C:\\Windows\\System32",
+          pathExt: ".EXE;.CMD",
+          isFile: async (candidate: string) =>
+            candidate === "C:\\Tools\\bun.EXE",
+          canonicalize: async (candidate: string) => candidate,
+        },
+        expected: "C:\\Tools\\bun.EXE",
+      },
+    ];
+
+    for (const testCase of cases) {
+      await expect(resolveExecutable("bun", testCase.options)).resolves.toBe(
+        testCase.expected,
+      );
+    }
+  });
+
+  test("rejects directories but accepts symlinks to executable files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-system-"));
+    try {
+      const directory = join(root, "fake-command");
+      const executable = join(root, "real-command");
+      const link = join(root, "linked-command");
+      await mkdir(directory);
+      await writeFile(executable, "#!/bin/sh\nexit 0\n");
+      await chmod(executable, 0o755);
+      try {
+        await symlink(executable, link);
+      } catch {
+        return;
+      }
+
+      expect((await stat(directory)).isDirectory()).toBe(true);
+      await expect(
+        resolveExecutable("fake-command", { pathValue: root }),
+      ).resolves.toBeUndefined();
+      await expect(
+        resolveExecutable("linked-command", { pathValue: root }),
+      ).resolves.toBe(await realpath(executable));
+      await expect(resolveExecutable(executable)).resolves.toBe(
+        await realpath(executable),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 

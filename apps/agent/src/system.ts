@@ -1,7 +1,7 @@
 import { constants as fsConstants } from "node:fs";
-import { access, realpath } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { hostname, platform } from "node:os";
-import { delimiter, isAbsolute, join, resolve, win32 } from "node:path";
+import { delimiter, posix, resolve, win32 } from "node:path";
 import { z } from "zod";
 import type { ToolDefinition } from "./registry";
 
@@ -43,24 +43,43 @@ function currentRuntimeVersion(): string {
     : process.version;
 }
 
-function isPathCommand(command: string): boolean {
-  return isAbsolute(command) || command.includes("/") || command.includes("\\");
+export interface ExecutableResolverOptions {
+  platform?: NodeJS.Platform;
+  pathValue?: string;
+  pathExt?: string;
+  isFile?: (candidate: string) => Promise<boolean>;
+  canonicalize?: (candidate: string) => Promise<string>;
 }
 
-function candidatePaths(command: string): string[] {
-  const pathVariable = process.env.PATH ?? "";
-  if (isPathCommand(command)) {
+function isPathCommand(
+  command: string,
+  targetPlatform: NodeJS.Platform,
+): boolean {
+  const pathApi = targetPlatform === "win32" ? win32 : posix;
+  return (
+    pathApi.isAbsolute(command) ||
+    command.includes("/") ||
+    command.includes("\\")
+  );
+}
+
+function candidatePaths(
+  command: string,
+  targetPlatform: NodeJS.Platform,
+  pathValue: string,
+  pathExt: string,
+): string[] {
+  if (isPathCommand(command, targetPlatform)) {
     return [command];
   }
 
-  const paths = pathVariable.split(delimiter).filter(Boolean);
-  if (process.platform !== "win32") {
-    return paths.map((directory) => join(directory, command));
+  const pathDelimiter = targetPlatform === "win32" ? ";" : delimiter;
+  const paths = pathValue.split(pathDelimiter).filter(Boolean);
+  if (targetPlatform !== "win32") {
+    return paths.map((directory) => posix.join(directory, command));
   }
 
-  const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
-    .split(";")
-    .filter(Boolean);
+  const extensions = pathExt.split(";").filter(Boolean);
   const hasExtension = extensions.some((extension) =>
     command.toLowerCase().endsWith(extension.toLowerCase()),
   );
@@ -72,11 +91,17 @@ function candidatePaths(command: string): string[] {
   );
 }
 
-async function isExecutable(candidate: string): Promise<boolean> {
+async function isExecutable(
+  candidate: string,
+  targetPlatform: NodeJS.Platform,
+): Promise<boolean> {
   try {
+    if (!(await stat(candidate)).isFile()) {
+      return false;
+    }
     await access(
       candidate,
-      process.platform === "win32"
+      targetPlatform === "win32"
         ? fsConstants.F_OK
         : fsConstants.F_OK | fsConstants.X_OK,
     );
@@ -86,11 +111,28 @@ async function isExecutable(candidate: string): Promise<boolean> {
   }
 }
 
-async function findExecutable(command: string): Promise<string | undefined> {
-  for (const candidate of candidatePaths(command)) {
-    if (await isExecutable(candidate)) {
+export async function resolveExecutable(
+  command: string,
+  options: ExecutableResolverOptions = {},
+): Promise<string | undefined> {
+  const targetPlatform = options.platform ?? process.platform;
+  const candidates = candidatePaths(
+    command,
+    targetPlatform,
+    options.pathValue ?? process.env.PATH ?? "",
+    options.pathExt ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+  );
+  const checkFile =
+    options.isFile ??
+    ((candidate: string) => isExecutable(candidate, targetPlatform));
+  const canonicalize =
+    options.canonicalize ??
+    (async (candidate: string) => realpath(resolve(candidate)));
+
+  for (const candidate of candidates) {
+    if (await checkFile(candidate)) {
       try {
-        return await realpath(resolve(candidate));
+        return await canonicalize(candidate);
       } catch {
         return resolve(candidate);
       }
@@ -128,7 +170,7 @@ export function createSystemTool(): ToolDefinition<
         };
       }
 
-      const executablePath = await findExecutable(input.command);
+      const executablePath = await resolveExecutable(input.command);
       const result = executablePath
         ? { found: true as const, path: executablePath }
         : { found: false as const };
