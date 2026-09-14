@@ -1,3 +1,5 @@
+import type { CallToolResult } from "@modelcontextprotocol/server";
+
 export type ToolErrorCode =
   | "INVALID_INPUT"
   | "WORKSPACE_NOT_FOUND"
@@ -29,8 +31,6 @@ export class DuplicateToolError extends Error {
   }
 }
 
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-
 export interface StructuredToolError {
   code: ToolErrorCode;
   message: string;
@@ -46,15 +46,11 @@ export function toToolErrorResult(error: unknown): CallToolResult {
       message: error.message,
       ...(error.details !== undefined ? { details: error.details } : {}),
     };
-  } else if (error instanceof Error) {
-    errorPayload = {
-      code: "INTERNAL_ERROR",
-      message: error.message,
-    };
   } else {
+    // Không leak thông tin nhạy cảm của máy local (đường dẫn, environment, stack) ra client
     errorPayload = {
       code: "INTERNAL_ERROR",
-      message: String(error),
+      message: "Internal error",
     };
   }
 
@@ -62,7 +58,7 @@ export function toToolErrorResult(error: unknown): CallToolResult {
     isError: true,
     content: [
       {
-        type: "text" as const,
+        type: "text",
         text: JSON.stringify(errorPayload),
       },
     ],

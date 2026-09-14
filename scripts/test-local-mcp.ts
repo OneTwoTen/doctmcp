@@ -2,6 +2,7 @@ import process from "node:process";
 import {
   createMcpTestHarness,
   ToolDomainError,
+  ToolRegistry,
   z,
 } from "../apps/agent/src/index";
 
@@ -31,22 +32,12 @@ async function main() {
   console.log("🚀 KHỞI ĐỘNG LOCAL MCP TEST HARNESS");
   console.log("==================================================\n");
 
-  // 1. Khởi tạo MCP Server & MCP Client in-memory
-  console.log(
-    "⏳ [1/5] Đang khởi tạo MCP Server và Client qua InMemoryTransport...",
-  );
-  const harness = await createMcpTestHarness();
-
-  const serverInfo = harness.client.getServerVersion();
-  console.log(
-    `✅ Đã kết nối tới Server: '${serverInfo?.name}' (v${serverInfo?.version})\n`,
-  );
-
-  // 2. Đăng ký các tool mẫu vào Server
-  console.log("⏳ [2/5] Đang đăng ký các tool mẫu vào server...");
+  // 1. Tạo ToolRegistry và đăng ký các tool trước khi khởi tạo kết nối
+  console.log("⏳ [1/5] Đang khởi tạo ToolRegistry và đăng ký các tool mẫu...");
+  const registry = new ToolRegistry();
 
   // Tool 1: system.info
-  harness.serverInstance.register({
+  registry.register({
     name: "system.info",
     description: "Lấy thông tin hệ điều hành và runtime môi trường",
     inputSchema: z.object({}),
@@ -75,16 +66,22 @@ async function main() {
   });
 
   // Tool 2: smoke.calculate
-  harness.serverInstance.register({
+  const calculateInput = z.object({
+    a: z.number().describe("Số thứ nhất"),
+    b: z.number().describe("Số thứ hai"),
+    operation: z
+      .enum(["add", "multiply"])
+      .describe("Phép toán: add hoặc multiply"),
+  });
+  const calculateOutput = z.object({
+    result: z.number().describe("Kết quả tính toán"),
+  });
+
+  registry.register({
     name: "smoke.calculate",
     description: "Thực hiện phép tính cơ bản giữa 2 số",
-    inputSchema: z.object({
-      a: z.number().describe("Số thứ nhất"),
-      b: z.number().describe("Số thứ hai"),
-      operation: z
-        .enum(["add", "multiply"])
-        .describe("Phép toán: add hoặc multiply"),
-    }),
+    inputSchema: calculateInput,
+    outputSchema: calculateOutput,
     handler: async ({ a, b, operation }) => {
       const result = operation === "add" ? a + b : a * b;
       return {
@@ -94,17 +91,20 @@ async function main() {
             text: `Kết quả ${operation}(${a}, ${b}) = ${result}`,
           },
         ],
+        structuredContent: { result },
       };
     },
   });
 
   // Tool 3: demo.error (minh họa xử lý lỗi có cấu trúc)
-  harness.serverInstance.register({
+  const errorInput = z.object({
+    filepath: z.string().describe("Đường dẫn tệp giả định"),
+  });
+
+  registry.register({
     name: "demo.error",
     description: "Minh họa trả về ToolDomainError chuẩn MCP",
-    inputSchema: z.object({
-      filepath: z.string().describe("Đường dẫn tệp giả định"),
-    }),
+    inputSchema: errorInput,
     handler: async ({ filepath }) => {
       throw new ToolDomainError(
         "PATH_NOT_FOUND",
@@ -118,6 +118,17 @@ async function main() {
     "✅ Đã đăng ký 3 tool: [system.info, smoke.calculate, demo.error]\n",
   );
 
+  // 2. Khởi tạo MCP Server & MCP Client in-memory
+  console.log(
+    "⏳ [2/5] Đang khởi tạo MCP Server và Client qua InMemoryTransport...",
+  );
+  const harness = await createMcpTestHarness({ registry });
+
+  const serverInfo = harness.client.getServerVersion();
+  console.log(
+    `✅ Đã kết nối tới Server: '${serverInfo?.name}' (v${serverInfo?.version})\n`,
+  );
+
   // 3. Client khám phá danh sách tools (tools/list)
   console.log("⏳ [3/5] Client gọi 'tools/list'...");
   const listResult = await harness.client.listTools();
@@ -128,14 +139,17 @@ async function main() {
   }
   console.log("");
 
-  // 4. Client gọi tools/call thành công
+  // 4. Client gọi tools/call thành công (hỗ trợ outputSchema & structuredContent)
   console.log("⏳ [4/5] Client gọi 'tools/call' cho 'smoke.calculate'...");
   const calcCall = await harness.client.callTool({
     name: "smoke.calculate",
     arguments: { a: 15, b: 27, operation: "add" },
   });
 
-  console.log(`✅ Kết quả: "${getText(calcCall)}"\n`);
+  console.log(`✅ Kết quả Text: "${getText(calcCall)}"`);
+  console.log(
+    `✅ StructuredContent: ${JSON.stringify(calcCall.structuredContent)}\n`,
+  );
 
   // 5. Client gọi tool ném lỗi domain (demo.error)
   console.log(

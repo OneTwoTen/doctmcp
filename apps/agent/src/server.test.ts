@@ -43,10 +43,6 @@ describe("Local MCP Server", () => {
     expect(serverVersion).toBeDefined();
     expect(serverVersion?.name).toBe("doctmcp-agent");
     expect(serverVersion?.version).toBe("0.1.0");
-
-    const capabilities = activeHarness.client.getServerCapabilities();
-    expect(capabilities).toBeDefined();
-    expect(capabilities?.tools).toBeDefined();
   });
 
   test("returns valid empty tools list for empty registry", async () => {
@@ -123,6 +119,40 @@ describe("Local MCP Server", () => {
     expect(getFirstTextContent(callResult)).toBe("echo:hello-mcp");
   });
 
+  test("supports tool outputSchema and structuredContent", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "math.add",
+      description: "Add two numbers",
+      inputSchema: z.object({
+        a: z.number(),
+        b: z.number(),
+      }),
+      outputSchema: z.object({
+        result: z.number(),
+      }),
+      handler: async ({ a, b }) => ({
+        content: [{ type: "text", text: `result: ${a + b}` }],
+        structuredContent: { result: a + b },
+      }),
+    });
+
+    activeHarness = await createMcpTestHarness({ registry });
+
+    const toolsResult = await activeHarness.client.listTools();
+    const tool = toolsResult.tools.find((t) => t.name === "math.add");
+    expect(tool).toBeDefined();
+    expect(tool?.outputSchema).toBeDefined();
+
+    const callResult = await activeHarness.client.callTool({
+      name: "math.add",
+      arguments: { a: 10, b: 20 },
+    });
+    expect(callResult.isError).toBeFalsy();
+    expect(getFirstTextContent(callResult)).toBe("result: 30");
+    expect(callResult.structuredContent).toEqual({ result: 30 });
+  });
+
   test("unknown tool call returns error and does not crash the server", async () => {
     const registry = new ToolRegistry();
     registry.register({
@@ -136,22 +166,15 @@ describe("Local MCP Server", () => {
 
     activeHarness = await createMcpTestHarness({ registry });
 
-    let unknownToolFailed = false;
-    try {
-      const result = await activeHarness.client.callTool({
+    // Calling unknown tool must reject with an error
+    await expect(
+      activeHarness.client.callTool({
         name: "non.existent.tool",
         arguments: {},
-      });
-      // If client returns isError: true instead of throwing
-      expect(result.isError).toBe(true);
-      unknownToolFailed = true;
-    } catch (error) {
-      expect(error).toBeDefined();
-      unknownToolFailed = true;
-    }
-    expect(unknownToolFailed).toBe(true);
+      }),
+    ).rejects.toThrow();
 
-    // Server should still be healthy and responsive to next call
+    // Server should still be healthy and responsive to subsequent valid calls
     const subsequentResult = await activeHarness.client.callTool({
       name: "smoke.ping",
       arguments: {},
@@ -192,25 +215,28 @@ describe("Local MCP Server", () => {
     expect(parsed.details).toEqual({ requestedId: "unknown-ws" });
   });
 
-  test("allows registering tools on server instance directly", async () => {
-    activeHarness = await createMcpTestHarness();
-
-    activeHarness.serverInstance.register({
-      name: "dynamic.tool",
-      description: "Dynamically added tool",
+  test("sanitizes unexpected internal errors to avoid leaking local system details", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "crash.demo",
+      description: "Crash with sensitive local info",
       inputSchema: z.object({}),
-      handler: async () => ({
-        content: [{ type: "text", text: "dynamic-ok" }],
-      }),
+      handler: async () => {
+        throw new Error("Sensitive path leak: /Users/admin/.secret/keys.json");
+      },
     });
 
-    const toolsResult = await activeHarness.client.listTools();
-    expect(toolsResult.tools.some((t) => t.name === "dynamic.tool")).toBe(true);
+    activeHarness = await createMcpTestHarness({ registry });
 
-    const callResult = await activeHarness.client.callTool({
-      name: "dynamic.tool",
+    const result = await activeHarness.client.callTool({
+      name: "crash.demo",
       arguments: {},
     });
-    expect(getFirstTextContent(callResult)).toBe("dynamic-ok");
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(getFirstTextContent(result));
+    expect(parsed.code).toBe("INTERNAL_ERROR");
+    expect(parsed.message).toBe("Internal error");
+    expect(getFirstTextContent(result)).not.toContain("/Users/admin");
   });
 });

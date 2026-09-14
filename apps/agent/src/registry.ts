@@ -1,3 +1,4 @@
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 import { DuplicateToolError } from "./errors";
 
@@ -12,33 +13,40 @@ export interface ToolContext {
   extra?: unknown;
 }
 
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-
 export type ToolExecutionResult = CallToolResult;
 
-export interface ToolDefinition<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
+export interface ToolDefinition<
+  TInputSchema extends z.ZodTypeAny = z.ZodTypeAny,
+  TOutputSchema extends z.ZodTypeAny = z.ZodTypeAny,
+> {
   name: string;
   title?: string;
   description: string;
-  inputSchema?: TSchema;
+  inputSchema?: TInputSchema;
+  outputSchema?: TOutputSchema;
   annotations?: ToolAnnotations;
   handler: (
-    args: z.infer<TSchema>,
+    args: z.infer<TInputSchema>,
     context: ToolContext,
   ) => Promise<ToolExecutionResult>;
 }
 
 export class ToolRegistry {
-  private readonly tools = new Map<string, ToolDefinition>();
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool definitions collection
+  private readonly tools = new Map<string, ToolDefinition<any, any>>();
 
-  register<TSchema extends z.ZodTypeAny>(tool: ToolDefinition<TSchema>): void {
+  register<
+    TInputSchema extends z.ZodTypeAny = z.ZodTypeAny,
+    TOutputSchema extends z.ZodTypeAny = z.ZodTypeAny,
+  >(tool: ToolDefinition<TInputSchema, TOutputSchema>): void {
     if (this.tools.has(tool.name)) {
       throw new DuplicateToolError(tool.name);
     }
-    this.tools.set(tool.name, tool as unknown as ToolDefinition);
+    this.tools.set(tool.name, tool);
   }
 
-  get(name: string): ToolDefinition | undefined {
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool retrieval
+  get(name: string): ToolDefinition<any, any> | undefined {
     return this.tools.get(name);
   }
 
@@ -46,7 +54,8 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
-  list(): ToolDefinition[] {
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tools collection
+  list(): ToolDefinition<any, any>[] {
     return Array.from(this.tools.values());
   }
 
