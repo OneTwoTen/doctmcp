@@ -20,13 +20,16 @@ Không làm filesystem tools, shell tools, config file loader hoặc public/serv
 workspace id + relative path
   -> workspace root canonical
   -> reject absolute/.. path
-  -> canonicalize existing target hoặc existing parent
+  -> tạo operationPath lexical
+  -> canonicalize target thành canonicalPath
   -> containment bằng path.relative
-  -> deny subtree
+  -> deny subtree trên cả lexical/canonical path
   -> capability check
 ```
 
-Workspace không được tự động thêm từ home/current directory. Root phải tồn tại khi registry được tạo để boundary security không mơ hồ.
+Với destructive operation, `operationPath` là path thực tế mà filesystem thao tác; `canonicalPath` chỉ dùng cho containment/policy. Final symlink chỉ được unlink khi parent thực của nó vẫn nằm trong workspace, nên intermediate symlink không thể đưa thao tác ra ngoài boundary.
+
+Workspace không được tự động thêm từ home/current directory. Root phải tồn tại khi registry được tạo để boundary security không mơ hồ. Workspace root cũng không được overlap để tránh ambiguity/bypass giữa parent-child policy.
 
 ## Tiêu chí nghiệm thu
 
@@ -34,6 +37,10 @@ Workspace không được tự động thêm từ home/current directory. Root p
 - Resolver xử lý path bình thường và `.`.
 - Từ chối `..`, absolute path, sibling-prefix trap và symlink escape.
 - Capability thiếu bị từ chối; deny subtree thắng allow.
+- Policy metadata immutable sau khi load.
+- Workspace overlap bị từ chối.
+- Workspace root không thể bị authorize cho delete.
+- Symlink delete giữ đúng identity của link mà không follow target ngoài workspace.
 - API dùng chung, filesystem/shell về sau không cần tự lặp lại path/permission logic.
 - `bun run check`, `bun run typecheck`, `bun test` xanh.
 
@@ -41,4 +48,5 @@ Workspace không được tự động thêm từ home/current directory. Root p
 
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
-| 2026-09-14 | Khởi tạo plan cho issue #3 | Triển khai M1.2 theo roadmap và acceptance test của issue | complete |
+| 2026-09-14 | Khởi tạo plan cho issue #3 | Triển khai M1.2 theo roadmap và acceptance test của issue | planned |
+| 2026-09-14 | Hoàn tất workspace registry, permission core và hardening path/symlink boundary qua PR #11 | Chốt security foundation dùng chung trước filesystem/shell tools | complete |
