@@ -26,7 +26,7 @@ Public server chịu trách nhiệm xác thực, pairing, định tuyến lệnh
 ## Tech stack
 
 - Runtime: Bun 1.4.2
-- Language: TypeScript
+- Language: TypeScript 7
 - Monorepo: Bun workspaces
 - Public server: Bun, dự kiến dùng Elysia cho HTTP/MCP API
 - Local transport: WebSocket over TLS
@@ -63,3 +63,7 @@ Xem thêm `docs/architecture.md`, `docs/protocol.md`, `docs/security.md` và `AG
 ## Trạng thái
 
 Dự án đang ở giai đoạn bootstrap kiến trúc. Phase đầu tập trung vào luồng tối thiểu `agent ↔ server ↔ ChatGPT`, pairing thiết bị và các tool local cơ bản.
+
+## License
+
+MIT License. Xem `LICENSE`.
