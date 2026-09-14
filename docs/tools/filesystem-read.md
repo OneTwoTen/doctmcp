@@ -4,11 +4,11 @@
 
 Nhóm mọi thao tác filesystem **read-only** có cùng permission/risk boundary. Tool luôn resolve path qua workspace và không được đọc ngoài root đã cho phép.
 
-## Actions
+Tool có bốn action: `read`, `list`, `stat`, `search`. Tất cả đều cần capability `read`.
 
-### `read`
+## `read`
 
-Input conceptual:
+Input:
 
 ```json
 {
@@ -20,23 +20,35 @@ Input conceptual:
 }
 ```
 
-- `path` là path tương đối theo workspace.
-- `offset`/`limit` là byte hoặc semantic unit phải được implementation chốt nhất quán; M1 ưu tiên byte để dễ giới hạn output.
-- Có max read size cấu hình được; không đọc file không giới hạn vào memory/result.
-- Binary file phải được từ chối rõ hoặc trả metadata thay vì decode ngầm thành UTF-8 lỗi.
+Semantics M1:
 
-Output conceptual:
+- `path` là path tương đối theo workspace;
+- `offset` và `limit` dùng **byte semantics**;
+- `offset` mặc định `0`;
+- `limit` mặc định `65536` byte (64 KiB), tối đa `1048576` byte (1 MiB) mỗi call;
+- file binary có NUL byte trong vùng kiểm tra hoặc text không phải UTF-8 hợp lệ bị từ chối với `INVALID_INPUT`;
+- nếu chunk kết thúc giữa một sequence UTF-8 multi-byte, tool lùi boundary về ký tự hoàn chỉnh gần nhất thay vì trả UTF-8 lỗi;
+- caller dùng `nextOffset` cho lần đọc tiếp theo, không tự tính `offset + limit`.
+
+Output:
 
 ```json
 {
+  "action": "read",
   "path": "package.json",
   "content": "...",
   "size": 1234,
+  "offset": 0,
+  "limit": 65536,
+  "bytesRead": 1234,
+  "nextOffset": 1234,
   "truncated": false
 }
 ```
 
-### `list`
+`size` là kích thước file theo byte. `bytesRead` là số byte UTF-8 hoàn chỉnh thực sự trả về.
+
+## `list`
 
 Input:
 
@@ -46,13 +58,21 @@ Input:
   "workspace": "doctmcp",
   "path": "apps",
   "recursive": false,
-  "limit": 200
+  "limit": 200,
+  "maxDepth": 5
 }
 ```
 
-M1 mặc định không recursive. Nếu `recursive: true`, phải có depth/result limit.
+- `path` mặc định `.`;
+- non-recursive là mặc định;
+- `limit` mặc định `200`, tối đa `1000` entry;
+- `maxDepth` mặc định `5`, tối đa `10`, chỉ có ý nghĩa khi `recursive: true`;
+- kết quả được sort ổn định theo tên trong từng thư mục;
+- khi đạt `limit`, `truncated: true`;
+- deny subtree bị loại khỏi kết quả;
+- symlink ra ngoài workspace hoặc trỏ vào deny subtree không được expose như một đường đọc hợp lệ.
 
-Mỗi entry tối thiểu:
+Mỗi entry:
 
 ```json
 {
@@ -62,9 +82,9 @@ Mỗi entry tối thiểu:
 }
 ```
 
-Không follow symlink ra ngoài workspace.
+`type` là `file | directory | symlink | other`; file có thể kèm `size`.
 
-### `stat`
+## `stat`
 
 Input:
 
@@ -76,11 +96,19 @@ Input:
 }
 ```
 
-Output chỉ chứa metadata portable cần thiết: type, size, timestamps nếu có, symlink flag. Không cố chuẩn hoá toàn bộ permission bits giữa mọi OS trong M1.
+`path` mặc định `.`. Output chỉ chứa metadata portable cần thiết:
 
-### `search`
+- `type`;
+- `size`;
+- `mtimeMs`;
+- `birthtimeMs`;
+- `isSymbolicLink`.
 
-M1 search nội dung text trong một workspace/path cho trước, có giới hạn rõ.
+`stat` dùng metadata của final entry để phân biệt symlink với target, nhưng resolver vẫn kiểm tra canonical target để enforce workspace/deny boundary.
+
+## `search`
+
+Input:
 
 ```json
 {
@@ -94,53 +122,91 @@ M1 search nội dung text trong một workspace/path cho trước, có giới h�
 
 Scope M1:
 
-- literal text search trước; regex/glob nâng cao có thể để sau;
-- bỏ qua binary và file quá lớn theo policy;
-- không follow symlink escape;
-- giới hạn số file/result và tổng bytes đọc;
-- result gồm path + line/preview ngắn đủ để định vị, không trả toàn bộ file.
+- literal case-sensitive substring search; chưa hỗ trợ regex/glob;
+- `path` mặc định `.`;
+- `maxResults` mặc định `50`, tối đa `200`;
+- tối đa `1000` file được scan trong một call;
+- bỏ qua file lớn hơn `2 MiB`;
+- tổng byte nội dung được scan tối đa `20 MiB`;
+- binary/invalid UTF-8 bị bỏ qua;
+- preview mỗi dòng match tối đa `200` ký tự;
+- đạt giới hạn result/file/bytes thì trả `truncated: true`;
+- search có kiểm tra cancellation và map sang `TIMEOUT`.
 
-## Path resolution bắt buộc
+Mỗi match gồm:
 
-Mọi action phải dùng cùng một resolver:
+```json
+{
+  "path": "apps/agent/src/server.ts",
+  "lineNumber": 12,
+  "line": "const server = new McpServer(...)"
+}
+```
+
+Internal symlink file có thể được search nếu canonical target vẫn nằm trong workspace và không bị deny. Khi root traversal là một symlink directory nội bộ, queue giữ cả lexical `operationPath` và `canonicalPath`; deny được kiểm tra trên canonical child để alias symlink không thể bypass deny subtree.
+
+## Path resolution và security
+
+Mọi action bắt đầu bằng cùng resolver:
 
 ```text
 workspace root
  + relative path
  -> normalize
- -> canonicalize existing ancestor/target phù hợp
- -> đảm bảo vẫn nằm trong workspace root
+ -> canonicalize existing ancestor/target
+ -> workspace containment
  -> deny policy
+ -> capability read
  -> operation
 ```
 
-Phải có test cho:
+Các boundary bắt buộc:
 
-- `../` traversal;
-- absolute path khi contract không cho phép;
-- symlink trong workspace trỏ ra ngoài;
-- path không tồn tại;
-- directory được truyền cho `read`;
-- file được truyền cho `list`.
+- từ chối `../` traversal;
+- từ chối absolute path;
+- từ chối symlink escape ra ngoài workspace;
+- từ chối direct access vào deny subtree;
+- traversal qua symlink directory phải tiếp tục enforce deny bằng canonical path;
+- path không tồn tại trả `PATH_NOT_FOUND`;
+- `read` trên directory và `list` trên regular file trả `INVALID_INPUT`.
 
 ## Permission và annotations
 
 ```text
 readOnlyHint: true
 destructiveHint: false
+idempotentHint: true
 openWorldHint: false
 ```
 
-Permission cần capability `read` của workspace/path.
+Permission cần capability `read` của workspace/path. Annotations chỉ là MCP metadata; resolver/capability local mới là enforcement.
 
 ## Error
 
-Dùng các code phù hợp: `WORKSPACE_NOT_FOUND`, `PATH_NOT_FOUND`, `PATH_OUTSIDE_WORKSPACE`, `PERMISSION_DENIED`, `INVALID_INPUT`, `OUTPUT_LIMIT_EXCEEDED`.
+Các code chính:
 
-## Test bắt buộc
+- `WORKSPACE_NOT_FOUND`;
+- `PATH_NOT_FOUND`;
+- `PATH_OUTSIDE_WORKSPACE`;
+- `PERMISSION_DENIED`;
+- `INVALID_INPUT`;
+- `TIMEOUT`.
 
-Ngoài path security test, mỗi action cần success test trên temp workspace thật. `search` cần test limit/truncation. `read` cần test file vượt max size và UTF-8 invalid/binary policy.
+## Test coverage M1
+
+Test suite cần bao phủ:
+
+- success cho cả 4 action trên temp workspace;
+- MCP contract call cho cả `read`, `list`, `stat`, `search`;
+- traversal, absolute path và symlink escape;
+- nested deny subtree và symlink-directory deny bypass;
+- binary + invalid UTF-8;
+- UTF-8 multi-byte chunk boundary;
+- read max input limit;
+- recursive list depth/result truncation;
+- search result/file/byte limits và cancellation;
+- workspace không có capability `read`.
 
 ## Acceptance criteria
 
-Không có action nào trong tool này làm thay đổi filesystem; mọi path đều đi qua resolver/permission dùng chung và result có giới hạn kích thước.
+Không action nào thay đổi filesystem; mọi operation đi qua workspace resolver/permission dùng chung; output/traversal có giới hạn rõ; symlink không thể dùng để thoát workspace hoặc bypass deny policy.
