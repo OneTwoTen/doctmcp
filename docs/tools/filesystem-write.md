@@ -118,3 +118,13 @@ Không được để file ở trạng thái một phần nếu validation/patch
 ## Acceptance criteria
 
 Không action nào có thể sửa file ngoài workspace hoặc âm thầm overwrite dữ liệu khi caller không yêu cầu rõ.
+
+## Trạng thái implementation
+
+Đang triển khai trong issue #6: schema discriminated, bốn action, giới hạn input, atomic write/patch, workspace resolver và MCP contract test đã có trên nhánh làm việc.
+
+## History
+
+| Ngày | Thay đổi | Lý do | Trạng thái |
+|---|---|---|---|
+| 2026-09-14 | Triển khai `filesystem.write` với `write`, `patch`, `mkdir`, `move` | Hoàn thiện capability write read-only tách khỏi `filesystem.delete` | in-progress |
