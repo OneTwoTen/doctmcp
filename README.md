@@ -6,7 +6,7 @@ Mục tiêu cuối cùng là để ChatGPT gọi các capability trên Windows, 
 
 ## Trạng thái hiện tại
 
-Repository đã có monorepo Bun, TypeScript strict, Biome, CI và các package nền. M1 hiện hoàn thành **2/8 work item**: Local MCP server/tool registry (#2) và workspace/path/permission core (#3). Tool `workspace` đã hoạt động qua MCP; resolver đã có traversal/symlink/deny/capability boundary dùng chung cho các filesystem/shell tool tiếp theo. **Bước tiếp theo là #4 — tool `system`**, sau đó tiếp tục `filesystem.read` và các local tool còn lại. Networking/public server chưa được triển khai.
+Repository đã có monorepo Bun, TypeScript strict, Biome, CI và các package nền. M1 hiện hoàn thành **3/8 work item**: Local MCP server/tool registry (#2), workspace/path/permission core (#3) và `filesystem.write` (#6). Tool `workspace` và `filesystem.write` đã hoạt động qua MCP; resolver đã có traversal/symlink/deny/capability boundary dùng chung cho các filesystem/shell tool tiếp theo. **Các work item chưa merge tiếp theo theo thứ tự thiết kế là #4 — `system` và #5 — `filesystem.read`**, sau đó tiếp tục `filesystem.delete`, `shell.exec` và acceptance test toàn M1. Networking/public server chưa được triển khai.
 
 Thứ tự phát triển đã chốt:
 
