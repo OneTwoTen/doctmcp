@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2), M1.2 (#3) và M1.5 (#6) đã hoàn tất; workspace registry, path resolver, permission core, tool `workspace` và tool `filesystem.write` đã có trên `main`. Các tool `system`, `filesystem.read`, `filesystem.delete`, `shell.exec`, public server, device pairing và ChatGPT chưa được merge vào `main`.
+**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2), M1.2 (#3), M1.3 (#4), M1.4 (#5) và M1.5 (#6) đã hoàn tất; workspace registry, path resolver, permission core và các tool `workspace`, `system`, `filesystem.read`, `filesystem.write` đã có trong codebase. Các tool còn lại của M1 là `filesystem.delete` và `shell.exec`; public server, device pairing và ChatGPT thuộc milestone sau.
 
 ## Mục tiêu
 
@@ -94,7 +94,7 @@ Sau M1.2, resolver giữ riêng:
 - `operationPath`: path lexical tuyệt đối mà filesystem operation thực sự dùng;
 - `canonicalPath`: path canonical dùng cho containment/deny/permission.
 
-Với destructive operation trên symlink, chỉ được unlink chính symlink khi parent thực của final entry vẫn nằm trong workspace; intermediate symlink không được dùng để đưa thao tác ra ngoài workspace.
+Với traversal read-only qua thư mục symlink nội bộ, implementation phải tiếp tục mang theo canonical path cho từng child để deny subtree không thể bị bypass bằng alias symlink. Với destructive operation trên symlink, chỉ được unlink chính symlink khi parent thực của final entry vẫn nằm trong workspace; intermediate symlink không được dùng để đưa thao tác ra ngoài workspace.
 
 ## Result và error
 
@@ -178,4 +178,6 @@ Không mock MCP layer cho acceptance test cuối M1.
 |---|---|---|---|
 | 2026-09-14 | Chốt Local MCP-first và catalog 6 tool theo capability/risk boundary | Giảm scope, dễ test trước khi thêm transport và ChatGPT | approved |
 | 2026-09-14 | Hoàn tất issue #3 ở lớp workspace/permission foundation qua PR #11 | Tạo boundary dùng chung trước khi triển khai filesystem và shell tool | complete |
+| 2026-09-14 | Hoàn tất issue #4 với tool `system` (`info`, `which`) qua PR #12 | Bổ sung capability read-only tiếp theo trên Local MCP foundation | complete |
+| 2026-09-14 | Hoàn tất issue #5 với tool `filesystem.read` qua PR #13 | Bổ sung read/list/stat/search có output limits, UTF-8 boundary và symlink/deny hardening | complete |
 | 2026-09-14 | Hoàn tất issue #6 với tool `filesystem.write` qua PR #14 | Bổ sung capability thay đổi filesystem với no-clobber, permission boundary và MCP contract coverage | complete |
