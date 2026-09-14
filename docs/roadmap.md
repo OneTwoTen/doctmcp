@@ -4,15 +4,16 @@ Roadmap này mô tả thứ tự triển khai đã chốt. Mục tiêu là giả
 
 ## M1 — Local MCP
 
-**Ưu tiên hiện tại. Tiến độ: 3/8 work item hoàn thành.** Mục tiêu: local runtime hoạt động như một MCP server hoàn chỉnh ở mức tối thiểu và test được offline bằng MCP client thật.
+**Ưu tiên hiện tại. Tiến độ: 4/8 work item hoàn thành.** Mục tiêu: local runtime hoạt động như một MCP server hoàn chỉnh ở mức tối thiểu và test được offline bằng MCP client thật.
 
 Đã hoàn thành:
 
 - ✅ M1.1 / #2 — Local MCP server, tool registry và protocol scaffold cleanup qua PR #10.
 - ✅ M1.2 / #3 — Workspace registry, path resolver và permission core qua PR #11.
+- ✅ M1.3 / #4 — Tool `system` (`info`, `which`) qua PR #12.
 - ✅ M1.5 / #6 — Tool `filesystem.write` (`write`, `patch`, `mkdir`, `move`) qua PR #14.
 
-**Bước tiếp theo theo thứ tự thiết kế:** #4 — tool `system`, rồi #5 — `filesystem.read`. Sau đó tiếp tục `filesystem.delete`, `shell.exec` và acceptance test toàn M1.
+**Bước tiếp theo:** #5 — tool `filesystem.read`. Sau đó tiếp tục `filesystem.delete`, `shell.exec` và acceptance test toàn M1.
 
 Catalog M1 chốt 6 tool theo capability/risk boundary:
 
