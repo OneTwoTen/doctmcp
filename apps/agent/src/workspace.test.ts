@@ -76,6 +76,58 @@ describe("WorkspaceRegistry", () => {
     ).rejects.toThrow();
   });
 
+  test("freezes nested policy metadata after create", async () => {
+    const root = await createRoot();
+    const registry = await WorkspaceRegistry.create([
+      {
+        id: "project",
+        name: "Project",
+        root,
+        capabilities: { read: true, write: false },
+        deny: ["private"],
+      },
+    ]);
+    const workspace = registry.get("project");
+    expect(workspace).toBeDefined();
+    expect(Object.isFrozen(workspace)).toBe(true);
+    expect(Object.isFrozen(workspace?.capabilities)).toBe(true);
+    expect(Object.isFrozen(workspace?.deny)).toBe(true);
+
+    expect(() => {
+      if (!workspace) throw new Error("Expected workspace");
+      (workspace.capabilities as { write: boolean }).write = true;
+    }).toThrow(TypeError);
+    expect(() => {
+      if (!workspace) throw new Error("Expected workspace");
+      (workspace.deny as string[]).push("public");
+    }).toThrow(TypeError);
+
+    expect(registry.get("project")?.capabilities.write).toBe(false);
+    expect(registry.get("project")?.deny).toEqual(["private"]);
+  });
+
+  test("rejects identical and parent/child workspace roots", async () => {
+    const parent = await createRoot();
+    const child = join(parent, "child");
+    await mkdir(child);
+    const config = (id: string, root: string) => ({
+      id,
+      name: id,
+      root,
+      capabilities: { read: true },
+    });
+
+    await expect(
+      WorkspaceRegistry.create([
+        config("parent", parent),
+        config("child", child),
+      ]),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(
+      WorkspaceRegistry.create([config("one", parent), config("two", parent)]),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+
   test("exposes workspace list/get through MCP", async () => {
     const root = await createRoot();
     const registry = await WorkspaceRegistry.create([
@@ -186,7 +238,7 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
     ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
   });
 
-  test("rejects symlink escape and deny subtree before capability", async () => {
+  test("rejects symlink escape", async () => {
     const { root, outside, registry } = await setup();
     try {
       await symlink(outside, join(root, "link-out"));
@@ -197,8 +249,30 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
     await expect(
       resolver.resolve("project", "link-out/secret.txt"),
     ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
+  });
+
+  test("denies configured subtree before capability", async () => {
+    const { registry } = await setup();
+    const resolver = new WorkspacePathResolver(registry);
     await expect(
       resolver.resolve("project", "denied/secret.txt"),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
+  test("always denies deleting the workspace root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-delete-root-"));
+    roots.push(root);
+    const registry = await WorkspaceRegistry.create([
+      {
+        id: "deletable",
+        name: "Deletable",
+        root,
+        capabilities: { read: true, delete: true },
+      },
+    ]);
+
+    await expect(
+      new WorkspacePathResolver(registry).resolve("deletable", ".", "delete"),
     ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   });
 

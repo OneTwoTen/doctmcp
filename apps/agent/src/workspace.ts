@@ -13,10 +13,10 @@ export const workspaceCapabilities = [
 export type WorkspaceCapability = (typeof workspaceCapabilities)[number];
 
 export interface WorkspaceCapabilities {
-  read?: boolean;
-  write?: boolean;
-  delete?: boolean;
-  execute?: boolean;
+  readonly read?: boolean;
+  readonly write?: boolean;
+  readonly delete?: boolean;
+  readonly execute?: boolean;
 }
 
 export interface WorkspaceConfig {
@@ -28,11 +28,11 @@ export interface WorkspaceConfig {
 }
 
 export interface WorkspaceMetadata {
-  id: string;
-  name: string;
-  root: string;
-  capabilities: Required<WorkspaceCapabilities>;
-  deny: string[];
+  readonly id: string;
+  readonly name: string;
+  readonly root: string;
+  readonly capabilities: Readonly<Required<WorkspaceCapabilities>>;
+  readonly deny: readonly string[];
 }
 
 function invalidConfig(message: string): ToolDomainError {
@@ -136,22 +136,41 @@ export class WorkspaceRegistry {
         }
         deny.push(relative(root, canonicalDeny.path));
       }
-      workspaces.push({
-        id: config.id,
-        name: config.name,
-        root,
-        capabilities: {
-          read: config.capabilities.read === true,
-          write: config.capabilities.write === true,
-          delete: config.capabilities.delete === true,
-          execute: config.capabilities.execute === true,
-        },
-        deny,
+      const capabilities = Object.freeze({
+        read: config.capabilities.read === true,
+        write: config.capabilities.write === true,
+        delete: config.capabilities.delete === true,
+        execute: config.capabilities.execute === true,
       });
+      workspaces.push(
+        Object.freeze({
+          id: config.id,
+          name: config.name,
+          root,
+          capabilities,
+          deny: Object.freeze([...deny]),
+        }),
+      );
     }
-    return new WorkspaceRegistry(
-      Object.freeze(workspaces.map((workspace) => Object.freeze(workspace))),
-    );
+    for (let index = 0; index < workspaces.length; index += 1) {
+      const workspace = workspaces[index];
+      if (!workspace) continue;
+      for (
+        let otherIndex = index + 1;
+        otherIndex < workspaces.length;
+        otherIndex += 1
+      ) {
+        const other = workspaces[otherIndex];
+        if (
+          other &&
+          (isPathInside(workspace.root, other.root) ||
+            isPathInside(other.root, workspace.root))
+        ) {
+          throw invalidConfig("Workspace roots must not overlap");
+        }
+      }
+    }
+    return new WorkspaceRegistry(Object.freeze(workspaces));
   }
 
   list(): readonly WorkspaceMetadata[] {
@@ -193,6 +212,12 @@ export class WorkspacePathResolver {
       throw new ToolDomainError(
         "PATH_OUTSIDE_WORKSPACE",
         "Path resolves outside workspace",
+      );
+    }
+    if (capability === "delete" && target.path === workspace.root) {
+      throw new ToolDomainError(
+        "PERMISSION_DENIED",
+        "Workspace root cannot be deleted",
       );
     }
     const denied = workspace.deny.some((denyPath) =>
