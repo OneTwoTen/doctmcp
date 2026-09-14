@@ -6,7 +6,7 @@ Mục tiêu cuối cùng là để ChatGPT gọi các capability trên Windows, 
 
 ## Trạng thái hiện tại
 
-Repository đã có monorepo Bun, TypeScript strict, Biome, CI và các package nền. M1 hiện hoàn thành **5/8 work item**: Local MCP server/tool registry (#2), workspace/path/permission core (#3), tool `system` (#4), `filesystem.read` (#5) và `filesystem.write` (#6). Các tool `workspace`, `system`, `filesystem.read` và `filesystem.write` đã hoạt động qua MCP; tức **4/6 tool trong catalog M1 đã có implementation**. Resolver đã có traversal/symlink/deny/capability boundary dùng chung. **Các work item còn lại của M1 là `filesystem.delete`, `shell.exec` và acceptance test toàn M1.** Networking/public server chưa được triển khai.
+M1 — Local MCP đã có đầy đủ implementation cho **8/8 work item** và đủ **6/6 tool** đã chốt: `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec`. Issue #9 bổ sung acceptance suite dùng MCP client/server thật để khóa catalog, schema/annotations, vertical flow, permission/security boundary và shell limits trên temp workspace. M1 chỉ được coi là hoàn tất khi `bun run check`, `bun run typecheck`, `bun test` cùng xanh; sau quality gate này, bước phát triển tiếp theo là M2 custom WebSocket transport server → local. Networking/public server, pairing và ChatGPT integration chưa được triển khai.
 
 Thứ tự phát triển đã chốt:
 
@@ -62,7 +62,7 @@ Protocol riêng của `doctmcp` chỉ dành cho phần nằm ngoài MCP, ví d�
 - Lint/format: **Biome 2.5.x**.
 - Test: `bun test`.
 - CI: GitHub Actions.
-- MCP: ưu tiên SDK TypeScript chính thức khi bắt đầu M1.
+- MCP: SDK TypeScript chính thức.
 
 Framework HTTP cho public server chưa phải quyết định cần khóa ở M1; chỉ thêm khi M2/M4 thực sự cần.
 
@@ -71,7 +71,7 @@ Framework HTTP cho public server chưa phải quyết định cần khóa ở M1
 ```text
 apps/
   server/        Public server; về sau chứa MCP client, device router và public MCP endpoint
-  agent/         Local runtime; sẽ chứa MCP server, permission engine và local tools
+  agent/         Local runtime; chứa MCP server, permission engine và local tools
 packages/
   protocol/      Contract control-plane ngoài MCP
   schemas/       Runtime validation dùng chung
@@ -82,7 +82,7 @@ docs/            Kiến trúc, roadmap, security, workflow và decision notes
 AGENTS.md        Quy tắc chung cho contributor và AI agent
 ```
 
-Tên thư mục `apps/agent` hiện được giữ để tránh thay đổi scaffold không cần thiết. Về mặt kiến trúc, thành phần này là **local MCP runtime**, không phải một RPC agent tự định nghĩa protocol riêng.
+Tên thư mục `apps/agent` được giữ để tránh thay đổi scaffold không cần thiết. Về mặt kiến trúc, thành phần này là **local MCP runtime**, không phải một RPC agent tự định nghĩa protocol riêng.
 
 ## Chuẩn bị máy
 
@@ -105,7 +105,13 @@ bun run typecheck
 bun test
 ```
 
-Khi có implementation runtime:
+Chạy riêng acceptance suite của Local MCP:
+
+```sh
+bun run test:local
+```
+
+Entrypoint phát triển:
 
 ```sh
 bun run dev:agent
