@@ -29,9 +29,8 @@ describe("MCP test harness lifecycle", () => {
     const serverInstance = createLocalMcpServer();
     const client = new FailingConnectClient();
 
-    await expect(
-      createMcpTestHarness({ serverInstance, client }),
-    ).rejects.toThrow("intentional client connect failure");
+    const bootstrap = createMcpTestHarness({ serverInstance, client });
+    await expect(bootstrap).rejects.toThrow("intentional client connect failure");
 
     expect(client.closeCalls).toBe(1);
     expect(serverInstance.isConnected).toBe(false);
