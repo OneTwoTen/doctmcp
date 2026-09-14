@@ -30,7 +30,10 @@ describe("shell.exec process hardening", () => {
     return { root, tool: createShellExecTool(registry, options) };
   }
 
-  function childSpawnerScript(pidFile: string, writeLargeOutput = false): string {
+  function childSpawnerScript(
+    pidFile: string,
+    writeLargeOutput = false,
+  ): string {
     return [
       'const { spawn } = require("node:child_process");',
       'const { writeFileSync } = require("node:fs");',
@@ -192,9 +195,9 @@ describe("shell.exec process hardening", () => {
       { signal: new AbortController().signal },
     );
 
-    expect(
-      (result.structuredContent as { stdout: string }).stdout.trim(),
-    ).toBe("hello world");
+    expect((result.structuredContent as { stdout: string }).stdout.trim()).toBe(
+      "hello world",
+    );
 
     let failure: unknown;
     try {
