@@ -1,22 +1,34 @@
 import { describe, expect, test } from "bun:test";
-import { type CommandRequest, PROTOCOL_VERSION } from "./index";
+import * as protocol from "./index";
+import { type AgentHello, type Heartbeat, PROTOCOL_VERSION } from "./index";
 
 describe("protocol", () => {
   test("starts at protocol version 1", () => {
     expect(PROTOCOL_VERSION).toBe(1);
   });
 
-  test("represents a generic local tool command", () => {
-    const command: CommandRequest = {
-      type: "command.request",
-      commandId: "cmd-1",
+  test("supports control-plane messages", () => {
+    const hello: AgentHello = {
+      type: "agent.hello",
+      protocolVersion: PROTOCOL_VERSION,
       deviceId: "device-1",
-      tool: "filesystem.read",
-      arguments: { path: "/tmp/example.txt" },
-      createdAt: "2026-09-14T08:00:00.000Z",
+      agentVersion: "0.1.0",
     };
 
-    expect(command.tool).toBe("filesystem.read");
-    expect(command.deviceId).toBe("device-1");
+    const heartbeat: Heartbeat = {
+      type: "heartbeat",
+      timestamp: "2026-09-14T08:00:00.000Z",
+    };
+
+    expect(hello.type).toBe("agent.hello");
+    expect(heartbeat.type).toBe("heartbeat");
+  });
+
+  test("does not export tool-execution RPC envelope", () => {
+    // biome-ignore lint/suspicious/noExplicitAny: verify exports at runtime
+    const exported = protocol as Record<string, any>;
+    expect(exported.CommandRequest).toBeUndefined();
+    expect(exported.CommandResult).toBeUndefined();
+    expect(exported.CommandError).toBeUndefined();
   });
 });

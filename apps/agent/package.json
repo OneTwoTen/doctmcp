@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@doctmcp/protocol": "workspace:*",
-    "@doctmcp/schemas": "workspace:*"
+    "@doctmcp/schemas": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.6.2"
   }
 }
