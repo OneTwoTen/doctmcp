@@ -13,7 +13,7 @@
     "check:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "test:local": "bun test apps/agent/src/m1-acceptance.test.ts",
+    "test:local": "bun test apps/agent/src/m1-acceptance.test.ts apps/agent/src/m1-tool-contract.test.ts",
     "ci": "bun run check && bun run typecheck && bun test"
   },
   "devDependencies": {
