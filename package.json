@@ -16,7 +16,7 @@
     "ci": "bun run check && bun run typecheck && bun test"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.0.0",
-    "typescript": "^7.0.0"
+    "@biomejs/biome": "2.5.13",
+    "typescript": "7.0.2"
   }
 }

@@ -36,4 +36,8 @@ export interface Heartbeat {
   timestamp: string;
 }
 
-export type ProtocolMessage = AgentHello | CommandRequest | CommandResult | Heartbeat;
+export type ProtocolMessage =
+  | AgentHello
+  | CommandRequest
+  | CommandResult
+  | Heartbeat;
