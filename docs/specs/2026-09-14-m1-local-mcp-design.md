@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. Issue #3 đã triển khai workspace registry, path resolver, permission core và tool `workspace`; các filesystem/shell tool còn lại, public server, device pairing và ChatGPT chưa có.
+**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2) và M1.2 (#3) đã hoàn tất; workspace registry, path resolver, permission core và tool `workspace` đã có trên `main`. Các tool `system`, filesystem/shell còn lại, public server, device pairing và ChatGPT chưa có.
 
 ## Mục tiêu
 
@@ -89,6 +89,13 @@ workspace id
 
 Không cho phép `..`, symlink hoặc path normalization thoát khỏi root được cấp quyền. Permission được enforce ở local runtime; MCP annotations chỉ là metadata hỗ trợ client.
 
+Sau M1.2, resolver giữ riêng:
+
+- `operationPath`: path lexical tuyệt đối mà filesystem operation thực sự dùng;
+- `canonicalPath`: path canonical dùng cho containment/deny/permission.
+
+Với destructive operation trên symlink, chỉ được unlink chính symlink khi parent thực của final entry vẫn nằm trong workspace; intermediate symlink không được dùng để đưa thao tác ra ngoài workspace.
+
 ## Result và error
 
 Tool trả structured content ổn định, không phụ thuộc vào log text. Error domain tối thiểu cần phân biệt:
@@ -170,4 +177,4 @@ Không mock MCP layer cho acceptance test cuối M1.
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
 | 2026-09-14 | Chốt Local MCP-first và catalog 6 tool theo capability/risk boundary | Giảm scope, dễ test trước khi thêm transport và ChatGPT | approved |
-| 2026-09-14 | Hoàn tất issue #3 ở lớp workspace/permission foundation | Tạo boundary dùng chung trước khi triển khai filesystem và shell tool | in-progress |
+| 2026-09-14 | Hoàn tất issue #3 ở lớp workspace/permission foundation qua PR #11 | Tạo boundary dùng chung trước khi triển khai filesystem và shell tool | complete |
