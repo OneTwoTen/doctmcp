@@ -373,4 +373,64 @@ describe("Local MCP Server", () => {
 
     await serverInstance.close();
   });
+
+  test("does not expose raw McpServer instance on LocalMcpServerInstance", () => {
+    const serverInstance = createLocalMcpServer();
+    expect("server" in serverInstance).toBe(false);
+    // @ts-expect-error server must not be exposed on LocalMcpServerInstance
+    const _rawServer = serverInstance.server;
+  });
+
+  test("freezes tool definitions and prevents mutation of registered handlers", async () => {
+    const mutableTool = {
+      name: "tool.immutable",
+      description: "Immutable test",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+      handler: async () => ({
+        content: [{ type: "text" as const, text: "original" }],
+      }),
+    };
+
+    const serverInstance = createLocalMcpServer();
+    serverInstance.register(mutableTool);
+
+    // 1. Tool returned by getTool() and listTools() is frozen
+    const retrievedTool = serverInstance.getTool("tool.immutable");
+    expect(retrievedTool).toBeDefined();
+    expect(Object.isFrozen(retrievedTool)).toBe(true);
+    expect(Object.isFrozen(retrievedTool?.annotations)).toBe(true);
+    expect(Object.isFrozen(serverInstance.listTools())).toBe(true);
+
+    // 2. Modifying returned tool throws TypeError in strict mode
+    expect(() => {
+      // @ts-expect-error property is read-only
+      retrievedTool.description = "modified";
+    }).toThrow(TypeError);
+
+    // 3. Modifying original caller tool object does not affect registered tool handler
+    mutableTool.handler = async () => ({
+      content: [{ type: "text" as const, text: "mutated" }],
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await serverInstance.connect(serverTransport);
+
+    const { Client } = await import("@modelcontextprotocol/client");
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} },
+    );
+    await client.connect(clientTransport);
+
+    const callResult = await client.callTool({
+      name: "tool.immutable",
+      arguments: {},
+    });
+    expect(getFirstTextContent(callResult)).toBe("original");
+
+    await client.close();
+    await serverInstance.close();
+  });
 });

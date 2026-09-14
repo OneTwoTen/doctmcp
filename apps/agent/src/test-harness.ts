@@ -15,7 +15,6 @@ export interface McpTestHarnessOptions extends CreateLocalMcpServerOptions {
 
 export interface McpTestHarness {
   client: Client;
-  server: LocalMcpServerInstance["server"];
   serverInstance: LocalMcpServerInstance;
   close: () => Promise<void>;
 }
@@ -42,7 +41,6 @@ export async function createMcpTestHarness(
 
   return {
     client,
-    server: serverInstance.server,
     serverInstance,
     close: async () => {
       await client.close();

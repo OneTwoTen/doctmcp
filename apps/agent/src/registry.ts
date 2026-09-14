@@ -38,21 +38,30 @@ export interface ToolDefinition<
 }
 
 export class ToolRegistry {
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool definitions collection
-  private readonly tools = new Map<string, ToolDefinition<any, any>>();
+  private readonly tools = new Map<string, Readonly<ToolDefinition>>();
 
   register<
     TInputSchema extends z.ZodTypeAny = z.ZodTypeAny,
     TOutputSchema extends z.ZodTypeAny = z.ZodTypeAny,
-  >(tool: ToolDefinition<TInputSchema, TOutputSchema>): void {
+  >(
+    tool: ToolDefinition<TInputSchema, TOutputSchema>,
+  ): Readonly<ToolDefinition<TInputSchema, TOutputSchema>> {
     if (this.tools.has(tool.name)) {
       throw new DuplicateToolError(tool.name);
     }
-    this.tools.set(tool.name, tool);
+    const frozenAnnotations = tool.annotations
+      ? Object.freeze({ ...tool.annotations })
+      : undefined;
+    const frozenTool: Readonly<ToolDefinition<TInputSchema, TOutputSchema>> =
+      Object.freeze({
+        ...tool,
+        ...(frozenAnnotations ? { annotations: frozenAnnotations } : {}),
+      });
+    this.tools.set(tool.name, frozenTool);
+    return frozenTool;
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool retrieval
-  get(name: string): ToolDefinition<any, any> | undefined {
+  get(name: string): Readonly<ToolDefinition> | undefined {
     return this.tools.get(name);
   }
 
@@ -60,9 +69,8 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tools collection
-  list(): ToolDefinition<any, any>[] {
-    return Array.from(this.tools.values());
+  list(): readonly Readonly<ToolDefinition>[] {
+    return Object.freeze(Array.from(this.tools.values()));
   }
 
   get size(): number {

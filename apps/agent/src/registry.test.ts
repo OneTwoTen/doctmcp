@@ -26,8 +26,11 @@ describe("ToolRegistry", () => {
     registry.register(tool);
 
     expect(registry.has("system.info")).toBe(true);
-    expect(registry.get("system.info")?.description).toBe("Get system info");
+    const registered = registry.get("system.info");
+    expect(registered?.description).toBe("Get system info");
+    expect(Object.isFrozen(registered)).toBe(true);
     expect(registry.list().length).toBe(1);
+    expect(Object.isFrozen(registry.list())).toBe(true);
   });
 
   test("rejects registering duplicate tool names", () => {

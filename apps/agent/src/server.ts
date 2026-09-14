@@ -13,8 +13,7 @@ import {
 } from "./registry";
 
 export interface CreateLocalMcpServerOptions {
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection
-  tools?: ToolDefinition<any, any>[];
+  tools?: ToolDefinition[];
   registry?: ToolRegistry;
   serverInfo?: {
     name: string;
@@ -23,18 +22,15 @@ export interface CreateLocalMcpServerOptions {
 }
 
 export interface LocalMcpServerInstance {
-  server: McpServer;
   register: <
     TInputSchema extends z.ZodTypeAny = z.ZodTypeAny,
     TOutputSchema extends z.ZodTypeAny = z.ZodTypeAny,
   >(
     tool: ToolDefinition<TInputSchema, TOutputSchema>,
   ) => void;
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool lookup
-  getTool: (name: string) => ToolDefinition<any, any> | undefined;
+  getTool: (name: string) => Readonly<ToolDefinition> | undefined;
   hasTool: (name: string) => boolean;
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tools collection
-  listTools: () => ToolDefinition<any, any>[];
+  listTools: () => readonly Readonly<ToolDefinition>[];
   connect: (transport: Transport) => Promise<void>;
   close: () => Promise<void>;
   readonly isConnected: boolean;
@@ -61,19 +57,20 @@ export function createLocalMcpServer(
     if (connected) {
       throw new ServerAlreadyConnectedError();
     }
-    // Chặn trùng tên tool đồng thời lưu lại snapshot trong registry
-    registry.register(tool);
+    // Chặn trùng tên tool đồng thời lưu lại snapshot bất biến trong registry
+    const frozenTool = registry.register(tool);
+    const handler = frozenTool.handler;
 
     server.registerTool(
-      tool.name,
+      frozenTool.name,
       {
-        title: tool.title,
-        description: tool.description,
+        title: frozenTool.title,
+        description: frozenTool.description,
         // biome-ignore lint/suspicious/noExplicitAny: SDK v2 registerTool overload schema resolution
-        inputSchema: tool.inputSchema as any,
+        inputSchema: frozenTool.inputSchema as any,
         // biome-ignore lint/suspicious/noExplicitAny: SDK v2 registerTool overload schema resolution
-        outputSchema: tool.outputSchema as any,
-        annotations: tool.annotations,
+        outputSchema: frozenTool.outputSchema as any,
+        annotations: frozenTool.annotations,
       },
       // biome-ignore lint/suspicious/noExplicitAny: handler wrapper arguments
       async (args: any, ctx: ServerContext): Promise<CallToolResult> => {
@@ -85,7 +82,7 @@ export function createLocalMcpServer(
             meta: ctx.mcpReq._meta,
             extra: ctx,
           };
-          return await tool.handler(args, toolContext);
+          return await handler(args, toolContext);
         } catch (error) {
           return toToolErrorResult(error);
         }
@@ -106,7 +103,6 @@ export function createLocalMcpServer(
   }
 
   return {
-    server,
     register,
     getTool: (name: string) => registry.get(name),
     hasTool: (name: string) => registry.has(name),
