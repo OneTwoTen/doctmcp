@@ -5,6 +5,7 @@ export * from "./errors";
 export * from "./filesystem-delete";
 export * from "./filesystem-read";
 export * from "./filesystem-write";
+export * from "./local-tool-catalog";
 export * from "./registry";
 export * from "./server";
 export * from "./shell-exec";
