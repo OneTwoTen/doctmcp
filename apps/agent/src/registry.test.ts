@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { DuplicateToolError } from "./errors";
-import { ToolRegistry } from "./registry";
+import { type ToolDefinition, ToolRegistry } from "./registry";
+
+// Negative type test: inputSchema is mandatory, omitting it must fail typecheck
+// @ts-expect-error inputSchema is required in ToolDefinition
+const _invalidToolDefinition: ToolDefinition = {
+  name: "missing.schema",
+  description: "Tool without inputSchema",
+  handler: async () => ({ content: [] }),
+};
 
 describe("ToolRegistry", () => {
   test("registers a tool and retrieves it", () => {

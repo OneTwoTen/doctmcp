@@ -1,3 +1,3 @@
-import { z } from "zod";
-
-export const deviceIdSchema = z.string().min(1).max(128);
+// packages/schemas will host shared boundary schemas (device, session, pairing, etc.)
+// No schemas defined in M1.1
+export {};

@@ -9,7 +9,13 @@ export interface ToolAnnotations {
   openWorldHint?: boolean;
 }
 
+export type ToolRequestId = string | number;
+
 export interface ToolContext {
+  signal: AbortSignal;
+  requestId?: ToolRequestId;
+  sessionId?: string;
+  meta?: Record<string, unknown>;
   extra?: unknown;
 }
 
@@ -22,7 +28,7 @@ export interface ToolDefinition<
   name: string;
   title?: string;
   description: string;
-  inputSchema?: TInputSchema;
+  inputSchema: TInputSchema;
   outputSchema?: TOutputSchema;
   annotations?: ToolAnnotations;
   handler: (

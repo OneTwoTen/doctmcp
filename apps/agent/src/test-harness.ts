@@ -1,6 +1,5 @@
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
-import type { ToolRegistry } from "./registry";
 import {
   type CreateLocalMcpServerOptions,
   createLocalMcpServer,
@@ -18,7 +17,6 @@ export interface McpTestHarness {
   client: Client;
   server: LocalMcpServerInstance["server"];
   serverInstance: LocalMcpServerInstance;
-  registry: ToolRegistry;
   close: () => Promise<void>;
 }
 
@@ -29,6 +27,7 @@ export async function createMcpTestHarness(
     InMemoryTransport.createLinkedPair();
 
   const serverInstance = createLocalMcpServer({
+    tools: options.tools,
     registry: options.registry,
     serverInfo: options.serverInfo,
   });
@@ -45,7 +44,6 @@ export async function createMcpTestHarness(
     client,
     server: serverInstance.server,
     serverInstance,
-    registry: serverInstance.registry,
     close: async () => {
       await client.close();
       await serverInstance.close();

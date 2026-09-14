@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { ToolDomainError } from "./errors";
+import {
+  DuplicateToolError,
+  ServerAlreadyConnectedError,
+  ToolDomainError,
+} from "./errors";
 import { ToolRegistry } from "./registry";
+import { createLocalMcpServer } from "./server";
 import { createMcpTestHarness, type McpTestHarness } from "./test-harness";
 
 function getFirstTextContent(result: unknown): string {
@@ -238,5 +244,133 @@ describe("Local MCP Server", () => {
     expect(parsed.code).toBe("INTERNAL_ERROR");
     expect(parsed.message).toBe("Internal error");
     expect(getFirstTextContent(result)).not.toContain("/Users/admin");
+  });
+
+  test("regression: tool with inputSchema z.object({}) receives empty object args, not MCP context", async () => {
+    let capturedArgs: unknown = null;
+    let capturedSignal: AbortSignal | null = null;
+    let capturedRequestId: unknown = null;
+
+    const serverInstance = createLocalMcpServer();
+    serverInstance.register({
+      name: "smoke.schemaless",
+      description: "Tool without arguments",
+      inputSchema: z.object({}),
+      handler: async (args, context) => {
+        capturedArgs = args;
+        capturedSignal = context.signal;
+        capturedRequestId = context.requestId;
+        return {
+          content: [{ type: "text", text: "ok" }],
+        };
+      },
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await serverInstance.connect(serverTransport);
+
+    const { Client } = await import("@modelcontextprotocol/client");
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} },
+    );
+    await client.connect(clientTransport);
+
+    const result = await client.callTool({
+      name: "smoke.schemaless",
+      arguments: {},
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(getFirstTextContent(result)).toBe("ok");
+
+    // Regression assertions:
+    // args must be empty object, NOT ServerContext
+    expect(capturedArgs).toEqual({});
+    expect(capturedArgs).not.toHaveProperty("mcpReq");
+    expect(capturedArgs).not.toHaveProperty("sessionId");
+
+    // context must have typed signal and requestId
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedRequestId).toBeDefined();
+
+    await client.close();
+    await serverInstance.close();
+  });
+
+  test("serverInstance.register() binds tools before connect and exposes read-only accessors", async () => {
+    const serverInstance = createLocalMcpServer();
+    expect(serverInstance.isConnected).toBe(false);
+    expect(serverInstance.listTools()).toHaveLength(0);
+
+    serverInstance.register({
+      name: "tool.sample",
+      description: "Sample tool",
+      inputSchema: z.object({ val: z.string() }),
+      handler: async ({ val }) => ({
+        content: [{ type: "text", text: `val:${val}` }],
+      }),
+    });
+
+    expect(serverInstance.hasTool("tool.sample")).toBe(true);
+    expect(serverInstance.getTool("tool.sample")?.description).toBe(
+      "Sample tool",
+    );
+    expect(serverInstance.listTools()).toHaveLength(1);
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await serverInstance.connect(serverTransport);
+    expect(serverInstance.isConnected).toBe(true);
+
+    const { Client } = await import("@modelcontextprotocol/client");
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} },
+    );
+    await client.connect(clientTransport);
+
+    const toolsResult = await client.listTools();
+    expect(toolsResult.tools.map((t) => t.name)).toContain("tool.sample");
+
+    const callResult = await client.callTool({
+      name: "tool.sample",
+      arguments: { val: "tested" },
+    });
+    expect(getFirstTextContent(callResult)).toBe("val:tested");
+
+    await client.close();
+    await serverInstance.close();
+  });
+
+  test("serverInstance.register() rejects duplicate tool names", () => {
+    const serverInstance = createLocalMcpServer();
+    const tool = {
+      name: "tool.duplicate",
+      description: "Tool",
+      inputSchema: z.object({}),
+      handler: async () => ({ content: [] }),
+    };
+
+    serverInstance.register(tool);
+    expect(() => serverInstance.register(tool)).toThrow(DuplicateToolError);
+  });
+
+  test("serverInstance.register() rejects registration after server is connected", async () => {
+    const serverInstance = createLocalMcpServer();
+    const [, serverTransport] = InMemoryTransport.createLinkedPair();
+    await serverInstance.connect(serverTransport);
+
+    expect(() => {
+      serverInstance.register({
+        name: "tool.late",
+        description: "Late registration",
+        inputSchema: z.object({}),
+        handler: async () => ({ content: [] }),
+      });
+    }).toThrow(ServerAlreadyConnectedError);
+
+    await serverInstance.close();
   });
 });

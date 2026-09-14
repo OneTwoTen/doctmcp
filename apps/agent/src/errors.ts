@@ -31,6 +31,13 @@ export class DuplicateToolError extends Error {
   }
 }
 
+export class ServerAlreadyConnectedError extends Error {
+  constructor(message = "Cannot register tools after server is connected") {
+    super(message);
+    this.name = "ServerAlreadyConnectedError";
+  }
+}
+
 export interface StructuredToolError {
   code: ToolErrorCode;
   message: string;
