@@ -21,13 +21,25 @@ Contract dùng direct process execution thay vì ép command qua shell string:
 Quy tắc:
 
 - `command` bắt buộc, không rỗng và không chứa NUL byte.
-- `args` là mảng string, mặc định `[]`; từng argument được truyền trực tiếp cho process, không qua shell reinterpretation.
+- `args` là mảng string, mặc định `[]`; với native executable, từng argument được truyền trực tiếp cho process, không qua shell reinterpretation.
 - `cwd` tương đối với workspace, mặc định root workspace và luôn đi qua workspace resolver với capability `execute`.
 - `timeoutMs` mặc định `30000`; local policy chặn giá trị lớn hơn `120000` theo cấu hình mặc định.
-- M1 không expose `shell: true`, pipeline, redirection hoặc raw shell string. Nếu cần shell syntax thật sau này, phải thêm explicit mode/tool contract và permission riêng thay vì silently chuyển direct exec sang shell.
+- M1 không expose `shell: true`, pipeline, redirection hoặc raw shell string cho MCP caller. Nếu cần shell syntax thật sau này, phải thêm explicit mode/tool contract và permission riêng.
 - Caller không được truyền raw environment map.
 
-Direct execution giảm ambiguity và shell injection, đồng thời vẫn đủ cho `git`, `bun`, `npm`, `cargo`, compiler và phần lớn developer command. `system.which` dùng để kiểm tra executable trước khi chạy khi cần.
+Direct execution giảm ambiguity và shell injection, đồng thời vẫn đủ cho `git`, `bun`, `cargo`, compiler và phần lớn developer command. Trên Windows, `.cmd`/`.bat` shim phổ biến như npm-compatible shims được xử lý bằng bridge nội bộ có validation riêng, không biến contract thành raw shell execution. `system.which` dùng để kiểm tra executable trước khi chạy khi cần.
+
+## Windows batch shim bridge
+
+Windows không thể direct-spawn `.cmd`/`.bat` như native `.exe`. Khi executable đã resolve có extension `.cmd` hoặc `.bat`, runtime dùng `cmd.exe` như một platform bridge nội bộ với các ràng buộc sau:
+
+- bridge không phải mode do MCP caller lựa chọn;
+- command path và args được quote sau khi validation;
+- reject newline, quote và các `cmd.exe` metacharacter/expansion character nguy hiểm trước khi spawn;
+- không bật `shell:true` và không nhận raw shell command string;
+- Windows CI chạy test thật cho `.cmd` shim và case metacharacter bị chặn.
+
+Các argument cần shell metacharacter trên Windows batch shim không thuộc M1; caller phải dùng native executable hoặc một contract shell explicit trong milestone sau.
 
 ## Output
 
@@ -44,16 +56,18 @@ Direct execution giảm ambiguity và shell injection, đồng thời vẫn đ�
 
 Policy mặc định giới hạn tổng stdout + stderr ở `1048576` bytes.
 
-- Khi output chạm giới hạn, runtime chỉ giữ phần đã capture trong budget, terminate process và trả `truncated: true`.
+- Khi output chạm giới hạn, runtime chỉ giữ phần đã capture trong budget, terminate process tree và trả `truncated: true`.
 - `exitCode` có thể là `null` nếu process bị terminate bằng signal.
 - Exit code khác `0` vẫn là process result có cấu trúc, không biến thành `INTERNAL_ERROR`.
 - Output được giữ theo byte budget trước khi decode UTF-8 để memory không tăng không giới hạn.
 
 ## Timeout và cancellation
 
-- Timeout terminate child process và trả domain error `TIMEOUT`.
-- Runtime gửi `SIGTERM` trước, sau một grace period ngắn sẽ thử `SIGKILL` nếu child chưa thoát.
-- Nếu MCP request bị cancel, process được terminate best-effort thông qua `AbortSignal` của tool context.
+- Timeout terminate process tree và trả domain error `TIMEOUT`.
+- Trên POSIX, child được chạy trong process group riêng; runtime gửi `SIGTERM` cho group rồi `SIGKILL` sau grace period nếu cần.
+- Trên Windows, runtime dùng `taskkill /T /F` để terminate process tree; nếu tree kill không khởi động được thì fallback kill direct child.
+- Output-limit và MCP `AbortSignal` dùng cùng process-tree termination path, tránh chỉ kill parent rồi để descendant chạy tiếp.
+- Đây vẫn là best-effort process-tree control, không phải OS sandbox; descendant chủ động tách khỏi process group/job boundary có thể cần sandbox/job manager ở milestone sau.
 - M1 synchronous; không tạo custom `job`.
 
 ## Permission và command policy
@@ -102,12 +116,13 @@ openWorldHint: true
 
 ## Security
 
-- không dùng `eval`, shell concat hoặc implicit `shell:true`;
+- không dùng `eval`, shell concat hoặc caller-controlled implicit `shell:true`;
+- Windows batch bridge chỉ nhận executable đã resolve và args vượt validation chặt, không nhận raw shell string;
 - không inherit toàn bộ environment secret vào child;
 - không log full sensitive args theo mặc định;
 - `cwd` phải qua workspace resolver, không dùng path tùy ý;
 - command denied bị chặn trước spawn;
-- timeout và output limit được áp tại process layer;
+- timeout, output limit và cancellation terminate process tree best-effort;
 - command path/extension được normalize trước khi so deny policy;
 - execute capability không được coi là filesystem sandbox cho process.
 
@@ -120,22 +135,25 @@ openWorldHint: true
 - cwd traversal/symlink escape bị chặn;
 - workspace không có execute permission bị chặn;
 - denied command không spawn;
-- timeout terminate process;
-- output limit được enforce và result đánh dấu `truncated`;
+- timeout terminate process tree;
+- output limit được enforce, terminate descendants và result đánh dấu `truncated`;
+- cancellation qua `AbortSignal` terminate descendants;
 - args chứa space/quote được truyền đúng dưới direct spawn, không bị shell reinterpret;
+- Windows `.cmd` shim chạy được với safe args và metacharacter nguy hiểm bị reject;
 - environment secret tùy ý không được inherit vào child mặc định.
 
 ## Deferred
 
 - interactive stdin/PTY;
-- shell syntax/pipes/redirection;
+- caller-controlled shell syntax/pipes/redirection;
+- unrestricted Windows batch metacharacter arguments;
 - long-running/background job;
 - MCP Tasks integration;
 - process list/kill;
 - streaming stdout;
 - argument-aware command policy;
-- OS-level process sandbox.
+- OS-level process sandbox/job object management.
 
 ## Acceptance criteria
 
-Tool đủ dùng cho developer command phổ biến trong workspace nhưng không mở raw shell string hoặc inherit nguyên environment chỉ để tiện triển khai M1.
+Tool đủ dùng cho developer command phổ biến trong workspace, có coverage Linux + Windows cho process execution trọng yếu, nhưng không mở raw shell string hoặc inherit nguyên environment chỉ để tiện triển khai M1.
