@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { stat } from "node:fs/promises";
+import { win32 } from "node:path";
 import { z } from "zod";
 import { ToolDomainError } from "./errors";
 import type { ToolContext, ToolDefinition } from "./registry";
@@ -31,6 +32,9 @@ const DEFAULT_ENVIRONMENT_ALLOWLIST = [
   "COLORTERM",
   "NO_COLOR",
 ] as const;
+
+const WINDOWS_BATCH_EXTENSION = /\.(cmd|bat)$/i;
+const WINDOWS_BATCH_UNSAFE_TOKEN = /[\r\n"&|<>^%!()]/;
 
 const stringWithoutNullByte = z
   .string()
@@ -71,6 +75,8 @@ type ShellExecTool = ToolDefinition<
 
 type TerminationReason = "timeout" | "output" | "cancelled";
 
+type SpawnedChild = ChildProcess;
+
 interface ProcessResult {
   exitCode: number | null;
   signal: string | null;
@@ -79,6 +85,12 @@ interface ProcessResult {
   durationMs: number;
   truncated: boolean;
   terminationReason?: TerminationReason;
+}
+
+interface SpawnInvocation {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly windowsVerbatimArguments: boolean;
 }
 
 export interface ShellExecToolOptions {
@@ -214,6 +226,141 @@ function processStartError(error: unknown): ToolDomainError {
   return new ToolDomainError("PROCESS_FAILED", "Process could not be started");
 }
 
+function assertSafeWindowsBatchToken(value: string, label: string): void {
+  if (WINDOWS_BATCH_UNSAFE_TOKEN.test(value)) {
+    throw new ToolDomainError(
+      "INVALID_INPUT",
+      `${label} contains characters that are unsafe for Windows batch execution`,
+    );
+  }
+}
+
+function prepareSpawnInvocation(
+  executablePath: string,
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv,
+): SpawnInvocation {
+  if (
+    process.platform !== "win32" ||
+    !WINDOWS_BATCH_EXTENSION.test(executablePath)
+  ) {
+    return {
+      command: executablePath,
+      args,
+      windowsVerbatimArguments: false,
+    };
+  }
+
+  assertSafeWindowsBatchToken(executablePath, "Command path");
+  for (const [index, arg] of args.entries()) {
+    assertSafeWindowsBatchToken(arg, `args[${index}]`);
+  }
+
+  const systemRoot = environment.SystemRoot ?? environment.WINDIR;
+  const comspec =
+    environment.COMSPEC ??
+    (systemRoot ? win32.join(systemRoot, "System32", "cmd.exe") : "cmd.exe");
+  const commandLine = [executablePath, ...args]
+    .map((token) => `"${token}"`)
+    .join(" ");
+
+  return {
+    command: comspec,
+    args: ["/d", "/v:off", "/s", "/c", `"${commandLine}"`],
+    // cmd.exe parses the remainder after /c itself. The tokens above are already
+    // conservatively validated and quoted, so prevent libuv from re-quoting them.
+    windowsVerbatimArguments: true,
+  };
+}
+
+function signalPosixProcessGroup(
+  child: SpawnedChild,
+  signal: NodeJS.Signals,
+): void {
+  const pid = child.pid;
+  if (!pid) {
+    child.kill(signal);
+    return;
+  }
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    child.kill(signal);
+  }
+}
+
+async function terminatePosixProcessTree(
+  child: SpawnedChild,
+  killGraceMs: number,
+): Promise<void> {
+  signalPosixProcessGroup(child, "SIGTERM");
+  await new Promise<void>((resolve) => setTimeout(resolve, killGraceMs));
+  signalPosixProcessGroup(child, "SIGKILL");
+}
+
+function taskkillPath(environment: NodeJS.ProcessEnv): string {
+  const systemRoot = environment.SystemRoot ?? environment.WINDIR;
+  return systemRoot
+    ? win32.join(systemRoot, "System32", "taskkill.exe")
+    : "taskkill.exe";
+}
+
+async function terminateWindowsProcessTree(
+  child: SpawnedChild,
+  environment: NodeJS.ProcessEnv,
+): Promise<void> {
+  const pid = child.pid;
+  if (!pid) {
+    child.kill("SIGKILL");
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (fallback: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (fallback && child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+      resolve();
+    };
+
+    let killer: SpawnedChild;
+    try {
+      killer = spawn(
+        taskkillPath(environment),
+        ["/PID", String(pid), "/T", "/F"],
+        {
+          env: environment,
+          shell: false,
+          stdio: "ignore",
+          windowsHide: true,
+        },
+      );
+    } catch {
+      finish(true);
+      return;
+    }
+
+    killer.once("error", () => finish(true));
+    killer.once("close", (code) => finish(code !== 0));
+  });
+}
+
+function terminateProcessTree(
+  child: SpawnedChild,
+  options: ResolvedShellExecOptions,
+  environment: NodeJS.ProcessEnv,
+): Promise<void> {
+  if (process.platform === "win32") {
+    return terminateWindowsProcessTree(child, environment);
+  }
+  return terminatePosixProcessTree(child, options.killGraceMs);
+}
+
 async function runProcess(
   command: string,
   args: readonly string[],
@@ -230,6 +377,8 @@ async function runProcess(
     );
   }
 
+  const invocation = prepareSpawnInvocation(command, args, environment);
+
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const stdoutChunks: Buffer[] = [];
@@ -237,18 +386,20 @@ async function runProcess(
     let capturedBytes = 0;
     let truncated = false;
     let terminationReason: TerminationReason | undefined;
+    let terminationPromise: Promise<void> | undefined;
     let settled = false;
     let closed = false;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
 
-    let child: ReturnType<typeof spawn>;
+    let child: SpawnedChild;
     try {
-      child = spawn(command, [...args], {
+      child = spawn(invocation.command, [...invocation.args], {
         cwd,
         env: environment,
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+        detached: process.platform !== "win32",
       });
     } catch (error) {
       reject(processStartError(error));
@@ -259,17 +410,15 @@ async function runProcess(
       if (!terminationReason) {
         terminationReason = reason;
       }
-      if (closed) {
+      if (
+        closed ||
+        child.exitCode !== null ||
+        child.signalCode !== null ||
+        terminationPromise
+      ) {
         return;
       }
-      child.kill("SIGTERM");
-      if (!killTimer) {
-        killTimer = setTimeout(() => {
-          if (!closed) {
-            child.kill("SIGKILL");
-          }
-        }, options.killGraceMs);
-      }
+      terminationPromise = terminateProcessTree(child, options, environment);
     };
 
     const appendOutput = (chunk: unknown, target: Buffer[]): void => {
@@ -303,9 +452,6 @@ async function runProcess(
 
     const cleanup = (): void => {
       clearTimeout(timeout);
-      if (killTimer) {
-        clearTimeout(killTimer);
-      }
       signal.removeEventListener("abort", onAbort);
     };
 
@@ -323,20 +469,25 @@ async function runProcess(
 
     child.once("close", (exitCode, processSignal) => {
       closed = true;
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      resolve({
-        exitCode,
-        signal: processSignal,
-        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-        stderr: Buffer.concat(stderrChunks).toString("utf8"),
-        durationMs: Math.max(0, Date.now() - startedAt),
-        truncated,
-        ...(terminationReason ? { terminationReason } : {}),
-      });
+      void (async () => {
+        if (terminationPromise) {
+          await terminationPromise;
+        }
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve({
+          exitCode,
+          signal: processSignal,
+          stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+          stderr: Buffer.concat(stderrChunks).toString("utf8"),
+          durationMs: Math.max(0, Date.now() - startedAt),
+          truncated,
+          ...(terminationReason ? { terminationReason } : {}),
+        });
+      })();
     });
   });
 }
