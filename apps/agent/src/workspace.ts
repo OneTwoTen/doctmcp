@@ -1,5 +1,13 @@
 import { lstat, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
+import {
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+  win32,
+} from "node:path";
 import { z } from "zod";
 import { ToolDomainError } from "./errors";
 import type { ToolDefinition } from "./registry";
@@ -224,10 +232,21 @@ export class WorkspacePathResolver {
         // A missing path is handled by the caller that performs the operation.
       }
     }
+    let finalEntryParentInsideWorkspace = false;
+    if (finalEntryIsSymlink) {
+      try {
+        finalEntryParentInsideWorkspace = isPathInside(
+          workspace.root,
+          await realpath(dirname(operationPath)),
+        );
+      } catch {
+        finalEntryParentInsideWorkspace = false;
+      }
+    }
     const mayUnlinkOutsideSymlink =
       capability === "delete" &&
       finalEntryIsSymlink &&
-      isPathInside(workspace.root, operationPath);
+      finalEntryParentInsideWorkspace;
     if (!canonicalInsideWorkspace && !mayUnlinkOutsideSymlink) {
       throw new ToolDomainError(
         "PATH_OUTSIDE_WORKSPACE",

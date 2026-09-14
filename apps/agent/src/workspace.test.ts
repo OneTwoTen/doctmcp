@@ -349,6 +349,39 @@ describe("WorkspacePathResolver and PermissionChecker", () => {
     expect((await lstat(resolved.operationPath)).isSymbolicLink()).toBe(true);
   });
 
+  test("rejects deleting a symlink whose parent escapes through an ancestor symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-intermediate-link-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "doctmcp-intermediate-target-"),
+    );
+    roots.push(root, outside);
+    const target = join(outside, "target.txt");
+    const victimLink = join(outside, "victim-link.txt");
+    await writeFile(target, "target");
+    try {
+      await symlink(target, victimLink);
+      await symlink(outside, join(root, "out"));
+    } catch {
+      return;
+    }
+    const registry = await WorkspaceRegistry.create([
+      {
+        id: "project",
+        name: "Project",
+        root,
+        capabilities: { read: true, delete: true },
+      },
+    ]);
+
+    await expect(
+      new WorkspacePathResolver(registry).resolve(
+        "project",
+        "out/victim-link.txt",
+        "delete",
+      ),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
+  });
+
   test("denies configured subtree before capability", async () => {
     const { registry } = await setup();
     const resolver = new WorkspacePathResolver(registry);

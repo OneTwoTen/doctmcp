@@ -89,7 +89,7 @@ Resolver phải giữ riêng hai path sau khi kiểm tra:
 
 Với destructive operation, nếu path cuối là symlink thì dùng `operationPath` để xoá chính symlink, không dùng `canonicalPath` vì giá trị đó trỏ tới target.
 
-Deny subtree được áp dụng trên cả `operationPath` và `canonicalPath`. Vì vậy symlink từ vùng được phép vào vùng deny, hoặc từ vùng deny ra vùng được phép, đều không thể bypass policy. Ngoại lệ duy nhất là `delete` một symlink cuối nằm trong workspace: resolver cho phép unlink entry symlink đó, nhưng vẫn áp deny theo `operationPath` và không cho phép symlink nằm trong deny subtree.
+Deny subtree được áp dụng trên cả `operationPath` và `canonicalPath`. Vì vậy symlink từ vùng được phép vào vùng deny, hoặc từ vùng deny ra vùng được phép, đều không thể bypass policy. Ngoại lệ duy nhất là `delete` một symlink cuối nằm trong workspace: resolver chỉ cho phép unlink khi parent thực của entry symlink, sau khi `realpath(dirname(operationPath))`, vẫn nằm trong workspace; vẫn áp deny theo `operationPath` và không cho phép symlink nằm trong deny subtree.
 
 Không kiểm tra policy bằng string prefix đơn giản vì dễ lỗi với sibling prefix, separator và symlink.
 
