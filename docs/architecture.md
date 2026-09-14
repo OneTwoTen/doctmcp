@@ -35,12 +35,14 @@ ChatGPT / MCP client
 │       Local MCP Runtime      │
 │                              │
 │ MCP server                   │
-│ Permission engine            │
+│ Workspace/Permission engine  │
 │ Tool registry                │
-│ ├─ system.*                  │
-│ ├─ filesystem.*              │
-│ ├─ shell.*                   │
-│ └─ git.*                     │
+│ ├─ workspace                 │
+│ ├─ system                    │
+│ ├─ filesystem.read           │
+│ ├─ filesystem.write          │
+│ ├─ filesystem.delete         │
+│ └─ shell.exec                │
 └──────────────────────────────┘
 ```
 
@@ -57,8 +59,9 @@ Thành phần này chịu trách nhiệm:
 - chạy MCP server;
 - đăng ký local tools;
 - validate input của tool;
+- quản lý workspace registry/path resolver;
 - enforce permission tại local;
-- thực thi filesystem/process/system/git capability;
+- thực thi filesystem/process/system capability;
 - kết nối custom transport tới public server ở M2;
 - lưu device credential ở các milestone sau.
 
@@ -103,25 +106,33 @@ Dự án không tự tạo thêm `command.request`, `command.result` hoặc RPC 
 
 Control plane không được trở thành protocol thực thi tool song song với MCP.
 
-## Luồng M1 — Local MCP
+## M1 — Local MCP
+
+M1 là ưu tiên hiện tại.
 
 ```text
 MCP test client
       │
-      │ MCP transport dùng trong test/local
+      │ initialize / tools/list / tools/call
       ▼
 Local MCP server
       │
-      ├─ tools/list
-      └─ tools/call
-             │
-             ▼
-        local tool
+      ├─ Tool registry
+      ├─ Schema validation
+      ├─ Workspace/path resolver
+      ├─ Permission engine
+      └─ Tool handlers
 ```
 
-Acceptance tối thiểu của M1 là test được discovery và call tool thật mà không phụ thuộc public server.
+Catalog M1 cố ý chỉ có 6 tool. Tool là capability/risk boundary; action chỉ nhóm thao tác cùng bản chất.
 
-## Luồng M2 — Server gọi local
+Chi tiết contract nằm tại [`specs/2026-09-14-m1-local-mcp-design.md`](specs/2026-09-14-m1-local-mcp-design.md) và [`tools/`](tools/README.md).
+
+### Không thuộc local catalog M1
+
+`device` là control/public concern ở milestone sau. `job`, `process`, `git.*`, `docker.*` chưa cần để chứng minh Local MCP. Long-running execution sau này ưu tiên đánh giá MCP Tasks thay vì tự tạo RPC/job protocol riêng.
+
+## M2 — Server gọi local
 
 ```text
 Public server
@@ -143,14 +154,23 @@ local tool
 
 Custom WebSocket transport chỉ chịu trách nhiệm chuyển MCP message qua kết nối đã có. Nó không định nghĩa lại `tools/list`, `tools/call` hoặc result format.
 
+## Security boundary
+
+- Workspace root là boundary đầu tiên cho filesystem/cwd.
+- Path resolver phải chống traversal, symlink escape và sibling-prefix bug.
+- Permission được enforce tại local, không tin public server tuyệt đối.
+- `delete` là capability destructive riêng.
+- `shell.exec` dùng direct spawn trong M1, có timeout/output limit và command policy.
+- MCP tool annotations hỗ trợ mô tả risk nhưng không phải authorization.
+
 ## Nguyên tắc mở rộng
 
 - Tách tool implementation khỏi transport.
 - Tách MCP semantics khỏi device/session control plane.
 - Không thêm database, queue, Redis hoặc service riêng trước khi M1/M2 chứng minh nhu cầu thật.
 - Không khóa framework HTTP public server ở M1 khi chưa cần HTTP endpoint production.
-- Security boundary quan trọng phải được enforce tại local ngay cả khi public server đã validate.
 - Breaking change của custom bridge/control plane phải có version/compatibility strategy riêng; không trộn version này với MCP protocol version.
+- Thêm tool mới dựa trên semantic/permission boundary, không dựa trên mục tiêu làm `tools/list` ngắn bằng mọi giá.
 
 ## Phần chưa chốt
 
@@ -161,6 +181,8 @@ Các quyết định sau chưa cần khóa ở M1:
 - cơ chế user authentication của public endpoint;
 - persistence/audit log;
 - installer/tray/auto-update cho local runtime;
-- UX chọn nhiều thiết bị trong ChatGPT.
+- UX chọn nhiều thiết bị trong ChatGPT;
+- shell mode/PTY/streaming;
+- MCP Tasks integration cho long-running command.
 
 Chỉ chốt khi milestone tương ứng cần tới để tránh over-design.

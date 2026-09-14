@@ -9,9 +9,23 @@ Thư mục này là nguồn tài liệu chính của dự án. Tài liệu mặc
 - [development.md](development.md): chuẩn bị máy, lệnh local, test và quy ước phát triển.
 - [agent-workflow.md](agent-workflow.md): quy trình làm việc cho feature nhiều bước hoặc thay đổi kiến trúc.
 
+## M1 — Local MCP
+
+Tài liệu chi tiết cho milestone đang ưu tiên:
+
+- [spec M1 Local MCP](specs/2026-09-14-m1-local-mcp-design.md): catalog 6 tool, boundary, schema, error và acceptance criteria.
+- [tool catalog](tools/README.md): mục lục contract từng MCP tool.
+- [workspace](tools/workspace.md)
+- [system](tools/system.md)
+- [filesystem.read](tools/filesystem-read.md)
+- [filesystem.write](tools/filesystem-write.md)
+- [filesystem.delete](tools/filesystem-delete.md)
+- [shell.exec](tools/shell-exec.md)
+- [test strategy M1](testing/m1-local-mcp.md): schema/unit, integration và MCP contract test.
+
 ## Contract và vận hành
 
-- [protocol.md](protocol.md): ranh giới giữa MCP và protocol control plane riêng của doctmcp.
+- [protocol.md](protocol.md): ranh giới giữa MCP data plane và protocol control plane riêng của doctmcp.
 - [security.md](security.md): trust boundary và yêu cầu bảo mật.
 - [permissions.md](permissions.md): permission model được enforce tại local.
 - [pairing.md](pairing.md): thiết kế pairing thiết bị cho giai đoạn sau.
@@ -48,7 +62,7 @@ Không cần tạo artifact nặng cho mọi thay đổi nhỏ.
 
 - Thay đổi nhỏ, cục bộ: issue/task + test + tài liệu liên quan là đủ.
 - Feature mới hoặc subsystem mới: nên có spec trước implementation.
-- Công việc nhiều bước: nên có plan ánh xạ acceptance criteria sang task/test.
+- Công việc nhiều bước: issue breakdown hoặc plan phải ánh xạ acceptance criteria sang task/test.
 - Thay đổi kiến trúc dài hạn: tạo decision note.
 - Khi task kéo dài qua nhiều phiên/PR: thêm history note hoặc `History` trong spec/plan/decision.
 

@@ -1,103 +1,140 @@
 # Permission model
 
-Permission được enforce tại **local MCP runtime** trước khi tool implementation thật được thực thi.
+Permission được enforce tại **local MCP runtime trước khi operation chạm filesystem hoặc spawn process**. Permission của public server/MCP client không thay thế boundary này.
 
-## Mục tiêu
+## Nguyên tắc
 
-Permission layer phải bảo vệ máy local ngay cả khi:
+- MCP annotations chỉ là metadata/risk hint cho client.
+- Local policy là nguồn quyết định cuối cùng.
+- Deny ưu tiên cao hơn allow.
+- Path phải normalize/canonicalize trước khi so policy.
+- Symlink không được dùng để thoát workspace/root đã cho phép.
+- Capability chưa cấu hình phải mặc định deny nếu có side effect đáng kể.
 
-- public server gửi request sai;
-- một MCP client gọi tool ngoài ý định;
-- public server bị compromise;
-- tool input cố vượt ra ngoài workspace/path được phép.
+## Workspace
 
-## Capability groups
-
-Ban đầu chia capability theo mức tác động:
-
-- `read`: đọc metadata hoặc nội dung, không thay đổi hệ thống.
-- `write`: tạo/sửa/xóa dữ liệu.
-- `execute`: chạy process/command hoặc hành động có side effect rộng.
-
-Capability chưa cấu hình mà có side effect đáng kể phải mặc định **deny**.
-
-## Filesystem
-
-Policy nên hỗ trợ allow/deny root theo canonical path.
-
-Ví dụ conceptual:
+Workspace là root local đã cấu hình với capability riêng:
 
 ```yaml
-filesystem:
-  allow:
-    - ~/Projects
-    - ~/Documents
-  deny:
-    - ~/.ssh
-    - ~/.aws
-    - ~/.gnupg
+workspaces:
+  doctmcp:
+    path: ~/Projects/doctmcp
+    permissions:
+      read: true
+      write: true
+      delete: false
+      execute: true
 ```
 
-Quy tắc:
+Các tool filesystem/shell nhận workspace id và path/cwd tương đối thay vì tự chọn arbitrary root.
 
-- normalize/canonicalize path trước khi so policy;
-- deny có ưu tiên cao hơn allow;
-- không chỉ kiểm tra string prefix;
-- phải xem xét symlink khi target thật có thể nằm ngoài allow root;
-- read/write/delete có thể có policy riêng nếu cần.
+## Capability M1
 
-## Shell
+### `read`
 
-Không coi shell command là an toàn chỉ vì command bắt đầu bằng một prefix được allow.
+Cho phép:
 
-`shell.exec` cần thiết kế tối thiểu cho:
+- `workspace.list/get` chỉ đọc registry metadata;
+- `filesystem.read` read/list/stat/search trên workspace được phép.
 
-- enabled/disabled rõ ràng;
-- cwd được phép;
-- timeout;
-- output limit;
-- environment allow/filter;
-- structured exit code;
-- policy hoặc approval cho command nhạy cảm.
+`system` là capability read-only riêng của runtime và không cho phép đọc environment secret.
 
-Blacklist command nguy hiểm chỉ có thể là defense-in-depth, không phải security model chính.
+### `write`
 
-## Tool discovery và permission
+Cho phép `filesystem.write` với guard của từng action. `overwrite` vẫn mặc định false dù workspace có write permission.
 
-Có hai chiến lược khả thi:
+### `delete`
 
-1. Tool vẫn xuất hiện trong `tools/list`, nhưng `tools/call` có thể bị deny theo input/policy.
-2. Tool/capability bị ẩn khỏi discovery khi device policy tắt hoàn toàn capability đó.
+Nên là capability riêng, không suy ra tự động từ `write`. `filesystem.delete` luôn phải qua destructive guard; workspace root không được xoá trong mọi trường hợp M1.
 
-M1 ưu tiên behavior đơn giản, dễ test. Quyết định dynamic discovery chỉ cần khóa khi có use case rõ ràng.
+### `execute`
 
-## Structured denial
+Cho phép `shell.exec` trong workspace. Execute permission không có nghĩa mọi executable/argument đều được phép; command policy có thể deny thêm.
 
-Permission denial phải trả structured tool error đủ để caller hiểu nguyên nhân ở mức an toàn, ví dụ:
+## Path allow/deny
+
+Ngoài workspace root, policy có thể có deny subtree:
+
+```yaml
+workspaces:
+  home-projects:
+    path: ~/Projects
+    permissions:
+      read: true
+      write: true
+      delete: false
+      execute: true
+    deny:
+      - secret-project
+      - shared/credentials
+```
+
+Resolver chuẩn:
 
 ```text
-permission_denied
-path_not_allowed
-shell_disabled
-timeout
+workspace id
+ -> workspace root
+ -> join relative path
+ -> normalize/canonicalize
+ -> containment check
+ -> deny rules
+ -> capability check
+ -> operation
 ```
 
-Không trả policy nội bộ chi tiết đến mức làm lộ secret/path nhạy cảm nếu không cần.
+Không kiểm tra policy bằng string prefix đơn giản vì dễ lỗi với sibling prefix, separator và symlink.
 
-## Test bắt buộc
+## Filesystem safety defaults
 
-Mỗi capability nhạy cảm phải có test denial tương ứng.
+- `filesystem.write/write`: `overwrite: false` mặc định.
+- `filesystem.write/move`: `overwrite: false` mặc định.
+- `filesystem.delete`: `recursive: false` mặc định.
+- Không có `force` trong M1.
+- Không implicit create parent directory.
+- Đọc/search có byte/result/depth limit.
 
-Filesystem tối thiểu:
+## Shell policy
 
-- path trong allow root;
-- path ngoài allow root;
-- path trong deny root;
-- traversal/symlink case quan trọng.
+M1 dùng direct process execution:
 
-Shell tối thiểu:
+```json
+{
+  "command": "git",
+  "args": ["status", "--short"]
+}
+```
 
-- shell disabled;
-- cwd không được phép;
-- timeout;
-- output limit.
+Không tạo command string bằng concat/eval. Command policy có thể cấu hình:
+
+```yaml
+shell:
+  enabled: true
+  denyCommands:
+    - sudo
+    - shutdown
+    - reboot
+  timeoutMs: 30000
+  maxTimeoutMs: 120000
+  maxOutputBytes: 1048576
+```
+
+Policy phải kiểm tra executable đã resolve, không chỉ prefix của một chuỗi command. Các lệnh có network/side effect rộng vẫn có thể chạy nếu user chủ động cấp execute permission; dự án không giả định mọi shell command là an toàn.
+
+## Error và logging
+
+Denied operation trả `PERMISSION_DENIED` hoặc error domain tương ứng. Không log token, environment secret, file content đầy đủ hoặc command arguments nhạy cảm theo mặc định.
+
+## Test boundary bắt buộc
+
+- traversal `..`;
+- absolute-path escape;
+- symlink escape;
+- sibling-prefix trap;
+- deny subtree;
+- write khi chỉ có read;
+- delete khi delete=false;
+- execute khi execute=false;
+- denied command không được spawn;
+- workspace root delete luôn bị chặn.
+
+Xem chi tiết test tại [`testing/m1-local-mcp.md`](testing/m1-local-mcp.md).

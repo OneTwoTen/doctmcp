@@ -4,30 +4,71 @@ Roadmap này mô tả thứ tự triển khai đã chốt. Mục tiêu là giả
 
 ## M1 — Local MCP
 
-Mục tiêu: local runtime hoạt động như một MCP server hoàn chỉnh ở mức tối thiểu.
+**Ưu tiên hiện tại.** Mục tiêu: local runtime hoạt động như một MCP server hoàn chỉnh ở mức tối thiểu và test được offline bằng MCP client thật.
 
-Phạm vi đầu tiên:
+Catalog M1 chốt 6 tool theo capability/risk boundary:
 
-- khởi tạo MCP server;
-- tool registry;
-- `system.info`;
-- `filesystem.list`;
-- `filesystem.read`;
-- `filesystem.write`;
-- `shell.exec` ở mức an toàn đủ cho development;
-- permission layer cơ bản;
-- test `tools/list`;
-- test `tools/call` cho từng nhóm tool quan trọng.
+```text
+workspace
+  ├─ list
+  └─ get
+
+system
+  ├─ info
+  └─ which
+
+filesystem.read
+  ├─ read
+  ├─ list
+  ├─ stat
+  └─ search
+
+filesystem.write
+  ├─ write
+  ├─ patch
+  ├─ mkdir
+  └─ move
+
+filesystem.delete
+
+shell.exec
+```
+
+Phạm vi nền:
+
+- MCP server + tool registry;
+- schema/action validation;
+- workspace registry + path resolver;
+- permission layer local;
+- structured tool result/error;
+- timeout/output limit cho shell;
+- temp-workspace integration test;
+- MCP `tools/list` + `tools/call` contract test;
+- loại bỏ `command.request` / `command.result` khỏi vai trò tool-execution protocol trong scaffold.
+
+Không thuộc M1:
+
+- `device` tool;
+- custom `job` manager;
+- process manager;
+- Git/Docker/database tools;
+- WebSocket bridge;
+- pairing/database/public server/ChatGPT.
+
+Tài liệu chi tiết: [`specs/2026-09-14-m1-local-mcp-design.md`](specs/2026-09-14-m1-local-mcp-design.md), [`tools/`](tools/README.md), [`testing/m1-local-mcp.md`](testing/m1-local-mcp.md).
 
 Acceptance criteria:
 
-- test client kết nối được local MCP server;
-- `tools/list` trả đúng tool/schema;
-- `tools/call` thực thi được tool và trả structured result;
-- invalid input trả lỗi có cấu trúc;
-- filesystem denied path bị chặn tại local;
-- shell có timeout và output limit tối thiểu trước khi bật rộng;
-- test không cần public server hoặc ChatGPT.
+- test client initialize được local MCP server;
+- `tools/list` trả đúng 6 tool/schema/annotations;
+- mỗi tool có success call qua MCP protocol thật;
+- invalid input trả lỗi có cấu trúc mà server không crash;
+- path traversal + symlink escape bị chặn;
+- denied path/capability bị chặn tại local;
+- delete không thể xoá workspace root;
+- shell có timeout/output limit và không dùng implicit raw shell string;
+- test không cần public server, Internet hoặc ChatGPT;
+- `bun run check`, typecheck và test xanh.
 
 ## M2 — Public server gọi local MCP
 
@@ -49,7 +90,7 @@ Acceptance criteria:
 ```text
 server MCP client
     -> tools/list
-    -> tools/call system.info
+    -> tools/call system/info
     -> nhận result từ local
 ```
 
@@ -70,6 +111,8 @@ Phạm vi dự kiến:
 - reconnect/backoff;
 - nhiều thiết bị trên cùng user;
 - device routing.
+
+`device.list/get/ping` nếu cần expose cho model/client thuộc public/control-plane surface ở milestone sau, không phải local M1 tool catalog.
 
 Security test phải bao gồm expired/reused pairing code và credential bị revoke.
 
@@ -106,10 +149,12 @@ Phạm vi dự kiến:
 
 Chỉ cân nhắc sau khi M1–M5 ổn định:
 
-- Git tools nâng cao;
+- Git tools nâng cao (`git.read`, `git.write`);
 - process management;
 - Docker tools;
 - database tools;
+- shell mode/PTY/streaming;
+- long-running execution; ưu tiên đánh giá MCP Tasks trước khi tự tạo `job` protocol;
 - local tool plugin system;
 - desktop tray;
 - auto-update;
@@ -122,5 +167,6 @@ Chỉ cân nhắc sau khi M1–M5 ổn định:
 
 - Không kéo dependency của milestone sau vào milestone trước nếu chưa cần.
 - Mỗi milestone phải có acceptance test độc lập.
+- Tool catalog tối ưu semantic/permission boundary, không tối ưu số lượng tool một cách máy móc.
 - Ưu tiên vertical proof nhỏ nhưng chạy thật hơn scaffold lớn chưa có behavior.
-- Khi thay đổi thứ tự hoặc ranh giới milestone, cập nhật decision note tương ứng nếu đó là thay đổi kiến trúc dài hạn.
+- Khi thay đổi thứ tự hoặc ranh giới milestone, cập nhật decision/spec tương ứng nếu đó là thay đổi kiến trúc dài hạn.
