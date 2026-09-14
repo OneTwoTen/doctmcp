@@ -4,9 +4,9 @@ Roadmap này mô tả thứ tự triển khai đã chốt. Mục tiêu là giả
 
 ## M1 — Local MCP
 
-**Ưu tiên hiện tại. Tiến độ trên `main`: 6/8 work item hoàn thành; M1.7 / #8 đang triển khai qua PR #16.** Mục tiêu: local runtime hoạt động như một MCP server hoàn chỉnh ở mức tối thiểu và test được offline bằng MCP client thật.
+**Implementation đã đủ 8/8 work item. Issue #9 là quality gate cuối để khóa M1 bằng MCP acceptance suite và toàn bộ repository checks.** Mục tiêu của milestone là local runtime hoạt động như một MCP server hoàn chỉnh ở mức tối thiểu và test được offline bằng MCP client thật.
 
-Đã hoàn thành trên `main`:
+Các work item M1:
 
 - ✅ M1.1 / #2 — Local MCP server, tool registry và protocol scaffold cleanup qua PR #10.
 - ✅ M1.2 / #3 — Workspace registry, path resolver và permission core qua PR #11.
@@ -14,12 +14,8 @@ Roadmap này mô tả thứ tự triển khai đã chốt. Mục tiêu là giả
 - ✅ M1.4 / #5 — Tool `filesystem.read` (`read`, `list`, `stat`, `search`) qua PR #13.
 - ✅ M1.5 / #6 — Tool `filesystem.write` (`write`, `patch`, `mkdir`, `move`) qua PR #14.
 - ✅ M1.6 / #7 — Tool destructive `filesystem.delete` qua PR #15.
-
-Đang triển khai:
-
-- 🚧 M1.7 / #8 — Tool `shell.exec` với direct spawn, timeout, output limit, execute permission và local command/environment policy qua PR #16.
-
-**Bước tiếp theo sau khi #8 merge:** M1.8 / #9 — chạy MCP contract/acceptance test toàn M1 và khóa milestone.
+- ✅ M1.7 / #8 — Tool `shell.exec` với direct spawn, timeout, output limit, execute permission, process-tree hardening và Windows regression coverage qua PR #16.
+- 🚧 M1.8 / #9 — MCP contract/acceptance suite toàn M1; implementation đã có trên branch của issue và chỉ được coi là hoàn tất sau khi quality gate xanh.
 
 Catalog M1 chốt 6 tool theo capability/risk boundary:
 
@@ -58,7 +54,7 @@ Phạm vi nền:
 - structured tool result/error;
 - timeout/output limit cho shell;
 - temp-workspace integration test;
-- MCP `tools/list` + `tools/call` contract test;
+- MCP `tools/list` + `tools/call` acceptance test;
 - loại bỏ `command.request` / `command.result` khỏi vai trò tool-execution protocol trong scaffold.
 
 Không thuộc M1:
@@ -82,8 +78,11 @@ Acceptance criteria:
 - denied path/capability bị chặn tại local;
 - delete không thể xoá workspace root;
 - shell có timeout/output limit và không dùng implicit raw shell string;
+- process-tree/cross-platform regression từ #8 tiếp tục xanh;
 - test không cần public server, Internet hoặc ChatGPT;
-- `bun run check`, typecheck và test xanh.
+- `bun run check`, `bun run typecheck`, `bun test` xanh.
+
+Sau khi #9 đạt quality gate và merge, **M2 là milestone phát triển tiếp theo**.
 
 ## M2 — Public server gọi local MCP
 
