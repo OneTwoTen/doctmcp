@@ -64,7 +64,10 @@ const shellExecOutput = z.object({
   truncated: z.boolean(),
 });
 
-type ShellExecTool = ToolDefinition<typeof shellExecInput, typeof shellExecOutput>;
+type ShellExecTool = ToolDefinition<
+  typeof shellExecInput,
+  typeof shellExecOutput
+>;
 
 type TerminationReason = "timeout" | "output" | "cancelled";
 
@@ -109,11 +112,14 @@ function positiveInteger(value: number, name: string): number {
 function normalizeCommandName(command: string): string {
   const normalized = command.trim().replaceAll("\\", "/");
   const lastSlash = normalized.lastIndexOf("/");
-  const basename = lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
+  const basename =
+    lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
   return basename.replace(/\.(exe|cmd|bat|com)$/i, "").toLowerCase();
 }
 
-function resolveOptions(options: ShellExecToolOptions): ResolvedShellExecOptions {
+function resolveOptions(
+  options: ShellExecToolOptions,
+): ResolvedShellExecOptions {
   const defaultTimeoutMs = positiveInteger(
     options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS,
     "defaultTimeoutMs",
@@ -218,7 +224,10 @@ async function runProcess(
   signal: AbortSignal,
 ): Promise<ProcessResult> {
   if (signal.aborted) {
-    throw new ToolDomainError("PROCESS_FAILED", "Process execution was cancelled");
+    throw new ToolDomainError(
+      "PROCESS_FAILED",
+      "Process execution was cancelled",
+    );
   }
 
   return new Promise((resolve, reject) => {
@@ -267,7 +276,9 @@ async function runProcess(
       if (truncated) {
         return;
       }
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      const buffer = Buffer.isBuffer(chunk)
+        ? chunk
+        : Buffer.from(String(chunk));
       const remaining = options.maxOutputBytes - capturedBytes;
       if (remaining <= 0) {
         truncated = true;
