@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PROTOCOL_VERSION, type CommandRequest } from "./index";
+import { type CommandRequest, PROTOCOL_VERSION } from "./index";
 
 describe("protocol", () => {
   test("starts at protocol version 1", () => {
