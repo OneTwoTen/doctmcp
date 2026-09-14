@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2) đến M1.6 (#7) đã hoàn tất trên `main`; workspace registry, path resolver, permission core và các tool `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete` đã có trong codebase. M1.7 / #8 (`shell.exec`) đang triển khai qua PR #16; M1.8 / #9 là acceptance test cuối milestone. Public server, device pairing và ChatGPT thuộc milestone sau.
+**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2) đến M1.7 (#8) đã hoàn tất trên `main`; workspace registry, path resolver, permission core và đủ 6 tool `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec` đã có trong codebase. M1.8 / #9 là acceptance test cuối và là work item duy nhất còn lại trước khi khóa M1. Public server, device pairing và ChatGPT thuộc milestone sau.
 
 ## Mục tiêu
 
@@ -128,11 +128,12 @@ Khai báo annotations từ đầu khi SDK hỗ trợ:
 
 M1 chỉ cần execution đồng bộ có giới hạn:
 
-- direct process spawn bằng `command` + `args`, không implicit raw shell string hoặc `shell:true`;
+- native executable dùng direct process spawn bằng `command` + `args`, không implicit raw shell string hoặc expose `shell:true` cho caller;
+- Windows `.cmd`/`.bat` shim dùng constrained `cmd.exe` bridge nội bộ với validation chặt, không biến API thành raw shell mode;
 - `cwd` phải resolve qua workspace với capability `execute`;
 - timeout bắt buộc có default và max;
 - stdout/stderr có output limit;
-- process phải được terminate khi timeout/cancel và khi output vượt policy hiện hành;
+- timeout, cancel và output-limit phải terminate process tree best-effort, không chỉ direct child;
 - environment child dùng local allowlist, không inherit toàn bộ `process.env` mặc định;
 - executable phải được resolve trước spawn và command deny policy phải kiểm tra tên đã normalize/resolved, không chỉ prefix của raw command string;
 - exit code khác `0` vẫn là structured process result.
@@ -184,4 +185,4 @@ Không mock MCP layer cho acceptance test cuối M1.
 | 2026-09-14 | Hoàn tất issue #5 với tool `filesystem.read` qua PR #13 | Bổ sung read/list/stat/search có output limits, UTF-8 boundary và symlink/deny hardening | complete |
 | 2026-09-14 | Hoàn tất issue #6 với tool `filesystem.write` qua PR #14 | Bổ sung capability thay đổi filesystem với no-clobber, permission boundary và MCP contract coverage | complete |
 | 2026-09-14 | Hoàn tất issue #7 với tool `filesystem.delete` qua PR #15 | Tách destructive capability và khóa root/recursive/symlink/deny boundary | complete |
-| 2026-09-14 | Triển khai issue #8 với `shell.exec` qua PR #16 | Bổ sung direct process execution có execute permission, timeout, bounded output, command và environment policy | in-progress |
+| 2026-09-14 | Hoàn tất issue #8 với `shell.exec` qua PR #16 | Bổ sung bounded execution, execute permission, cross-platform process-tree termination, constrained Windows batch bridge và CI Windows | complete |
