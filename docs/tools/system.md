@@ -1,5 +1,10 @@
 # `system`
 
+## Trạng thái
+
+Đã triển khai trong issue #4: MCP tool `system` với hai action `info` và `which`,
+bao gồm schema, structured result, annotation read-only và kiểm thử qua MCP.
+
 ## Mục đích
 
 `system` cung cấp thông tin máy local và khả năng tra executable theo cách read-only. Tool này không quản lý process và không thay đổi hệ thống.

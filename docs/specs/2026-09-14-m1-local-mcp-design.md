@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2), M1.2 (#3) và M1.5 (#6) đã hoàn tất; workspace registry, path resolver, permission core, tool `workspace` và tool `filesystem.write` đã có trên `main`. Các tool `system`, `filesystem.read`, `filesystem.delete`, `shell.exec`, public server, device pairing và ChatGPT chưa được merge vào `main`.
+**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2), M1.2 (#3), M1.3 (#4) và M1.5 (#6) đã hoàn tất; workspace registry, path resolver, permission core, tool `workspace`, tool `system` và tool `filesystem.write` đã có trên `main` sau khi các PR tương ứng được merge. Các filesystem/shell tool còn lại, public server, device pairing và ChatGPT chưa có.
 
 ## Mục tiêu
 
@@ -179,3 +179,4 @@ Không mock MCP layer cho acceptance test cuối M1.
 | 2026-09-14 | Chốt Local MCP-first và catalog 6 tool theo capability/risk boundary | Giảm scope, dễ test trước khi thêm transport và ChatGPT | approved |
 | 2026-09-14 | Hoàn tất issue #3 ở lớp workspace/permission foundation qua PR #11 | Tạo boundary dùng chung trước khi triển khai filesystem và shell tool | complete |
 | 2026-09-14 | Hoàn tất issue #6 với tool `filesystem.write` qua PR #14 | Bổ sung capability thay đổi filesystem với no-clobber, permission boundary và MCP contract coverage | complete |
+| 2026-09-14 | Hoàn tất issue #4 với tool `system` (`info`, `which`) | Bổ sung capability read-only tiếp theo trên Local MCP foundation | complete |
