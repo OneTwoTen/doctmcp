@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import {
-  createShellExecTool,
-  type ShellExecToolOptions,
-} from "./shell-exec";
+import { createShellExecTool, type ShellExecToolOptions } from "./shell-exec";
 import { createMcpTestHarness } from "./test-harness";
-import {
-  type WorkspaceCapabilities,
-  WorkspaceRegistry,
-} from "./workspace";
+import { type WorkspaceCapabilities, WorkspaceRegistry } from "./workspace";
 
 describe("shell.exec", () => {
   const roots: string[] = [];
@@ -96,10 +97,7 @@ describe("shell.exec", () => {
       arguments: {
         workspace: "project",
         command: process.execPath,
-        args: [
-          "-e",
-          'console.error("expected failure"); process.exit(7)',
-        ],
+        args: ["-e", 'console.error("expected failure"); process.exit(7)'],
       },
     });
 
@@ -141,9 +139,9 @@ describe("shell.exec", () => {
     });
 
     expect(result.isError).toBeFalsy();
-    expect(
-      (result.structuredContent as { stdout: string }).stdout.trim(),
-    ).toBe(nested);
+    expect((result.structuredContent as { stdout: string }).stdout.trim()).toBe(
+      nested,
+    );
   });
 
   test("rejects cwd traversal, missing directories, files, and symlink escape", async () => {
@@ -188,10 +186,11 @@ describe("shell.exec", () => {
 
   test("rejects execute-disabled and denied workspace paths", async () => {
     const deniedCapability = await setup({ execute: false });
-    const deniedCapabilityResult = await deniedCapability.harness.client.callTool({
-      name: "shell.exec",
-      arguments: { workspace: "project", command: process.execPath },
-    });
+    const deniedCapabilityResult =
+      await deniedCapability.harness.client.callTool({
+        name: "shell.exec",
+        arguments: { workspace: "project", command: process.execPath },
+      });
     expect(deniedCapabilityResult.isError).toBe(true);
     expect(errorCode(deniedCapabilityResult)).toBe("PERMISSION_DENIED");
 
@@ -289,9 +288,9 @@ describe("shell.exec", () => {
       stdout: string;
       stderr: string;
     };
-    expect(Buffer.byteLength(output.stdout) + Buffer.byteLength(output.stderr)).toBeLessThanOrEqual(
-      128,
-    );
+    expect(
+      Buffer.byteLength(output.stdout) + Buffer.byteLength(output.stderr),
+    ).toBeLessThanOrEqual(128);
   });
 
   test("passes spaced and quoted args literally without shell reinterpretation", async () => {
@@ -307,9 +306,9 @@ describe("shell.exec", () => {
     });
 
     expect(result.isError).toBeFalsy();
-    expect(
-      (result.structuredContent as { stdout: string }).stdout.trim(),
-    ).toBe(literal);
+    expect((result.structuredContent as { stdout: string }).stdout.trim()).toBe(
+      literal,
+    );
   });
 
   test("does not inherit arbitrary environment secrets", async () => {
