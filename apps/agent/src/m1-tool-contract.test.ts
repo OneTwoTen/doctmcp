@@ -289,28 +289,29 @@ function findActionSchema(schema: unknown, action: string): SchemaRecord {
   throw new Error(`Action schema '${action}' not found`);
 }
 
-function assertObjectContract(
-  schema: unknown,
-  contract: ObjectContract,
-): void {
+function assertObjectContract(schema: unknown, contract: ObjectContract): void {
   const record = asRecord(schema, "Expected an object JSON schema");
   const properties = asRecord(
     record.properties,
     "Expected object JSON schema properties",
   );
 
-  expect(Object.keys(properties).sort()).toEqual([...contract.properties].sort());
+  expect(Object.keys(properties).sort()).toEqual(
+    [...contract.properties].sort(),
+  );
   expect(
     Array.isArray(record.required)
-      ? record.required.filter((value): value is string => typeof value === "string").sort()
+      ? record.required
+          .filter((value): value is string => typeof value === "string")
+          .sort()
       : [],
   ).toEqual([...contract.required].sort());
   expect(record.additionalProperties).toBe(false);
 
   for (const [field, expected] of Object.entries(contract.constraints ?? {})) {
-    expect(asRecord(properties[field], `Expected property schema '${field}'`)).toMatchObject(
-      expected,
-    );
+    expect(
+      asRecord(properties[field], `Expected property schema '${field}'`),
+    ).toMatchObject(expected);
   }
 }
 
@@ -373,7 +374,9 @@ describe("M1 tools/list contract", () => {
       expect(tool.outputSchema).toBeDefined();
 
       if (contract.actions) {
-        for (const [action, actionContract] of Object.entries(contract.actions)) {
+        for (const [action, actionContract] of Object.entries(
+          contract.actions,
+        )) {
           assertObjectContract(
             findActionSchema(tool.inputSchema, action),
             actionContract,
