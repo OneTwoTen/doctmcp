@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, implementation đủ 8/8 work item; đang khóa quality gate cuối ở M1.8 / #9.** Workspace registry, path resolver, permission core và đủ 6 tool `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec` đã có trong codebase. #9 bổ sung catalog factory dùng chung và acceptance suite MCP thật; milestone chỉ được coi là hoàn tất khi `bun run check`, `bun run typecheck`, `bun test` đều xanh. Public server, custom WebSocket transport, device pairing và ChatGPT thuộc milestone sau.
+**Hoàn tất.** M1 đã đủ 8/8 work item: workspace registry, path resolver, permission core, đủ 6 tool `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec` và MCP acceptance suite toàn milestone. Issue #9 / PR #17 bổ sung catalog factory dùng chung và acceptance test bằng MCP client/server thật; quality gate gồm `bun run check`, `bun run typecheck`, `bun test` và Windows `shell.exec` regression đã xanh. Public server, custom WebSocket transport, device pairing và ChatGPT thuộc milestone sau.
 
 ## Mục tiêu
 
@@ -190,4 +190,4 @@ Không mock MCP layer cho acceptance test cuối M1. Regression process-tree/can
 | 2026-09-14 | Hoàn tất issue #6 với tool `filesystem.write` qua PR #14 | Bổ sung capability thay đổi filesystem với no-clobber, permission boundary và MCP contract coverage | complete |
 | 2026-09-14 | Hoàn tất issue #7 với tool `filesystem.delete` qua PR #15 | Tách destructive capability và khóa root/recursive/symlink/deny boundary | complete |
 | 2026-09-14 | Hoàn tất issue #8 với `shell.exec` qua PR #16 | Bổ sung bounded execution, execute permission, cross-platform process-tree termination, constrained Windows batch bridge và CI Windows | complete |
-| 2026-09-15 | Triển khai issue #9 với catalog factory dùng chung và MCP acceptance suite đủ 6 tool | Khóa contract/schema/annotations, vertical flow, security regression và quality gate trước M2 | in review |
+| 2026-09-15 | Hoàn tất issue #9 qua PR #17 với catalog factory dùng chung và MCP acceptance suite đủ 6 tool | Khóa contract/schema/annotations, vertical flow, security regression và quality gate trước M2 | complete |
