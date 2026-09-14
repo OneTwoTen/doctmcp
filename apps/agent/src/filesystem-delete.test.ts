@@ -165,6 +165,50 @@ describe("filesystem.delete", () => {
     await expect(lstat(link)).rejects.toThrow();
   });
 
+  test("deletes a dangling symlink itself", async () => {
+    const { root, harness } = await setup();
+    const link = join(root, "broken-link.txt");
+    try {
+      await symlink(join(root, "missing-target.txt"), link);
+    } catch {
+      return;
+    }
+
+    const result = await harness.client.callTool({
+      name: "filesystem.delete",
+      arguments: { workspace: "project", path: "broken-link.txt" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({
+      deleted: true,
+      path: "broken-link.txt",
+      type: "file",
+    });
+    await expect(lstat(link)).rejects.toThrow();
+  });
+
+  test("does not recursively delete a configured deny subtree", async () => {
+    const { root, harness } = await setup({ delete: true }, [
+      "parent/protected",
+    ]);
+    await mkdir(join(root, "parent", "protected"), { recursive: true });
+    await writeFile(join(root, "parent", "protected", "secret.txt"), "keep");
+    await writeFile(join(root, "parent", "public.txt"), "public");
+
+    const result = await harness.client.callTool({
+      name: "filesystem.delete",
+      arguments: { workspace: "project", path: "parent", recursive: true },
+    });
+    expect(result.isError).toBe(true);
+    expect(errorCode(result)).toBe("PERMISSION_DENIED");
+    await expect(
+      readFile(join(root, "parent", "protected", "secret.txt"), "utf8"),
+    ).resolves.toBe("keep");
+    await expect(
+      readFile(join(root, "parent", "public.txt"), "utf8"),
+    ).resolves.toBe("public");
+  });
+
   test("enforces the separate delete capability without changing the filesystem", async () => {
     const { root, harness } = await setup({ delete: false });
     await writeFile(join(root, "protected.txt"), "keep");
