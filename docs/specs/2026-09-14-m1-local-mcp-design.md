@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved direction, đang triển khai.** Tài liệu này chốt phạm vi kỹ thuật cho milestone M1. M1.1 (#2) đến M1.7 (#8) đã hoàn tất trên `main`; workspace registry, path resolver, permission core và đủ 6 tool `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec` đã có trong codebase. M1.8 / #9 là acceptance test cuối và là work item duy nhất còn lại trước khi khóa M1. Public server, device pairing và ChatGPT thuộc milestone sau.
+**Hoàn tất.** M1 đã đủ 8/8 work item: workspace registry, path resolver, permission core, đủ 6 tool `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec` và MCP acceptance suite toàn milestone. Issue #9 / PR #17 bổ sung catalog factory dùng chung và acceptance test bằng MCP client/server thật; quality gate gồm `bun run check`, `bun run typecheck`, `bun test` và Windows `shell.exec` regression đã xanh. Public server, custom WebSocket transport, device pairing và ChatGPT thuộc milestone sau.
 
 ## Mục tiêu
 
@@ -55,7 +55,7 @@ CallToolResult
 JSON-RPC error/cancellation tương ứng
 ```
 
-`packages/protocol` chỉ được dùng về sau cho control plane ngoài MCP như device identity, authentication, pairing, heartbeat hoặc connection metadata. Scaffold `command.request` / `command.result` hiện tại phải được loại bỏ hoặc thu hẹp trước khi M2 phát triển tiếp.
+`packages/protocol` chỉ được dùng về sau cho control plane ngoài MCP như device identity, authentication, pairing, heartbeat hoặc connection metadata. Scaffold `command.request` / `command.result` không được quay lại dưới vai trò tool-execution protocol khi M2 phát triển tiếp.
 
 ## Schema
 
@@ -142,25 +142,29 @@ Không tạo custom `job` trong M1. Long-running execution là scope sau; ưu ti
 
 ## Test strategy
 
-Viết test đỏ trước implementation cho behavior mới khi khả thi. M1 cần ba tầng:
+Viết test đỏ trước implementation cho behavior mới khi khả thi. M1 có ba tầng:
 
 1. **Schema/unit test**: valid/invalid action, path, limit, timeout.
 2. **Tool integration test**: chạy trên temp workspace thật, không đụng home directory của developer.
-3. **MCP contract test**: MCP client thật gọi `tools/list` và `tools/call` vào local server.
+3. **MCP contract/acceptance test**: MCP client thật gọi `tools/list` và `tools/call` vào local server.
 
-Không mock MCP layer cho acceptance test cuối M1.
+Acceptance suite cuối nằm tại `apps/agent/src/m1-acceptance.test.ts` và dùng `createLocalToolCatalog()` làm nguồn đăng ký 6 tool. `bun test` tự discover suite này; `bun run test:local` chỉ là lệnh tiện để chạy riêng acceptance suite.
+
+Không mock MCP layer cho acceptance test cuối M1. Regression process-tree/cancellation/Windows bridge của `shell.exec` tiếp tục được khóa trong các test chuyên biệt để acceptance test không duplicate platform matrix.
 
 ## Acceptance criteria M1
 
 - Local MCP server initialize thành công với MCP client test.
-- `tools/list` trả đúng 6 tool và schema tương ứng.
+- `tools/list` trả đúng 6 tool, schema/action và annotations tương ứng.
 - Mỗi tool có ít nhất một success test qua `tools/call`.
-- Mỗi boundary quan trọng có denied/error test.
-- Path traversal và symlink escape bị chặn.
-- `filesystem.delete` không xoá ngoài workspace.
-- `shell.exec` có timeout và output limit được kiểm thử.
+- Unknown tool, invalid schema và domain error không làm server crash.
+- Path traversal, symlink escape, deny subtree và denied capability bị chặn.
+- `filesystem.delete` không xoá workspace root.
+- `shell.exec` có timeout và output limit được kiểm thử qua MCP.
+- Regression process-tree/cross-platform từ #8 tiếp tục xanh.
+- Destructive test chỉ dùng temp workspace và cleanup ổn định.
 - Không cần database, public server, network Internet, pairing hoặc ChatGPT.
-- `bun run check`, typecheck và test đều xanh.
+- `bun run check`, `bun run typecheck`, `bun test` đều xanh.
 - Tài liệu tool khớp implementation thực tế.
 
 ## Ngoài phạm vi M1
@@ -186,3 +190,4 @@ Không mock MCP layer cho acceptance test cuối M1.
 | 2026-09-14 | Hoàn tất issue #6 với tool `filesystem.write` qua PR #14 | Bổ sung capability thay đổi filesystem với no-clobber, permission boundary và MCP contract coverage | complete |
 | 2026-09-14 | Hoàn tất issue #7 với tool `filesystem.delete` qua PR #15 | Tách destructive capability và khóa root/recursive/symlink/deny boundary | complete |
 | 2026-09-14 | Hoàn tất issue #8 với `shell.exec` qua PR #16 | Bổ sung bounded execution, execute permission, cross-platform process-tree termination, constrained Windows batch bridge và CI Windows | complete |
+| 2026-09-15 | Hoàn tất issue #9 qua PR #17 với catalog factory dùng chung và MCP acceptance suite đủ 6 tool | Khóa contract/schema/annotations, vertical flow, security regression và quality gate trước M2 | complete |
