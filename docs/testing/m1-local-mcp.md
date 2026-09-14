@@ -4,6 +4,8 @@
 
 M1 chỉ được coi là hoàn tất khi có bằng chứng MCP client thật có thể discover và call toàn bộ catalog local. Test phải chạy offline và không phụ thuộc public server/ChatGPT.
 
+M1.1–M1.7 (#2–#8) đã hoàn tất trên `main`; #9 là acceptance work item cuối để xác nhận toàn bộ Definition of Done của milestone.
+
 ## Nguyên tắc
 
 - Red-first cho behavior mới khi khả thi.
@@ -57,7 +59,14 @@ Test matrix tối thiểu:
 | `filesystem.read` | read/list/stat/search | traversal, binary/limit, not found |
 | `filesystem.write` | write/patch/mkdir/move | overwrite false, patch mismatch, traversal |
 | `filesystem.delete` | file/dir delete | root guard, recursive guard, denied path |
-| `shell.exec` | stdout + exit code | denied command, timeout, output limit, cwd escape |
+| `shell.exec` | stdout + exit code | denied command, timeout/process-tree termination, output limit, cancellation, cwd escape |
+
+Regression cross-platform của `shell.exec` phải tiếp tục được giữ xanh:
+
+- timeout, output-limit và `AbortSignal` không để descendant process sống sót trong các case phổ biến;
+- native executable giữ direct-spawn semantics;
+- Windows `.cmd/.bat` shim chạy qua constrained bridge, safe args hoạt động và shell metacharacter nguy hiểm bị reject;
+- environment secret tùy ý không được inherit mặc định.
 
 ## Tầng 3 — MCP contract
 
@@ -85,6 +94,7 @@ initialize
   -> workspace/list
   -> filesystem.write/write temp.txt
   -> filesystem.read/read temp.txt
+  -> system/info hoặc system/which
   -> shell.exec direct command trong workspace
   -> filesystem.delete temp.txt
 ```
@@ -97,7 +107,7 @@ Sau flow, assert file thực sự đã bị xoá và server/session vẫn hoạt
 - invalid action/schema;
 - denied workspace/path;
 - handler domain error;
-- process timeout.
+- process timeout/output-limit.
 
 Client phải nhận error/result có cấu trúc và server không crash.
 
@@ -118,6 +128,8 @@ bun run typecheck
 bun test
 ```
 
+Ngoài quality job chính, Windows `shell.exec` integration job đã được thêm từ #8 và phải tiếp tục xanh để chặn regression `.cmd/.bat`/process-tree theo platform.
+
 Nếu bổ sung script test riêng, root `ci` phải bao phủ nó hoặc `bun test` phải discover suite tự động.
 
 ## Definition of done
@@ -126,4 +138,5 @@ Nếu bổ sung script test riêng, root `ci` phải bao phủ nó hoặc `bun t
 - không có skipped test để che thiếu behavior chính;
 - success + denied path đều được kiểm tra;
 - acceptance test sử dụng MCP client/server thật;
+- regression `shell.exec` về timeout/output/cancel + process-tree/cross-platform tiếp tục xanh;
 - test chạy lặp lại không làm bẩn working tree hoặc máy developer.
