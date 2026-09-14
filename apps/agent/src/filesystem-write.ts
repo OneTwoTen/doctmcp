@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  chmod,
   lstat,
   mkdir as makeDirectory,
   readFile,
@@ -110,7 +111,7 @@ function countOccurrences(content: string, needle: string): number {
   return count;
 }
 
-async function ensureRegularFile(path: string): Promise<void> {
+async function ensureRegularFile(path: string): Promise<number> {
   let stats: Awaited<ReturnType<typeof lstat>>;
   try {
     stats = await lstat(path);
@@ -120,12 +121,18 @@ async function ensureRegularFile(path: string): Promise<void> {
   if (!stats.isFile()) {
     throw new ToolDomainError("INVALID_INPUT", "Path must be a regular file");
   }
+  return stats.mode & 0o7777;
 }
 
-async function atomicReplace(path: string, content: string): Promise<void> {
+async function atomicReplace(
+  path: string,
+  content: string,
+  mode?: number,
+): Promise<void> {
   const temporaryPath = `${path}.doctmcp-${randomUUID()}.tmp`;
   try {
     await writeFile(temporaryPath, content, { encoding: "utf8", flag: "wx" });
+    if (mode !== undefined) await chmod(temporaryPath, mode);
     await rename(temporaryPath, path);
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
@@ -136,9 +143,10 @@ async function writeNewFile(
   path: string,
   content: string,
   overwrite: boolean,
+  existingMode?: number,
 ): Promise<void> {
   if (overwrite) {
-    await atomicReplace(path, content);
+    await atomicReplace(path, content, existingMode);
     return;
   }
   await writeFile(path, content, { encoding: "utf8", flag: "wx" });
@@ -179,7 +187,7 @@ export function createFilesystemWriteTool(
     outputSchema: filesystemWriteOutputSchema,
     annotations: {
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       openWorldHint: false,
     },
     handler: async (input, context: ToolContext) => {
@@ -206,6 +214,21 @@ export function createFilesystemWriteTool(
             "Destination already exists",
           );
         }
+        let existingMode: number | undefined;
+        if (resolved.exists) {
+          try {
+            const existing = await lstat(resolved.operationPath);
+            if (!existing.isFile()) {
+              throw new ToolDomainError(
+                "INVALID_INPUT",
+                "Path must be a regular file",
+              );
+            }
+            existingMode = existing.mode & 0o7777;
+          } catch (error) {
+            throw domainError(error, "Unable to inspect destination");
+          }
+        }
         if (input.createParents === true)
           await makeDirectory(dirname(resolved.operationPath), {
             recursive: true,
@@ -215,6 +238,7 @@ export function createFilesystemWriteTool(
             resolved.operationPath,
             input.content,
             input.overwrite === true,
+            existingMode,
           );
         } catch (error) {
           throw domainError(error, "Unable to write file");
@@ -233,7 +257,7 @@ export function createFilesystemWriteTool(
           input.path,
           "write",
         );
-        await ensureRegularFile(resolved.operationPath);
+        const existingMode = await ensureRegularFile(resolved.operationPath);
         let content: string;
         try {
           content = await readFile(resolved.operationPath, "utf8");
@@ -257,7 +281,7 @@ export function createFilesystemWriteTool(
           );
         }
         try {
-          await atomicReplace(resolved.operationPath, patched);
+          await atomicReplace(resolved.operationPath, patched, existingMode);
         } catch (error) {
           throw domainError(error, "Unable to apply patch");
         }

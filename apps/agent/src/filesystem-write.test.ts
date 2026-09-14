@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolDomainError } from "./errors";
@@ -112,6 +121,7 @@ describe("filesystem.write", () => {
         context,
       ),
     ).rejects.toMatchObject({ code: "ALREADY_EXISTS" });
+    await chmod(join(root, "file.txt"), 0o755);
     await tool.handler(
       {
         action: "write",
@@ -123,8 +133,10 @@ describe("filesystem.write", () => {
       context,
     );
     expect(await readFile(join(root, "file.txt"), "utf8")).toBe("changed");
+    expect((await stat(join(root, "file.txt"))).mode & 0o777).toBe(0o755);
+    const limitedFixture = await fixture();
     const limited = createFilesystemWriteTool(
-      new WorkspacePathResolver((await fixture()).registry),
+      new WorkspacePathResolver(limitedFixture.registry),
       3,
     );
     await expect(
@@ -139,13 +151,16 @@ describe("filesystem.write", () => {
       ),
     ).rejects.toMatchObject({ code: "OUTPUT_LIMIT_EXCEEDED" });
     expect(
-      await lstat(join(root, "too-large.txt")).catch(() => undefined),
+      await lstat(join(limitedFixture.root, "too-large.txt")).catch(
+        () => undefined,
+      ),
     ).toBeUndefined();
   });
 
   test("patches exact occurrences and leaves file unchanged on mismatch", async () => {
     const { root, tool } = await fixture();
     const context = { signal: new AbortController().signal };
+    await chmod(join(root, "file.txt"), 0o755);
     await expect(
       tool.handler(
         {
@@ -179,6 +194,7 @@ describe("filesystem.write", () => {
     expect(await readFile(join(root, "file.txt"), "utf8")).toBe(
       "after\nafter\n",
     );
+    expect((await stat(join(root, "file.txt"))).mode & 0o777).toBe(0o755);
   });
 
   test("creates directories with stable existing semantics and moves files", async () => {
@@ -266,6 +282,39 @@ describe("filesystem.write", () => {
     ).rejects.toBeInstanceOf(ToolDomainError);
   });
 
+  test("rejects move source and destination symlink escapes", async () => {
+    const { root, tool } = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "doctmcp-fs-write-outside-"));
+    roots.push(outside);
+    await Bun.write(join(outside, "outside.txt"), "outside");
+    await symlink(join(outside, "outside.txt"), join(root, "source-link"));
+    await symlink(outside, join(root, "destination-link"));
+    const context = { signal: new AbortController().signal };
+
+    await expect(
+      tool.handler(
+        {
+          action: "move",
+          workspace: "project",
+          from: "source-link",
+          to: "moved.txt",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
+    await expect(
+      tool.handler(
+        {
+          action: "move",
+          workspace: "project",
+          from: "file.txt",
+          to: "destination-link/moved.txt",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
+  });
+
   test("calls all actions through MCP and exposes write annotations", async () => {
     const { registry } = await fixture();
     harness = await createMcpTestHarness({
@@ -277,17 +326,51 @@ describe("filesystem.write", () => {
     );
     expect(definition?.annotations).toMatchObject({
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       openWorldHint: false,
     });
-    const called = await harness.client.callTool({
+    const write = await harness.client.callTool({
+      name: "filesystem.write",
+      arguments: {
+        action: "write",
+        workspace: "project",
+        path: "mcp.txt",
+        content: "before",
+      },
+    });
+    expect(write.isError).toBeFalsy();
+    expect(write.structuredContent).toMatchObject({ action: "write" });
+    const patch = await harness.client.callTool({
+      name: "filesystem.write",
+      arguments: {
+        action: "patch",
+        workspace: "project",
+        path: "mcp.txt",
+        oldText: "before",
+        newText: "after",
+      },
+    });
+    expect(patch.isError).toBeFalsy();
+    expect(patch.structuredContent).toMatchObject({ action: "patch" });
+    const mkdirResult = await harness.client.callTool({
       name: "filesystem.write",
       arguments: { action: "mkdir", workspace: "project", path: "mcp-dir" },
     });
-    expect(called.isError).toBeFalsy();
-    expect(called.structuredContent).toMatchObject({
+    expect(mkdirResult.isError).toBeFalsy();
+    expect(mkdirResult.structuredContent).toMatchObject({
       action: "mkdir",
       created: true,
     });
+    const move = await harness.client.callTool({
+      name: "filesystem.write",
+      arguments: {
+        action: "move",
+        workspace: "project",
+        from: "mcp.txt",
+        to: "mcp-dir/moved.txt",
+      },
+    });
+    expect(move.isError).toBeFalsy();
+    expect(move.structuredContent).toMatchObject({ action: "move" });
   });
 });
