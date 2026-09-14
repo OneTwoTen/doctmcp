@@ -47,6 +47,7 @@ export interface ExecutableResolverOptions {
   platform?: NodeJS.Platform;
   pathValue?: string;
   pathExt?: string;
+  cwd?: string;
   isFile?: (candidate: string) => Promise<boolean>;
   canonicalize?: (candidate: string) => Promise<string>;
 }
@@ -68,9 +69,11 @@ function candidatePaths(
   targetPlatform: NodeJS.Platform,
   pathValue: string,
   pathExt: string,
+  cwd?: string,
 ): string[] {
+  const pathApi = targetPlatform === "win32" ? win32 : posix;
   if (isPathCommand(command, targetPlatform)) {
-    return [command];
+    return [cwd ? pathApi.resolve(cwd, command) : command];
   }
 
   const pathDelimiter = targetPlatform === "win32" ? ";" : ":";
@@ -118,6 +121,7 @@ export async function resolveExecutable(
     targetPlatform,
     options.pathValue ?? process.env.PATH ?? "",
     options.pathExt ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+    options.cwd,
   );
   const checkFile =
     options.isFile ??
