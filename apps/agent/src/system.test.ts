@@ -109,6 +109,25 @@ describe("system tool", () => {
         testCase.expected,
       );
     }
+
+    const windowsOptions = {
+      platform: "win32" as const,
+      pathValue: "C:\\Tools",
+      pathExt: ".EXE;.CMD",
+      isFile: async (candidate: string) =>
+        [
+          "C:\\Tools\\bun",
+          "C:\\Tools\\bun.EXE",
+          "C:\\Tools\\foo.txt.EXE",
+        ].includes(candidate),
+      canonicalize: async (candidate: string) => candidate,
+    };
+    await expect(resolveExecutable("bun", windowsOptions)).resolves.toBe(
+      "C:\\Tools\\bun.EXE",
+    );
+    await expect(
+      resolveExecutable("foo.txt", windowsOptions),
+    ).resolves.toBeUndefined();
   });
 
   test("rejects directories but accepts symlinks to executable files", async () => {

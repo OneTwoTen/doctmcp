@@ -1,7 +1,7 @@
 import { constants as fsConstants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { hostname, platform } from "node:os";
-import { delimiter, posix, resolve, win32 } from "node:path";
+import { posix, resolve, win32 } from "node:path";
 import { z } from "zod";
 import type { ToolDefinition } from "./registry";
 
@@ -73,19 +73,16 @@ function candidatePaths(
     return [command];
   }
 
-  const pathDelimiter = targetPlatform === "win32" ? ";" : delimiter;
+  const pathDelimiter = targetPlatform === "win32" ? ";" : ":";
   const paths = pathValue.split(pathDelimiter).filter(Boolean);
   if (targetPlatform !== "win32") {
     return paths.map((directory) => posix.join(directory, command));
   }
 
   const extensions = pathExt.split(";").filter(Boolean);
-  const hasExtension = extensions.some((extension) =>
-    command.toLowerCase().endsWith(extension.toLowerCase()),
-  );
-  const names = hasExtension
+  const names = win32.extname(command)
     ? [command]
-    : [command, ...extensions.map((extension) => `${command}${extension}`)];
+    : extensions.map((extension) => `${command}${extension}`);
   return paths.flatMap((directory) =>
     names.map((name) => win32.join(directory, name)),
   );
