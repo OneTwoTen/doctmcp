@@ -1,5 +1,9 @@
 # `workspace`
 
+## Trạng thái
+
+Đã triển khai registry, path resolver, permission core và MCP tool `workspace` cho issue #3. Registry chỉ nhận workspace được cấu hình rõ; không tự động expose home hoặc current directory.
+
 ## Mục đích
 
 `workspace` cung cấp danh sách root local đã được người dùng cho phép và metadata cần thiết để các tool khác resolve path. Tool này **không** cho phép duyệt toàn bộ filesystem của máy.
