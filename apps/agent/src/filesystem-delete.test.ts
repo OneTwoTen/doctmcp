@@ -187,6 +187,27 @@ describe("filesystem.delete", () => {
     await expect(lstat(link)).rejects.toThrow();
   });
 
+  test("rejects a dangling symlink behind an escaping ancestor", async () => {
+    const { root, harness } = await setup();
+    const outside = await mkdtemp(join(tmpdir(), "doctmcp-delete-outside-"));
+    roots.push(outside);
+    const broken = join(outside, "broken-link.txt");
+    try {
+      await symlink(outside, join(root, "escape"));
+      await symlink(join(outside, "missing-target.txt"), broken);
+    } catch {
+      return;
+    }
+
+    const result = await harness.client.callTool({
+      name: "filesystem.delete",
+      arguments: { workspace: "project", path: "escape/broken-link.txt" },
+    });
+    expect(result.isError).toBe(true);
+    expect(errorCode(result)).toBe("PATH_OUTSIDE_WORKSPACE");
+    await expect(lstat(broken)).resolves.toBeDefined();
+  });
+
   test("does not recursively delete a configured deny subtree", async () => {
     const { root, harness } = await setup({ delete: true }, [
       "parent/protected",

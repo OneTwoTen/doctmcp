@@ -228,7 +228,6 @@ export class WorkspacePathResolver {
     // realpath() cannot resolve a dangling final symlink. Delete must still
     // operate on the link itself, provided its parent remains in the workspace.
     if (finalEntryIsSymlink && !target.exists) {
-      target.canonicalPath = operationPath;
       target.exists = true;
     }
     const canonicalInsideWorkspace = isPathInside(
