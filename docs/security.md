@@ -170,15 +170,32 @@ raw credential
 
 Payload không chứa pairing code. Duplicate/replay pairing claim dừng trước credential issue thứ hai.
 
-Reference runtime giữ completion thành công transient trong memory theo `pairingSessionId` cho tới khi local acknowledge đã persist secret. Retry cùng process trả lại đúng pending delivery, không issue generation mới.
+Raw credential chỉ được giữ transient trong memory. Authoritative completion state nằm trong `PairingCredentialCompletionRepository` và **không chứa raw secret**:
+
+```text
+pairingSessionId
+deviceId
+credentialId
+credentialVersion
+state: pending | delivered
+```
 
 `resumeClaimedPairing(pairingSessionId, ownerId)` luôn resolve claimed session và kiểm tra ownership từ server-side `DeviceRepository` **trước** khi đọc transient cache. `pairingSessionId` vì vậy không trở thành bearer secret; wrong owner luôn nhận generic `PAIRING_COMPLETION_UNAVAILABLE` kể cả raw credential đang còn trong memory.
 
-Nếu process restart sau khi credential digest đã persist nhưng trước delivery/ack, raw secret cũ không thể khôi phục từ digest. Recovery path sẽ phát hiện credential active đã tồn tại, rotate sang generation mới và trả raw secret mới cho đúng owner. Generation thất lạc cũ bị vô hiệu ngay; server không cần persist raw credential để đạt crash recovery.
+Nếu process restart sau khi credential digest đã persist nhưng trước delivery/ack, raw secret cũ không thể khôi phục từ digest. Recovery path phát hiện credential active đã tồn tại, rotate sang generation mới và trả raw secret mới cho đúng owner. Generation thất lạc cũ bị vô hiệu ngay; server không cần persist raw credential để đạt crash recovery.
 
-`acknowledgeDelivery(pairingSessionId)` xóa raw secret pending khỏi memory sau khi local lưu thành công. Raw secret này không được persist hoặc log.
+ACK không còn là thao tác “xóa cache” đơn thuần. `acknowledgeDelivery()` yêu cầu `pairingSessionId + ownerId + credentialId + credentialVersion`, owner được verify server-side và repository CAS đúng generation `pending -> delivered`.
 
-Với production persistence dùng chung database, pairing transition + device creation + credential persistence vẫn nên nằm trong cùng transaction/unit-of-work. Recovery-by-rotation là safety net cho cửa sổ persist-before-delivery, không thay thế transaction durability.
+Security invariant:
+
+- wrong owner hoặc stale generation ACK không consume pending delivery;
+- chỉ ACK đúng generation mới xóa raw secret transient;
+- `delivered` là terminal và phải persist qua restart;
+- pairing session đã delivered không được resume để issue/rotate credential mới, kể cả credential hiện tại sau đó bị revoke.
+
+`InMemoryPairingCredentialCompletionRepository` chỉ là reference adapter. Production persistence phải implement cùng contract và persist terminal state. Runtime cho phép inject `pairingCredentialCompletionRepository` riêng mà không expose raw secret.
+
+Với production persistence dùng chung database, pairing transition + device creation + credential persistence/completion state vẫn nên nằm trong transaction/unit-of-work phù hợp. Recovery-by-rotation là safety net cho cửa sổ persist-before-delivery, không thay thế transaction durability.
 
 ### Authenticated bridge handshake
 
@@ -201,7 +218,7 @@ Credential service/repository mutation không được expose trên `DoctmcpServ
 
 Legacy mode chỉ được bật rõ ràng bằng `allowLegacyUnauthenticated: true` khi tạo gateway trực tiếp cho M2 compatibility/test; auth failure không được fallback sang legacy mode.
 
-Gateway chỉ tạo/expose `BridgeGatewaySession` sau khi authenticator verify thành công. Authenticated session giữ:
+Gateway chỉ tạo/expose `BridgeGatewaySession` sau khi authenticated ready boundary hoàn tất. Authenticated session giữ:
 
 ```text
 bridge sessionId
@@ -209,7 +226,7 @@ bridge sessionId
 identity { ownerId, deviceId }
 ```
 
-hai namespace này độc lập. Authenticator output còn được runtime-validate trước khi bind session. Duplicate `sessionId` được kiểm tra lại sau async authentication để hai handshake đồng thời không cùng tạo ready session.
+hai namespace này độc lập. Authenticator output được runtime-validate trước khi bind session. Duplicate `sessionId` được kiểm tra lại sau async authentication để hai handshake đồng thời không cùng tạo ready session.
 
 Trước khi auth hoàn tất:
 
@@ -227,9 +244,12 @@ Server composition root cung cấp lifecycle API có active-session propagation:
 
 - `revokeDeviceCredential(deviceId)` revoke generation hiện tại, đóng authenticated session đang active của đúng device và làm credential cũ fail khi reconnect;
 - `rotateDeviceCredential(deviceId)` atomically tạo generation mới, đóng active session cũ, làm secret cũ fail và chỉ secret mới reconnect được;
-- credential mutation đóng auth boundary của device trong suốt mutation;
 - auth đã bắt đầu trước mutation phải drain xong; nếu verify trả snapshot cũ trong lúc mutation đang active thì authenticator reject generic thay vì bind session;
-- trường hợp authenticator vừa return ngay trước mutation được chặn bằng on-session mutation guard + final session sweep trước khi boundary mở lại;
+- sau initial auth, gateway acquire synchronous **ready lease** trước khi session có thể chuyển `ready`;
+- dưới ready lease, gateway reverify credential ngay trước ready/`bridge.hello.ack`;
+- revoke/rotate đến sau ready lease chờ lease drain rồi mới mutate, vì vậy handshake được linearize: hoặc commit khi credential còn valid, hoặc bị reject trước ACK;
+- không dùng event-loop delay, post-ACK `onSession` guard hay final sweep làm correctness primitive;
+- shutdown resolve drain waiter trước khi stop gateway để revoke/rotate đang chờ auth/ready lease không treo vô hạn;
 - failure CAS không làm mất generation đang active;
 - concurrent rotate/rotate và rotate/revoke đều có regression test.
 
@@ -265,10 +285,13 @@ Ví dụ:
 - concurrent credential rotate/revoke;
 - cached pairing completion vẫn owner-check trước khi trả raw secret;
 - process-restart recovery sau persist-before-delivery rotate credential thất lạc;
+- wrong/stale pairing delivery ACK không consume pending secret;
+- delivered completion không resume được qua restart hoặc sau credential revoke;
 - raw credential không xuất hiện trong URL/error/log snapshot;
 - MCP frame trước authenticated handshake;
+- credential thay đổi giữa auth và ready revalidation bị reject trước ACK/session;
 - revoke/rotate đóng active authenticated session đúng device;
-- revoke thắng handshake đang verify snapshot credential cũ;
+- shutdown không để credential mutation drain waiter treo vô hạn;
 - runtime không expose credential mutation service/repository;
 - shell timeout;
 - oversized output;
