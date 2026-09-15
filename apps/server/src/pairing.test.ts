@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ClaimPairingInput } from "@doctmcp/schemas";
 import {
-  InMemoryDeviceRepository,
   type DeviceRepositoryError,
+  InMemoryDeviceRepository,
 } from "./device-repository";
 import {
   DEFAULT_PAIRING_TTL_MS,
@@ -41,13 +41,17 @@ function sequence<T>(values: readonly T[]): () => T {
   };
 }
 
-function createHarness(options: {
-  now?: () => Date;
-  generatePairingCode?: () => string;
-  generatePairingSessionId?: () => string;
-  generateDeviceId?: () => string;
-  claimAttemptGuard?: ConstructorParameters<typeof PairingService>[0]["claimAttemptGuard"];
-} = {}) {
+function createHarness(
+  options: {
+    now?: () => Date;
+    generatePairingCode?: () => string;
+    generatePairingSessionId?: () => string;
+    generateDeviceId?: () => string;
+    claimAttemptGuard?: ConstructorParameters<
+      typeof PairingService
+    >[0]["claimAttemptGuard"];
+  } = {},
+) {
   const deviceRepository = new InMemoryDeviceRepository({
     generateDeviceId: options.generateDeviceId ?? (() => DEVICE_A),
     now: options.now,
@@ -176,9 +180,9 @@ describe("PairingService", () => {
       service.claimPairingCode(CODE_A, validClaim("owner-b")),
     ]);
 
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(
-      1,
-    );
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
     const rejected = results.find((result) => result.status === "rejected");
     expect(rejected).toBeDefined();
     if (rejected?.status === "rejected") {
@@ -198,9 +202,10 @@ describe("PairingService", () => {
   test("cancelled và invalid code đều dùng generic unavailable error", async () => {
     const { service } = createHarness();
     const created = await service.createPairingSession();
-    expect((await service.cancelPairingSession(created.session.pairingSessionId)).state).toBe(
-      "cancelled",
-    );
+    expect(
+      (await service.cancelPairingSession(created.session.pairingSessionId))
+        .state,
+    ).toBe("cancelled");
 
     for (const code of [CODE_A, "NOT-A-PAIRING-CODE"]) {
       await expect(
