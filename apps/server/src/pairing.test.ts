@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { ClaimPairingInput } from "@doctmcp/schemas";
 import {
+  type DeviceRepository,
   type DeviceRepositoryError,
   InMemoryDeviceRepository,
 } from "./device-repository";
 import {
   DEFAULT_PAIRING_TTL_MS,
+  digestPairingCode,
   InMemoryPairingSessionRepository,
   PAIRING_CODE_ENTROPY_BITS,
   PairingService,
@@ -58,6 +60,7 @@ function createHarness(
   });
   const pairingRepository = new InMemoryPairingSessionRepository(
     deviceRepository,
+    { now: options.now },
   );
   const service = new PairingService({
     repository: pairingRepository,
@@ -166,6 +169,89 @@ describe("PairingService", () => {
     expect(await deviceRepository.listByOwnerId("owner-a")).toHaveLength(0);
   });
 
+  test("claim queued trước expiry nhưng vào atomic boundary sau expiry vẫn bị reject", async () => {
+    let nowMs = Date.parse("2026-09-15T06:00:00.000Z");
+    let releaseFirstCreate = () => undefined;
+    let markFirstCreateStarted = () => undefined;
+    const firstCreateStarted = new Promise<void>((resolve) => {
+      markFirstCreateStarted = resolve;
+    });
+    const firstCreateGate = new Promise<void>((resolve) => {
+      releaseFirstCreate = resolve;
+    });
+    let createCount = 0;
+
+    const backingDeviceRepository = new InMemoryDeviceRepository({
+      generateDeviceId: sequence([DEVICE_A, DEVICE_B]),
+      now: () => new Date(nowMs),
+    });
+    const blockingDeviceRepository: DeviceRepository = {
+      async create(input) {
+        createCount += 1;
+        if (createCount === 1) {
+          markFirstCreateStarted();
+          await firstCreateGate;
+        }
+        return backingDeviceRepository.create(input);
+      },
+      getById: (deviceId) => backingDeviceRepository.getById(deviceId),
+      getForOwner: (ownerId, deviceId) =>
+        backingDeviceRepository.getForOwner(ownerId, deviceId),
+      listByOwnerId: (ownerId) =>
+        backingDeviceRepository.listByOwnerId(ownerId),
+      updateForOwner: (ownerId, deviceId, patch) =>
+        backingDeviceRepository.updateForOwner(ownerId, deviceId, patch),
+      isOwnedBy: (ownerId, deviceId) =>
+        backingDeviceRepository.isOwnedBy(ownerId, deviceId),
+    };
+    const pairingRepository = new InMemoryPairingSessionRepository(
+      blockingDeviceRepository,
+      { now: () => new Date(nowMs) },
+    );
+    const createdAt = new Date(nowMs);
+    const expiresAt = new Date(nowMs + DEFAULT_PAIRING_TTL_MS);
+    const digestA = await digestPairingCode("ABCDEFGHIJKL");
+    const digestB = await digestPairingCode("NPQRSTUVWXYZ");
+
+    await pairingRepository.create({
+      pairingSessionId: SESSION_A,
+      codeDigest: digestA,
+      createdAt,
+      expiresAt,
+    });
+    await pairingRepository.create({
+      pairingSessionId: SESSION_B,
+      codeDigest: digestB,
+      createdAt,
+      expiresAt,
+    });
+
+    nowMs = expiresAt.getTime() - 1;
+    const firstClaim = pairingRepository.claim({
+      codeDigest: digestA,
+      ...validClaim("owner-a"),
+    });
+    await firstCreateStarted;
+
+    const queuedClaim = pairingRepository.claim({
+      codeDigest: digestB,
+      ...validClaim("owner-b"),
+    });
+    nowMs = expiresAt.getTime();
+    releaseFirstCreate();
+
+    await expect(firstClaim).resolves.toMatchObject({
+      session: { state: "claimed", deviceId: DEVICE_A },
+    });
+    await expect(queuedClaim).rejects.toMatchObject({
+      code: "PAIRING_CODE_UNAVAILABLE",
+    });
+    expect((await pairingRepository.getById(SESSION_B))?.state).toBe("expired");
+    expect(await backingDeviceRepository.listByOwnerId("owner-b")).toHaveLength(
+      0,
+    );
+  });
+
   test("hai claim concurrent chỉ một request thắng và chỉ một device được tạo", async () => {
     let nowMs = Date.parse("2026-09-15T06:00:00.000Z");
     const { deviceRepository, service } = createHarness({
@@ -215,6 +301,40 @@ describe("PairingService", () => {
         message: "Pairing code không khả dụng.",
       } satisfies Partial<PairingServiceError>);
     }
+  });
+
+  test("pairing code non-string bị reject generic thay vì throw TypeError", async () => {
+    const attempts: unknown[] = [];
+    const { deviceRepository, service } = createHarness({
+      claimAttemptGuard: {
+        beforeClaim: (attempt) => {
+          attempts.push(attempt);
+        },
+      },
+    });
+    await service.createPairingSession();
+
+    for (const code of [null, 42, { code: CODE_A }]) {
+      await expect(
+        service.claimPairingCode(code, validClaim()),
+      ).rejects.toMatchObject({
+        code: "PAIRING_CODE_UNAVAILABLE",
+        message: "Pairing code không khả dụng.",
+      } satisfies Partial<PairingServiceError>);
+    }
+
+    expect(attempts).toHaveLength(3);
+    expect(
+      attempts.every(
+        (attempt) =>
+          typeof attempt === "object" &&
+          attempt !== null &&
+          "codeDigest" in attempt &&
+          attempt.codeDigest === null,
+      ),
+    ).toBe(true);
+    expect((await service.getPairingSession(SESSION_A))?.state).toBe("pending");
+    expect(await deviceRepository.listByOwnerId("owner-a")).toHaveLength(0);
   });
 
   test("device metadata invalid bị reject trước guard và trước mutation", async () => {
