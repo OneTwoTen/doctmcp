@@ -39,6 +39,12 @@ export type BridgeSessionReadyGuard = (
   sessionId: string,
 ) => (() => void) | void;
 
+export type BridgeSessionReadyValidator = (
+  deviceId: string,
+  credential: string,
+  identity: AuthenticatedDeviceIdentity,
+) => Promise<void>;
+
 export interface BridgeGatewaySession {
   readonly id: string;
   readonly state: GatewaySessionState;
@@ -58,6 +64,7 @@ export interface CreateBridgeGatewayOptions {
   logger?: BridgeGatewayLogger;
   authenticateDevice?: BridgeDeviceAuthenticator;
   beginSessionReady?: BridgeSessionReadyGuard;
+  validateSessionReady?: BridgeSessionReadyValidator;
   /** Chỉ dành cho M2 acceptance/test. Production mặc định yêu cầu device auth. */
   allowLegacyUnauthenticated?: boolean;
   onSession?: (session: BridgeGatewaySession) => void;
@@ -485,6 +492,24 @@ export function createBridgeGateway(
       }
 
       try {
+        if (identity && message.auth && options.validateSessionReady) {
+          try {
+            await options.validateSessionReady(
+              message.auth.deviceId,
+              message.auth.credential,
+              identity,
+            );
+          } catch {
+            await failConnection(
+              connection,
+              "AUTH_FAILED",
+              "PROTOCOL_ERROR",
+              "Device authentication failed",
+            );
+            return;
+          }
+        }
+
         if (connection.finalized || connection.state !== "handshaking") return;
         if (sessions.has(message.sessionId)) {
           await failConnection(
