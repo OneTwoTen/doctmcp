@@ -44,12 +44,15 @@ Lý do:
 - không encode owner hoặc business metadata;
 - caller phải coi ID là opaque và không dựa vào format/timestamp để authorization.
 
+UUID v4 hợp lệ được canonicalize về lowercase ngay tại shared schema boundary. Nhờ đó cùng một UUID viết hoa/thường không thể trở thành hai repository key khác nhau, và duplicate detection/lookup luôn dùng một representation duy nhất.
+
 Bridge session id, MCP SDK session id và `deviceId` tiếp tục là ba namespace/semantics khác nhau.
 
 ## Validation boundary
 
 Runtime schema dùng chung nằm tại `packages/schemas/src/device.ts`.
 
+- `deviceId`: UUID v4, canonical lowercase sau parse.
 - `ownerId`: opaque string, không tự trim/biến đổi identity.
 - `deviceName`: trim và giới hạn độ dài.
 - `metadata`: object strict; hiện chỉ nhận `platform`, optional `appVersion`, optional `runtimeVersion`.
@@ -81,7 +84,10 @@ Repository không trả shared internal record.
 
 - object và nested metadata được freeze ở snapshot;
 - `Date` được tạo mới khi đọc;
-- update thay record state nội bộ rồi trả snapshot mới;
+- update validate patch + clock trước khi mutate record;
+- failed update không để lại partial mutation;
+- `updatedAt` không được đi lùi so với state hiện tại;
+- update thành công thay record state nội bộ rồi trả snapshot mới;
 - list sort theo `createdAt`, sau đó `deviceId`, để cùng state luôn cho thứ tự deterministic.
 
 ## Lifecycle state
@@ -101,20 +107,22 @@ Khi M3.3/M3.6 cần device-level lifecycle, phải mở rộng schema/repository
 
 M3.1 cover:
 
-- UUID v4/device metadata schema;
-- duplicate generated id;
+- UUID v4/device metadata schema và UUID canonicalization;
+- duplicate generated id kể cả khác casing;
 - rename/metadata update giữ nguyên `deviceId` + `ownerId`;
+- failed update không partial mutate và clock không đi lùi;
 - owner isolation cho get/list/update/check;
 - deterministic list;
 - defensive snapshot không leak shared reference;
-- malformed metadata bị reject ở boundary.
+- malformed metadata/device id bị reject ở boundary.
 
 M1/M2 regression phải tiếp tục xanh.
 
-Verification gần nhất trên PR #37, CI #126: Biome pass, TypeScript typecheck pass, `bun test` 161 pass / 0 fail; 6 test M2 acceptance đều pass và Windows `shell.exec` regression pass.
+Verification của **final PR head** được lấy từ GitHub Actions/PR checks của PR #37. PR chỉ được merge khi `bun run check`, `bun run typecheck`, `bun test`, M2 acceptance và Windows `shell.exec` regression đều xanh; PR body ghi lại run/count cụ thể gần nhất để tránh tài liệu thiết kế bị stale theo mỗi commit docs.
 
 ## History
 
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
 | 2026-09-15 | Khóa Device domain, UUID v4 và repository abstraction | Foundation cho pairing/auth/routing M3 | verified, pending merge |
+| 2026-09-15 | Canonicalize UUID và làm update atomic/monotonic | Sửa findings review trước merge | pending final-head CI |

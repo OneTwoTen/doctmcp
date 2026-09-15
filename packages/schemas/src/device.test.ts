@@ -6,9 +6,9 @@ import {
 } from "./device";
 
 describe("device schemas", () => {
-  test("accepts UUID v4 and normalizes mutable display input", () => {
-    expect(deviceIdSchema.parse("11111111-1111-4111-8111-111111111111")).toBe(
-      "11111111-1111-4111-8111-111111111111",
+  test("accepts UUID v4, canonicalizes identity và normalizes mutable display input", () => {
+    expect(deviceIdSchema.parse("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA")).toBe(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
 
     const input = createDeviceInputSchema.parse({

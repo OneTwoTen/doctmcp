@@ -12,6 +12,7 @@ import {
 export type DeviceRepositoryErrorCode =
   | "INVALID_DEVICE_INPUT"
   | "INVALID_DEVICE_ID"
+  | "INVALID_CLOCK"
   | "DEVICE_ALREADY_EXISTS";
 
 export class DeviceRepositoryError extends Error {
@@ -58,6 +59,14 @@ function invalidInput(message: string): never {
   throw new DeviceRepositoryError("INVALID_DEVICE_INPUT", message);
 }
 
+function invalidDeviceId(message: string): never {
+  throw new DeviceRepositoryError("INVALID_DEVICE_ID", message);
+}
+
+function invalidClock(message: string): never {
+  throw new DeviceRepositoryError("INVALID_CLOCK", message);
+}
+
 function parseOwnerId(ownerId: string): string {
   const result = ownerIdSchema.safeParse(ownerId);
   if (!result.success) {
@@ -69,7 +78,7 @@ function parseOwnerId(ownerId: string): string {
 function parseDeviceId(deviceId: string): string {
   const result = deviceIdSchema.safeParse(deviceId);
   if (!result.success) {
-    return invalidInput("deviceId không hợp lệ.");
+    return invalidDeviceId("deviceId không hợp lệ.");
   }
   return result.data;
 }
@@ -109,10 +118,7 @@ export class InMemoryDeviceRepository implements DeviceRepository {
     const generatedId = this.#generateDeviceId();
     const parsedId = deviceIdSchema.safeParse(generatedId);
     if (!parsedId.success) {
-      throw new DeviceRepositoryError(
-        "INVALID_DEVICE_ID",
-        "Device id generator trả về id không hợp lệ.",
-      );
+      return invalidDeviceId("Device id generator trả về id không hợp lệ.");
     }
 
     if (this.#records.has(parsedId.data)) {
@@ -185,13 +191,20 @@ export class InMemoryDeviceRepository implements DeviceRepository {
       return null;
     }
 
-    if (parsedPatch.data.deviceName !== undefined) {
-      record.deviceName = parsedPatch.data.deviceName;
+    const nextUpdatedAtMs = this.#readNow();
+    if (nextUpdatedAtMs < record.updatedAtMs) {
+      return invalidClock("Clock không được đi lùi so với updatedAt hiện tại.");
     }
-    if (parsedPatch.data.metadata !== undefined) {
-      record.metadata = cloneMetadata(parsedPatch.data.metadata);
-    }
-    record.updatedAtMs = this.#readNow();
+
+    const nextDeviceName = parsedPatch.data.deviceName ?? record.deviceName;
+    const nextMetadata =
+      parsedPatch.data.metadata !== undefined
+        ? cloneMetadata(parsedPatch.data.metadata)
+        : record.metadata;
+
+    record.deviceName = nextDeviceName;
+    record.metadata = nextMetadata;
+    record.updatedAtMs = nextUpdatedAtMs;
 
     return toSnapshot(record);
   }
@@ -205,8 +218,8 @@ export class InMemoryDeviceRepository implements DeviceRepository {
   #readNow(): number {
     const now = this.#now();
     const timestamp = now.getTime();
-    if (Number.isNaN(timestamp)) {
-      return invalidInput("Clock trả về thời điểm không hợp lệ.");
+    if (!Number.isFinite(timestamp)) {
+      return invalidClock("Clock trả về thời điểm không hợp lệ.");
     }
     return timestamp;
   }

@@ -8,11 +8,13 @@ Hoàn tất foundation M3.1 mà không kéo pairing, credential hoặc authentic
 
 - [x] Thêm shared runtime schema/type cho `Device`, create input và mutable update input.
 - [x] Chốt `deviceId` UUID v4 CSPRNG và document opaque identity semantics.
+- [x] Canonicalize UUID về lowercase trước persistence/lookup.
 - [x] Thêm `DeviceRepository` không phụ thuộc database/ORM.
 - [x] Thêm deterministic `InMemoryDeviceRepository` cho test.
 - [x] Enforce owner-scoped get/list/update/check.
 - [x] Trả defensive snapshot, không expose shared internal record.
-- [x] Test duplicate id, immutable identity, mutable metadata/name, owner isolation, deterministic list và invalid metadata.
+- [x] Bảo đảm failed update không partial mutate và `updatedAt` không đi lùi.
+- [x] Test duplicate id, immutable identity, mutable metadata/name, owner isolation, deterministic list, invalid metadata/device id và clock failure.
 - [x] Cập nhật `docs/pairing.md`, `docs/security.md` và M3.1 spec.
 
 ## Verification
@@ -26,15 +28,14 @@ bun test
 bun run test:m2
 ```
 
-Verification trên PR #37, CI #126:
+GitHub Actions/PR checks của **final PR head** là nguồn verification merge gate. PR body ghi run/count cụ thể gần nhất; plan không hard-code một CI run cũ vì mỗi commit sửa docs/code sẽ tạo head mới.
 
-- `bun run check`: pass;
-- `bun run typecheck`: pass;
-- `bun test`: 161 pass / 0 fail trên 20 file;
-- `apps/server/src/m2-acceptance.test.ts`: 6/6 pass trong full suite, tương đương regression coverage của `test:m2`;
-- Windows `shell.exec` regression: pass.
+Ngoài full suite, regression M3.1 phải chứng minh:
 
-Môi trường agent không có Bun 1.4.2 local; GitHub Actions là nguồn verification mới của branch.
+- UUID khác casing vẫn resolve cùng một identity và duplicate detection không bị bypass;
+- invalid/backward clock làm update reject mà record giữ nguyên;
+- malformed device id có error code deterministic;
+- M2 acceptance và Windows `shell.exec` regression không bị ảnh hưởng.
 
 ## Ngoài phạm vi
 
@@ -51,4 +52,5 @@ Môi trường agent không có Bun 1.4.2 local; GitHub Actions là nguồn veri
 | Ngày | Thay đổi | Trạng thái |
 |---|---|---|
 | 2026-09-15 | Tạo plan và triển khai scope M3.1 | implementation complete |
-| 2026-09-15 | CI #126 xác nhận check/typecheck/full tests và M2 regression | verified, pending merge |
+| 2026-09-15 | CI baseline xác nhận check/typecheck/full tests và M2 regression | verified |
+| 2026-09-15 | Sửa review findings về UUID canonicalization và atomic update | pending final-head CI |

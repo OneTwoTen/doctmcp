@@ -8,10 +8,12 @@ const DEVICE_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]*$/;
 /**
  * M3 dùng UUID v4 ngẫu nhiên cho deviceId. Caller phải coi giá trị này là opaque
  * và không dựa vào format để authorization hoặc suy ra thứ tự tạo thiết bị.
+ * UUID hợp lệ được canonicalize về lowercase để một identity chỉ có một representation.
  */
 export const deviceIdSchema = z
   .string()
-  .regex(DEVICE_ID_V4_PATTERN, "deviceId phải là UUID v4 hợp lệ");
+  .regex(DEVICE_ID_V4_PATTERN, "deviceId phải là UUID v4 hợp lệ")
+  .transform((value) => value.toLowerCase());
 
 /** ownerId là principal opaque do control-plane đáng tin cậy cung cấp trong M3. */
 export const ownerIdSchema = z

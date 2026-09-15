@@ -7,6 +7,8 @@ import {
 
 const DEVICE_A = "11111111-1111-4111-8111-111111111111";
 const DEVICE_B = "22222222-2222-4222-8222-222222222222";
+const DEVICE_C_LOWER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const DEVICE_C_UPPER = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA";
 
 const baseInput = (ownerId = "owner-a"): CreateDeviceInput => ({
   ownerId,
@@ -54,6 +56,20 @@ describe("InMemoryDeviceRepository", () => {
     expect(reread?.metadata.platform).toBe("darwin-arm64");
   });
 
+  test("deviceId được canonicalize trước duplicate detection và lookup", async () => {
+    const repo = new InMemoryDeviceRepository({
+      generateDeviceId: sequence([DEVICE_C_UPPER, DEVICE_C_LOWER]),
+    });
+
+    const created = await repo.create(baseInput("owner-a"));
+    expect(created.deviceId).toBe(DEVICE_C_LOWER);
+    expect((await repo.getById(DEVICE_C_UPPER))?.deviceId).toBe(DEVICE_C_LOWER);
+
+    await expect(repo.create(baseInput("owner-b"))).rejects.toMatchObject({
+      code: "DEVICE_ALREADY_EXISTS",
+    } satisfies Partial<DeviceRepositoryError>);
+  });
+
   test("duplicate generated id bị reject deterministic", async () => {
     const repo = new InMemoryDeviceRepository({
       generateDeviceId: () => DEVICE_A,
@@ -93,6 +109,56 @@ describe("InMemoryDeviceRepository", () => {
       created.createdAt.toISOString(),
     );
     expect(updated?.updatedAt.toISOString()).toBe("2026-09-15T04:01:00.000Z");
+  });
+
+  test("update lỗi clock không để lại partial mutation", async () => {
+    const repo = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
+      now: sequence([
+        new Date("2026-09-15T04:00:00.000Z"),
+        new Date(Number.NaN),
+      ]),
+    });
+    await repo.create(baseInput());
+
+    await expect(
+      repo.updateForOwner("owner-a", DEVICE_A, { deviceName: "Must not commit" }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CLOCK",
+    } satisfies Partial<DeviceRepositoryError>);
+
+    const reread = await repo.getById(DEVICE_A);
+    expect(reread?.deviceName).toBe("DoCT-MAC");
+    expect(reread?.updatedAt.toISOString()).toBe("2026-09-15T04:00:00.000Z");
+  });
+
+  test("update reject clock đi lùi và giữ nguyên record", async () => {
+    const repo = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
+      now: sequence([
+        new Date("2026-09-15T04:00:00.000Z"),
+        new Date("2026-09-15T03:59:59.000Z"),
+      ]),
+    });
+    await repo.create(baseInput());
+
+    await expect(
+      repo.updateForOwner("owner-a", DEVICE_A, { deviceName: "Must not commit" }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CLOCK",
+    } satisfies Partial<DeviceRepositoryError>);
+
+    const reread = await repo.getById(DEVICE_A);
+    expect(reread?.deviceName).toBe("DoCT-MAC");
+    expect(reread?.updatedAt.toISOString()).toBe("2026-09-15T04:00:00.000Z");
+  });
+
+  test("malformed device id có error code riêng", async () => {
+    const repo = new InMemoryDeviceRepository();
+
+    await expect(repo.getById("not-a-device-id")).rejects.toMatchObject({
+      code: "INVALID_DEVICE_ID",
+    } satisfies Partial<DeviceRepositoryError>);
   });
 
   test("owner-scoped APIs không lookup/list/update chéo owner", async () => {
