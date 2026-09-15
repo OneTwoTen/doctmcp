@@ -6,7 +6,7 @@ Hoàn tất M3.3 trên foundation #30/#31: sau khi pairing đã tạo/bind `Devi
 
 ## Trạng thái
 
-**Đang hoàn thiện verification trên branch `codex/m3-3-device-credential-auth`, PR #39.**
+**Implementation hoàn tất trên branch `codex/m3-3-device-credential-auth`, PR #39; đang chờ review/merge.**
 
 ## Scope triển khai
 
@@ -23,7 +23,7 @@ Hoàn tất M3.3 trên foundation #30/#31: sau khi pairing đã tạo/bind `Devi
 - [x] Active session policy M3.3: revoke/rotate vô hiệu credential cho reconnect mới; đóng active session theo registry sẽ thuộc #33 để tránh tạo registry song song trong #32.
 - [x] M2 legacy/test handshake explicit qua `allowLegacyUnauthenticated: true`, không là production fallback.
 - [x] Authenticated MCP end-to-end và security regression tests.
-- [ ] Final verification: `check`, `typecheck`, full test và `test:m2` xanh.
+- [x] Final verification trên CI #176: `check`, `typecheck`, full test xanh; 198/198 test, M2 acceptance 6/6, Windows regression xanh.
 
 ## Quyết định kỹ thuật
 
@@ -73,7 +73,7 @@ bridge.hello
     credential
 ```
 
-`BridgeServerTransport` chỉ đặt credential trong WebSocket control frame, không đưa vào URL/query. Gateway có `authenticateDevice(deviceId, credential)` callback/service. Chỉ khi callback trả server-side identity `{ ownerId, deviceId }` khớp request thì mới:
+`BridgeServerTransport` chỉ đặt credential trong WebSocket control frame, không đưa vào URL/query. Gateway có `authenticateDevice(deviceId, credential)` callback/service. Chỉ khi callback trả server-side identity `{ ownerId, deviceId }` hợp lệ và khớp request thì mới:
 
 ```text
 handshaking -> ready
@@ -82,7 +82,9 @@ onSession(session)
 allow mcp.message
 ```
 
-Nếu gateway trả `AUTH_REQUIRED`/`AUTH_FAILED` trong handshake, local transport giữ nguyên generic bridge error code thay vì đổi thành lỗi handshake khác.
+Authenticator output được runtime-validate. Gateway re-check duplicate `sessionId` sau async authentication để hai handshake đồng thời không cùng vượt qua pre-auth check.
+
+Nếu gateway trả `AUTH_REQUIRED`/`AUTH_FAILED` trong handshake, local transport giữ nguyên generic bridge error code. Native close cleanup chờ inbound control-frame chain để auth error không bị ghi đè thành `SESSION_CLOSED`.
 
 M2 compatibility không fallback tự động khi auth fail. Legacy hello chỉ được chấp nhận khi gateway được tạo với `allowLegacyUnauthenticated: true` trong M2 acceptance/test.
 
@@ -115,14 +117,18 @@ M2 compatibility không fallback tự động khi auth fail. Legacy hello chỉ 
 
 ## Verification cuối
 
-Cần xác nhận trên head cuối của PR #39:
+CI #176 trên implementation head `33263127`:
 
-```bash
-bun run check
-bun run typecheck
-bun test
-bun run test:m2
-```
+- `bun run check`: pass;
+- `bun run typecheck`: pass;
+- `bun test`: **198 pass / 0 fail**, 822 expects, 26 files;
+- M2 acceptance: **6/6 pass**;
+- M3 authenticated acceptance: **2/2 pass**;
+- Windows `shell.exec` regression: pass.
+
+Script `bun run test:m2` trỏ trực tiếp tới `apps/server/src/m2-acceptance.test.ts`; cùng file này đã chạy 6/6 trong full test của CI #176.
+
+Docs-only commits sau verification phải tiếp tục giữ CI xanh trước khi PR chuyển ready.
 
 ## Out of scope
 
