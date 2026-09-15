@@ -214,7 +214,9 @@ export class BridgeClientTransport implements BridgeClientTransportContract {
           await this.session.close("NORMAL");
         }
       } catch (error) {
-        this.reportError(normalizeError(error, "Failed to close bridge session"));
+        this.reportError(
+          normalizeError(error, "Failed to close bridge session"),
+        );
       } finally {
         this.finalizeClose();
       }
@@ -261,7 +263,9 @@ export class BridgeClientTransport implements BridgeClientTransportContract {
       );
     }
 
-    const bytes = new TextEncoder().encode(JSON.stringify(parsed.data)).byteLength;
+    const bytes = new TextEncoder().encode(
+      JSON.stringify(parsed.data),
+    ).byteLength;
     if (bytes > this.maxMessageBytes) {
       throw new BridgeClientTransportError(
         "MESSAGE_TOO_LARGE",
