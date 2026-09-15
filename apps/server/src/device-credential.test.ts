@@ -1,17 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { InMemoryDeviceRepository } from "./device-repository";
 import {
   DEVICE_CREDENTIAL_ENTROPY_BITS,
   DeviceCredentialService,
   InMemoryDeviceCredentialRepository,
 } from "./device-credential";
+import { InMemoryDeviceRepository } from "./device-repository";
 
 const DEVICE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DEVICE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const CREDENTIAL_A = "11111111-1111-4111-8111-111111111111";
 const CREDENTIAL_B = "22222222-2222-4222-8222-222222222222";
+const CREDENTIAL_C = "33333333-3333-4333-8333-333333333333";
 
-async function createDevice(repository: InMemoryDeviceRepository, ownerId: string) {
+async function createDevice(
+  repository: InMemoryDeviceRepository,
+  ownerId: string,
+) {
   return repository.create({
     ownerId,
     deviceName: `device-${ownerId}`,
@@ -21,7 +25,9 @@ async function createDevice(repository: InMemoryDeviceRepository, ownerId: strin
 
 describe("DeviceCredentialService", () => {
   test("issue/verify bind đúng device + owner và raw secret không nằm trong snapshot", async () => {
-    const devices = new InMemoryDeviceRepository({ generateDeviceId: () => DEVICE_A });
+    const devices = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
+    });
     await createDevice(devices, "owner-a");
     const repository = new InMemoryDeviceCredentialRepository();
     const service = new DeviceCredentialService({
@@ -38,13 +44,18 @@ describe("DeviceCredentialService", () => {
     expect(JSON.stringify(issued.credential)).not.toContain("secret-a");
 
     const verified = await service.verify(DEVICE_A, "secret-a");
-    expect(verified.identity).toEqual({ ownerId: "owner-a", deviceId: DEVICE_A });
+    expect(verified.identity).toEqual({
+      ownerId: "owner-a",
+      deviceId: DEVICE_A,
+    });
     expect(verified.credential.credentialId).toBe(CREDENTIAL_A);
   });
 
   test("wrong/mismatched credential reject generic", async () => {
     let nextId = DEVICE_A;
-    const devices = new InMemoryDeviceRepository({ generateDeviceId: () => nextId });
+    const devices = new InMemoryDeviceRepository({
+      generateDeviceId: () => nextId,
+    });
     await createDevice(devices, "owner-a");
     nextId = DEVICE_B;
     await createDevice(devices, "owner-b");
@@ -71,7 +82,9 @@ describe("DeviceCredentialService", () => {
   });
 
   test("revoke invalidates credential", async () => {
-    const devices = new InMemoryDeviceRepository({ generateDeviceId: () => DEVICE_A });
+    const devices = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
+    });
     await createDevice(devices, "owner-a");
     const repository = new InMemoryDeviceCredentialRepository();
     const service = new DeviceCredentialService({
@@ -91,7 +104,9 @@ describe("DeviceCredentialService", () => {
   test("rotate atomically makes old secret fail and new secret work", async () => {
     const ids = [CREDENTIAL_A, CREDENTIAL_B];
     const secrets = ["secret-a", "secret-b"];
-    const devices = new InMemoryDeviceRepository({ generateDeviceId: () => DEVICE_A });
+    const devices = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
+    });
     await createDevice(devices, "owner-a");
     const repository = new InMemoryDeviceCredentialRepository();
     const service = new DeviceCredentialService({
@@ -108,13 +123,17 @@ describe("DeviceCredentialService", () => {
     await expect(service.verify(DEVICE_A, first.secret)).rejects.toMatchObject({
       code: "CREDENTIAL_UNAVAILABLE",
     });
-    await expect(service.verify(DEVICE_A, rotated.secret)).resolves.toMatchObject({
+    await expect(
+      service.verify(DEVICE_A, rotated.secret),
+    ).resolves.toMatchObject({
       identity: { ownerId: "owner-a", deviceId: DEVICE_A },
     });
   });
 
-  test("concurrent rotate/revoke deterministic: chỉ một mutation thắng", async () => {
-    const devices = new InMemoryDeviceRepository({ generateDeviceId: () => DEVICE_A });
+  test("concurrent rotate/revoke dùng CAS: chỉ một mutation thắng", async () => {
+    const devices = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
+    });
     await createDevice(devices, "owner-a");
     const repository = new InMemoryDeviceCredentialRepository();
     const service = new DeviceCredentialService({
@@ -135,7 +154,75 @@ describe("DeviceCredentialService", () => {
       service.rotate(DEVICE_A),
       service.revoke(DEVICE_A),
     ]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+  });
+
+  test("concurrent rotate/rotate dùng CAS: chỉ một secret mới được commit", async () => {
+    const devices = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
+    });
+    await createDevice(devices, "owner-a");
+    const repository = new InMemoryDeviceCredentialRepository();
+    const ids = [CREDENTIAL_A, CREDENTIAL_B, CREDENTIAL_C];
+    const secrets = ["secret-a", "secret-b", "secret-c"];
+    const service = new DeviceCredentialService({
+      repository,
+      deviceRepository: devices,
+      generateCredentialId: () => ids.shift() ?? CREDENTIAL_C,
+      generateSecret: () => secrets.shift() ?? "secret-c",
+    });
+    await service.issue(DEVICE_A);
+
+    const results = await Promise.allSettled([
+      service.rotate(DEVICE_A),
+      service.rotate(DEVICE_A),
+    ]);
+    const fulfilled = results.filter(
+      (result) => result.status === "fulfilled",
+    );
+    expect(fulfilled).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    if (fulfilled[0]?.status !== "fulfilled") throw new Error("missing winner");
+    await expect(
+      service.verify(DEVICE_A, fulfilled[0].value.secret),
+    ).resolves.toMatchObject({
+      credential: { version: 2 },
+    });
+  });
+
+  test("credentialId không được reuse giữa device hoặc generation", async () => {
+    let nextDeviceId = DEVICE_A;
+    const devices = new InMemoryDeviceRepository({
+      generateDeviceId: () => nextDeviceId,
+    });
+    await createDevice(devices, "owner-a");
+    nextDeviceId = DEVICE_B;
+    await createDevice(devices, "owner-b");
+
+    const repository = new InMemoryDeviceCredentialRepository();
+    const serviceA = new DeviceCredentialService({
+      repository,
+      deviceRepository: devices,
+      generateCredentialId: () => CREDENTIAL_A,
+      generateSecret: () => "secret-a",
+    });
+    await serviceA.issue(DEVICE_A);
+
+    const serviceB = new DeviceCredentialService({
+      repository,
+      deviceRepository: devices,
+      generateCredentialId: () => CREDENTIAL_A,
+      generateSecret: () => "secret-b",
+    });
+    await expect(serviceB.issue(DEVICE_B)).rejects.toMatchObject({
+      code: "CREDENTIAL_ID_CONFLICT",
+    });
   });
 });
