@@ -122,17 +122,17 @@ Lifecycle rules:
 ## Sequence chính
 
 ```text
-Local BridgeClient       Public gateway/Server       Local MCP Server
-       |                         |                         |
-       |--- WebSocket connect --->|                         |
-       |--- bridge.hello -------->|                         |
-       |<-- bridge.hello.ack -----|                         |
-       |<========= mcp.message (initialize) ===============>|
-       |<========= mcp.message (initialize result) =========|
-       |<========= mcp.message (tools/list) ===============>|
-       |<========= mcp.message (tools/list result) =========|
-       |<========= mcp.message (tools/call system/info) ===>|
-       |<========= mcp.message (structured result) =========|
+Public MCP Client     BridgeClientTransport     Public Gateway     BridgeServerTransport     Local MCP Server
+       |                       |                       |                       |                       |
+       |                       |<-- WebSocket connect ------------------------|                       |
+       |                       |--- bridge.hello --------------------------->|                       |
+       |                       |<-- bridge.hello.ack ------------------------|                       |
+       |--- initialize ------->|--- mcp.message (initialize) --------------->|--- mcp.message ------>|
+       |<-- initialize result -|<-- mcp.message (initialize result) ----------|<-- mcp.message -------|
+       |--- tools/list ------->|--- mcp.message (tools/list) ---------------->|--- mcp.message ------>|
+       |<-- tools/list result -|<-- mcp.message (tools/list result) ----------|<-- mcp.message -------|
+       |--- tools/call ------->|--- mcp.message (tools/call system/info) ---->|--- mcp.message ------>|
+       |<-- structured result -|<-- mcp.message (structured result) ----------|<-- mcp.message -------|
 ```
 
 Disconnect: socket close/error → stop queue → reject pending sends/requests → gọi `onerror` (nếu có) và `onclose` đúng một lần → MCP client/server nhận transport failure.
