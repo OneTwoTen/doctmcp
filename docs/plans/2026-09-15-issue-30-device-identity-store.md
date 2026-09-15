@@ -26,7 +26,15 @@ bun test
 bun run test:m2
 ```
 
-GitHub Actions của PR là nguồn verification mới nếu môi trường agent hiện tại không có Bun 1.4.2.
+Verification trên PR #37, CI #126:
+
+- `bun run check`: pass;
+- `bun run typecheck`: pass;
+- `bun test`: 161 pass / 0 fail trên 20 file;
+- `apps/server/src/m2-acceptance.test.ts`: 6/6 pass trong full suite, tương đương regression coverage của `test:m2`;
+- Windows `shell.exec` regression: pass.
+
+Môi trường agent không có Bun 1.4.2 local; GitHub Actions là nguồn verification mới của branch.
 
 ## Ngoài phạm vi
 
@@ -42,4 +50,5 @@ GitHub Actions của PR là nguồn verification mới nếu môi trường agen
 
 | Ngày | Thay đổi | Trạng thái |
 |---|---|---|
-| 2026-09-15 | Tạo plan và triển khai scope M3.1 | implementation complete, pending verification |
+| 2026-09-15 | Tạo plan và triển khai scope M3.1 | implementation complete |
+| 2026-09-15 | CI #126 xác nhận check/typecheck/full tests và M2 regression | verified, pending merge |
