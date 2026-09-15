@@ -47,7 +47,9 @@ export interface PairingCredentialCompletionRecord {
 }
 
 export interface PairingCredentialCompletionRepository {
-  get(pairingSessionId: string): Promise<PairingCredentialCompletionRecord | null>;
+  get(
+    pairingSessionId: string,
+  ): Promise<PairingCredentialCompletionRecord | null>;
   setPending(input: {
     readonly pairingSessionId: string;
     readonly deviceId: string;
@@ -249,8 +251,9 @@ export class PairingCredentialCompletionService {
   async acknowledgeDelivery(
     input: AcknowledgePairingCredentialDeliveryInput,
   ): Promise<void> {
-    const session =
-      await this.#pairingService.getPairingSession(input.pairingSessionId);
+    const session = await this.#pairingService.getPairingSession(
+      input.pairingSessionId,
+    );
     if (session?.state !== "claimed" || session.deviceId === undefined) {
       throw completionUnavailable();
     }
