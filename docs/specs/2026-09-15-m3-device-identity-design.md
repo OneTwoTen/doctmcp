@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Implemented trong issue #30, chờ merge/CI của PR tương ứng.**
+**Implemented và verified trong issue #30; chờ merge PR tương ứng.**
 
 Tài liệu này khóa domain foundation cho M3. Pairing code, credential, authenticated WebSocket, heartbeat và routing vẫn thuộc các issue sau.
 
@@ -111,8 +111,10 @@ M3.1 cover:
 
 M1/M2 regression phải tiếp tục xanh.
 
+Verification gần nhất trên PR #37, CI #126: Biome pass, TypeScript typecheck pass, `bun test` 161 pass / 0 fail; 6 test M2 acceptance đều pass và Windows `shell.exec` regression pass.
+
 ## History
 
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
-| 2026-09-15 | Khóa Device domain, UUID v4 và repository abstraction | Foundation cho pairing/auth/routing M3 | implemented, pending merge |
+| 2026-09-15 | Khóa Device domain, UUID v4 và repository abstraction | Foundation cho pairing/auth/routing M3 | verified, pending merge |
