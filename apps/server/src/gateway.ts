@@ -71,6 +71,7 @@ interface GatewayConnection {
   readonly ws: Bun.ServerWebSocket<BridgeSocketData> | null;
   session: GatewaySession | null;
   state: GatewaySessionState;
+  closeReason: BridgeCloseCode | "REMOTE_CLOSE" | null;
   timeout: ReturnType<typeof setTimeout> | null;
   finalized: boolean;
 }
@@ -220,12 +221,18 @@ function clearConnectionTimeout(connection: MutableGatewayConnection): void {
 function closeConnection(
   connection: MutableGatewayConnection,
   code: BridgeCloseCode,
+  announce = true,
 ): Promise<void> {
-  if (connection.finalized || connection.state === "closed") {
+  if (
+    connection.finalized ||
+    connection.state === "closing" ||
+    connection.state === "closed"
+  ) {
     return Promise.resolve();
   }
 
   clearConnectionTimeout(connection);
+  connection.closeReason = code;
   connection.state = "closing";
 
   const ws = connection.ws;
@@ -234,11 +241,13 @@ function closeConnection(
     return Promise.resolve();
   }
 
-  try {
-    const frame = serializeFrame({ kind: "bridge.close", code });
-    ws.send(frame.text);
-  } catch {
-    // Socket có thể đã đóng giữa lúc chuẩn bị close; callback close sẽ cleanup.
+  if (announce) {
+    try {
+      const frame = serializeFrame({ kind: "bridge.close", code });
+      ws.send(frame.text);
+    } catch {
+      // Socket có thể đã đóng giữa lúc chuẩn bị close; callback close sẽ cleanup.
+    }
   }
   ws.close(nativeCloseCode(code), code);
   return Promise.resolve();
@@ -260,6 +269,23 @@ function finalizeConnection(
     } catch {
       // Callback của consumer không được làm lỗi cleanup lan ra runtime.
     }
+  }
+}
+
+/**
+ * Bun trả -1 khi frame đã được enqueue nhưng socket đang chịu backpressure.
+ * Đây là success của lần gửi hiện tại, không phải tín hiệu để retry.
+ */
+export function sendWebSocketFrameOnce(send: () => number): void {
+  const status = send();
+  if (status === 0) {
+    throw new BridgeGatewayError(
+      "SESSION_CLOSED",
+      "Bridge message was dropped",
+    );
+  }
+  if (status < -1) {
+    throw new BridgeGatewayError("SESSION_CLOSED", "Bridge socket send failed");
   }
 }
 
@@ -308,24 +334,11 @@ export function createBridgeGateway(
     }
 
     const frame = serializeFrame(message);
-    let status: number;
     try {
-      status = connection.ws.send(frame.text);
+      sendWebSocketFrameOnce(() => connection.ws?.send(frame.text) ?? 0);
     } catch {
       await closeConnection(connection, "NORMAL");
       throw new BridgeGatewayError("SESSION_CLOSED", "Bridge socket is closed");
-    }
-    if (status === 0) {
-      throw new BridgeGatewayError(
-        "SESSION_CLOSED",
-        "Bridge message was dropped",
-      );
-    }
-    if (status < 0) {
-      throw new BridgeGatewayError(
-        "BACKPRESSURE",
-        "Bridge socket is applying backpressure",
-      );
     }
     if (connection.state === "ready") {
       setTimeoutFor(connection, idleTimeoutMs, () => {
@@ -347,6 +360,7 @@ export function createBridgeGateway(
   ): Promise<void> => {
     if (connection.finalized || connection.state === "closing") return;
     clearConnectionTimeout(connection);
+    connection.closeReason = closeCode;
     connection.state = "closing";
 
     if (connection.ws) {
@@ -357,12 +371,12 @@ export function createBridgeGateway(
           message,
         };
         const errorFrame = serializeFrame(errorMessage);
-        connection.ws.send(errorFrame.text);
+        sendWebSocketFrameOnce(() => connection.ws?.send(errorFrame.text) ?? 0);
         const closeFrame = serializeFrame({
           kind: "bridge.close",
           code: closeCode,
         });
-        connection.ws.send(closeFrame.text);
+        sendWebSocketFrameOnce(() => connection.ws?.send(closeFrame.text) ?? 0);
       } catch {
         // Best effort protocol error; native close remains authoritative.
       }
@@ -414,6 +428,7 @@ export function createBridgeGateway(
       }
       if (message.bridgeProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
         clearConnectionTimeout(connection);
+        connection.closeReason = "PROTOCOL_ERROR";
         connection.state = "closing";
         try {
           const errorFrame = serializeFrame({
@@ -421,12 +436,16 @@ export function createBridgeGateway(
             code: "UNSUPPORTED_VERSION",
             message: "Unsupported bridge protocol version",
           });
-          connection.ws?.send(errorFrame.text);
+          sendWebSocketFrameOnce(
+            () => connection.ws?.send(errorFrame.text) ?? 0,
+          );
           const closeFrame = serializeFrame({
             kind: "bridge.close",
             code: "PROTOCOL_ERROR",
           });
-          connection.ws?.send(closeFrame.text);
+          sendWebSocketFrameOnce(
+            () => connection.ws?.send(closeFrame.text) ?? 0,
+          );
         } catch {
           // Best effort protocol response.
         }
@@ -487,6 +506,11 @@ export function createBridgeGateway(
         return;
       }
       log("bridge.session.ready", connection);
+      return;
+    }
+
+    if (message.kind === "bridge.close") {
+      await closeConnection(connection, message.code, false);
       return;
     }
 
@@ -556,7 +580,10 @@ export function createBridgeGateway(
         if (!connection) return;
         if (connection.session) sessions.delete(connection.session.id);
         connections.delete(connection.connectionId);
-        finalizeConnection(connection, "REMOTE_CLOSE");
+        finalizeConnection(
+          connection,
+          connection.closeReason ?? "REMOTE_CLOSE",
+        );
         log("bridge.connection.closed", connection);
       },
     },
@@ -575,6 +602,7 @@ export function createBridgeGateway(
         ws: null,
         session: null,
         state: "handshaking",
+        closeReason: null,
         timeout: null,
         finalized: false,
       };
@@ -609,7 +637,10 @@ export function createBridgeGateway(
       for (const connection of activeConnections) {
         if (connection.session) sessions.delete(connection.session.id);
         connections.delete(connection.connectionId);
-        finalizeConnection(connection, "SERVER_SHUTDOWN");
+        finalizeConnection(
+          connection,
+          connection.closeReason ?? "SERVER_SHUTDOWN",
+        );
       }
       await server.stop(true);
     },

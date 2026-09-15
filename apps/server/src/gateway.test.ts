@@ -8,6 +8,7 @@ import {
   type BridgeGateway,
   type BridgeGatewaySession,
   createBridgeGateway,
+  sendWebSocketFrameOnce,
 } from "./gateway";
 
 interface ReceivedMessage {
@@ -86,6 +87,18 @@ describe("BridgeGateway", () => {
     sockets = [];
     await gateway?.stop();
     gateway = null;
+  });
+
+  test("treats Bun backpressure status -1 as accepted without retrying", () => {
+    let sendCount = 0;
+
+    expect(() =>
+      sendWebSocketFrameOnce(() => {
+        sendCount += 1;
+        return -1;
+      }),
+    ).not.toThrow();
+    expect(sendCount).toBe(1);
   });
 
   test("accepts a local-first handshake and exposes a ready session", async () => {
@@ -264,6 +277,95 @@ describe("BridgeGateway", () => {
     expect(gateway.sessionCount).toBe(0);
   });
 
+  test("handles an inbound bridge.close and preserves its close reason", async () => {
+    let readySession: BridgeGatewaySession | undefined;
+    gateway = createBridgeGateway({
+      port: 0,
+      onSession: (session) => {
+        readySession = session;
+      },
+    });
+    const socket = await connectClient(gateway);
+    sockets.push(socket);
+    sendHello(socket);
+    await waitForMessage(
+      socket,
+      (message) => message.kind === "bridge.hello.ack",
+    );
+
+    const reasons: string[] = [];
+    const closeReason = new Promise<string>((resolve) => {
+      if (!readySession) throw new Error("Expected a ready session");
+      readySession.onclose = (reason) => {
+        reasons.push(reason);
+        resolve(reason);
+      };
+    });
+    const closePromise = waitForClose(socket);
+    socket.send(JSON.stringify({ kind: "bridge.close", code: "NORMAL" }));
+
+    await expect(closeReason).resolves.toBe("NORMAL");
+    expect((await closePromise).code).toBe(1000);
+    expect(reasons).toEqual(["NORMAL"]);
+    expect(gateway.sessionCount).toBe(0);
+  });
+
+  test("maps an idle timeout to TIMEOUT instead of REMOTE_CLOSE", async () => {
+    let readySession: BridgeGatewaySession | undefined;
+    gateway = createBridgeGateway({
+      port: 0,
+      idleTimeoutMs: 25,
+      onSession: (session) => {
+        readySession = session;
+      },
+    });
+    const socket = await connectClient(gateway);
+    sockets.push(socket);
+    sendHello(socket);
+    await waitForMessage(
+      socket,
+      (message) => message.kind === "bridge.hello.ack",
+    );
+
+    const closeReason = new Promise<string>((resolve) => {
+      if (!readySession) throw new Error("Expected a ready session");
+      readySession.onclose = resolve;
+    });
+    const closePromise = waitForClose(socket);
+
+    await expect(closeReason).resolves.toBe("TIMEOUT");
+    expect((await closePromise).code).toBe(1001);
+    expect(gateway.sessionCount).toBe(0);
+  });
+
+  test("maps a client disconnect to REMOTE_CLOSE and cleans up", async () => {
+    let readySession: BridgeGatewaySession | undefined;
+    gateway = createBridgeGateway({
+      port: 0,
+      onSession: (session) => {
+        readySession = session;
+      },
+    });
+    const socket = await connectClient(gateway);
+    sockets.push(socket);
+    sendHello(socket);
+    await waitForMessage(
+      socket,
+      (message) => message.kind === "bridge.hello.ack",
+    );
+
+    const closeReason = new Promise<string>((resolve) => {
+      if (!readySession) throw new Error("Expected a ready session");
+      readySession.onclose = resolve;
+    });
+    const closePromise = waitForClose(socket);
+    socket.close();
+
+    await expect(closeReason).resolves.toBe("REMOTE_CLOSE");
+    await closePromise;
+    expect(gateway.sessionCount).toBe(0);
+  });
+
   test("cleans up a normally closed session and tolerates repeated stop", async () => {
     gateway = createBridgeGateway({ port: 0 });
     const socket = await connectClient(gateway);
@@ -276,10 +378,14 @@ describe("BridgeGateway", () => {
     const session = gateway.getSession("test-session");
     expect(session).toBeDefined();
 
+    const reasons: string[] = [];
+    if (!session) throw new Error("Expected a ready session");
+    session.onclose = (reason) => reasons.push(reason);
     const closePromise = waitForClose(socket);
-    await session?.close();
+    await Promise.all([session.close(), session.close()]);
     await closePromise;
     expect(gateway.sessionCount).toBe(0);
+    expect(reasons).toEqual(["NORMAL"]);
     await gateway.stop();
     await gateway.stop();
   });
