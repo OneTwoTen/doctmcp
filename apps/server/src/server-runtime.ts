@@ -17,8 +17,8 @@ import {
 } from "./gateway";
 import {
   InMemoryPairingSessionRepository,
-  type PairingSessionRepository,
   PairingService,
+  type PairingSessionRepository,
 } from "./pairing";
 import { PairingCredentialCompletionService } from "./pairing-credential-completion";
 
@@ -78,10 +78,7 @@ export function createDoctmcpServerRuntime(
   const trackedSessions = new Set<BridgeGatewaySession>();
   const credentialMutationCounts = new Map<string, number>();
   const authenticationCounts = new Map<string, number>();
-  const authenticationDrainWaiters = new Map<
-    string,
-    Set<() => void>
-  >();
+  const authenticationDrainWaiters = new Map<string, Set<() => void>>();
 
   const pruneClosedSessions = (): void => {
     for (const session of trackedSessions) {
