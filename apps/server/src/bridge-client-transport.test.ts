@@ -102,7 +102,8 @@ describe("BridgeClientTransport", () => {
     await transport.start();
     expect(transport.state).toBe("ready");
     expect(transport.mcpRole).toBe("client");
-    expect(transport.sessionId).toBe("client-session");
+    expect(transport.bridgeSessionId).toBe("client-session");
+    expect("sessionId" in transport).toBe(false);
 
     const request = { jsonrpc: "2.0" as const, id: 1, method: "tools/list" };
     await transport.send(request);
