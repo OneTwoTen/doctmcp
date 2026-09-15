@@ -13,7 +13,9 @@ import {
 const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PAIRING_SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const CREDENTIAL_ID = "11111111-1111-4111-8111-111111111111";
+const RECOVERED_CREDENTIAL_ID = "22222222-2222-4222-8222-222222222222";
 const RAW_CREDENTIAL = "issued-only-once-secret";
+const RECOVERED_RAW_CREDENTIAL = "recovered-after-restart-secret";
 
 async function createFixture(options: { failFirstIssue?: boolean } = {}) {
   let now = new Date("2026-09-15T08:00:00.000Z");
@@ -58,6 +60,7 @@ async function createFixture(options: { failFirstIssue?: boolean } = {}) {
 
   return {
     created,
+    devices,
     credentialRepository,
     credentialService,
     completionService,
@@ -140,6 +143,21 @@ describe("PairingCredentialCompletionService", () => {
     });
   });
 
+  test("cached pending delivery vẫn kiểm tra owner trước khi trả raw credential", async () => {
+    const { created, completionService } = await createFixture();
+    await completionService.claimAndIssue(created.pairingCode, {
+      ownerId: "owner-a",
+      deviceName: "DoCT Mac",
+      metadata: { platform: "darwin-arm64" },
+    });
+
+    await expect(
+      completionService.resumeClaimedPairing(PAIRING_SESSION_ID, "owner-b"),
+    ).rejects.toMatchObject({
+      code: "PAIRING_COMPLETION_UNAVAILABLE",
+    });
+  });
+
   test("credential issue fail sau claim vẫn recover được bằng pairingSessionId", async () => {
     const { created, credentialRepository, completionService, pairingService } =
       await createFixture({ failFirstIssue: true });
@@ -169,6 +187,56 @@ describe("PairingCredentialCompletionService", () => {
       credentialId: CREDENTIAL_ID,
       version: 1,
       deviceId: DEVICE_ID,
+    });
+  });
+
+  test("restart sau persist-before-delivery rotate credential thất lạc và trả secret mới", async () => {
+    const {
+      created,
+      devices,
+      credentialRepository,
+      credentialService,
+      completionService,
+      pairingService,
+    } = await createFixture();
+    await completionService.claimAndIssue(created.pairingCode, {
+      ownerId: "owner-a",
+      deviceName: "DoCT Mac",
+      metadata: { platform: "darwin-arm64" },
+    });
+
+    const restartedCredentialService = new DeviceCredentialService({
+      repository: credentialRepository,
+      deviceRepository: devices,
+      generateCredentialId: () => RECOVERED_CREDENTIAL_ID,
+      generateSecret: () => RECOVERED_RAW_CREDENTIAL,
+    });
+    const restartedCompletionService = new PairingCredentialCompletionService({
+      pairingService,
+      credentialService: restartedCredentialService,
+      deviceRepository: devices,
+    });
+
+    const recovered = await restartedCompletionService.resumeClaimedPairing(
+      PAIRING_SESSION_ID,
+      "owner-a",
+    );
+
+    expect(recovered.secret).toBe(RECOVERED_RAW_CREDENTIAL);
+    expect(recovered.credential).toMatchObject({
+      credentialId: RECOVERED_CREDENTIAL_ID,
+      deviceId: DEVICE_ID,
+      version: 2,
+      state: "active",
+    });
+    await expect(
+      credentialService.verify(DEVICE_ID, RAW_CREDENTIAL),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
+    await expect(
+      restartedCredentialService.verify(DEVICE_ID, RECOVERED_RAW_CREDENTIAL),
+    ).resolves.toMatchObject({
+      credential: { version: 2 },
+      identity: { ownerId: "owner-a", deviceId: DEVICE_ID },
     });
   });
 
