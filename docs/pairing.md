@@ -4,45 +4,131 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 
 ## Trạng thái hiện tại
 
-M3.1 đã khóa **device identity + persistence contract**. Pairing session/code thật bắt đầu ở M3.2 (#31), credential/authenticated bridge ở M3.3 (#32).
+M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) triển khai pairing session/code lifecycle và atomic claim. Long-lived credential/authenticated bridge vẫn thuộc M3.3 (#32).
 
-## Mục tiêu
+## Mục tiêu M3.2
 
-Cho phép một local runtime mới được liên kết với đúng user mà không truyền credential dài hạn qua đoạn chat và không yêu cầu máy local expose port public.
+Cho phép một local runtime chưa có credential tạo pairing session ngắn hạn, hiển thị code cho user và được claim bởi đúng `ownerId` mà không truyền credential dài hạn qua chat/UI.
 
-## Luồng dự kiến
+M3.2 kết thúc ở trạng thái:
 
 ```text
-local runtime -> public server: tạo pairing session
-public server -> local runtime: pairing code + expiry
-user -> ChatGPT/UI: nhập pairing code
-ChatGPT/UI -> public server: claim pairing code
-public server: xác minh user + code + expiry
-public server -> local runtime: cấp device identity/credential
-local runtime: lưu credential an toàn
+pairing claimed
+    +
+Device đã được tạo và bind owner
 ```
 
-Pairing code phải:
+Không cấp long-lived device credential trong flow này.
 
-- ngắn hạn;
-- dùng một lần;
-- được invalidate ngay sau khi claim thành công;
-- không được dùng làm device credential dài hạn.
+## Luồng đã implement
 
-## Device identity — đã khóa ở M3.1
+```text
+Local Runtime (unpaired)
+    -> PairingService.createPairingSession()
+    <- pairingCode + PairingSession(expiresAt)
 
-Mỗi thiết bị có immutable `deviceId` dùng cho routing và authorization. M3.1 sinh ID bằng `crypto.randomUUID()` nên format hiện tại là UUID v4.
+Owner/UI (trusted ownerId input trong M3)
+    -> PairingService.claimPairingCode(code, ownerId, deviceName, metadata)
+
+Pairing repository atomic boundary
+    -> validate digest + pending + unexpired
+    -> DeviceRepository.create(...)
+    -> mark session claimed + bind deviceId
+    -> invalidate code ngay lập tức
+```
+
+`pairingSessionId` là opaque UUID v4 riêng, không phải `deviceId`, bridge session id hoặc MCP session id. Optional `localCorrelationId` chỉ dùng để correlation local runtime ở milestone tiếp theo và không phải authorization identity.
+
+## Pairing code contract
+
+Constant hiện tại:
+
+- TTL mặc định: `DEFAULT_PAIRING_TTL_MS = 5 phút`;
+- alphabet: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`;
+- 32 symbol, loại `I`, `O`, `0`, `1` để giảm nhầm lẫn khi nhập tay;
+- 12 symbol ngẫu nhiên, format `XXXX-XXXX-XXXX`;
+- entropy: 60 bit;
+- generator: `crypto.getRandomValues()`, không dùng `Math.random()`;
+- normalization: case-insensitive, bỏ whitespace và dấu `-`, sau đó lookup theo canonical uppercase form.
 
 Ví dụ:
 
 ```text
-deviceId: 2f7ab9a3-b0df-47d8-a396-bde6da7b5c80
-deviceName: DoCT-MAC
+Pairing code: ABCD-EFGH-JKLM
+Expires in 5 minutes.
 ```
 
-`deviceName` chỉ là metadata hiển thị và có thể đổi. Không route bằng device name vì tên có thể trùng hoặc thay đổi.
+Code plaintext chỉ được trả về khi tạo session. Store không persist raw code; lookup dùng SHA-256 digest của canonical code với domain prefix `doctmcp-pairing:v1:`.
 
-`Device` hiện persist:
+Pairing code:
+
+- ngắn hạn;
+- dùng một lần;
+- invalidated ngay khi claim thành công;
+- không được dùng làm device credential dài hạn;
+- không được đưa vào structured error hoặc production log.
+
+## Pairing state
+
+External state chỉ có:
+
+```text
+pending -> claimed
+pending -> expired
+pending -> cancelled
+```
+
+`claimed` bắt buộc có `claimedAt` + `deviceId`. `expired`/`cancelled` không mang claimed device identity.
+
+Claim tại đúng `expiresAt` đã được coi là hết hạn.
+
+## Atomic claim boundary
+
+Không được implement flow sau:
+
+```text
+check pending
+await deviceRepository.create(...)
+mark claimed
+```
+
+nếu không có transaction/lock/CAS bao quanh toàn bộ sequence.
+
+`InMemoryPairingSessionRepository` hiện serialize mọi mutation bằng async critical section và chạy `DeviceRepository.create()` bên trong claim boundary. Vì vậy hai request claim cùng code đồng thời chỉ một request có thể tạo device; request còn lại nhận generic `PAIRING_CODE_UNAVAILABLE`.
+
+In-memory adapter là test/reference adapter. Production persistence phải thay boundary này bằng database transaction, row lock, compare-and-swap hoặc cơ chế tương đương để pairing transition và device creation cùng nằm trong atomic unit-of-work. Không được tách chúng thành hai write độc lập chỉ vì chuyển sang database.
+
+Nếu `DeviceRepository.create()` fail trước khi commit pairing state, session vẫn `pending` và code chưa bị consume.
+
+## Error/oracle boundary
+
+Malformed, unknown, expired, reused và cancelled code đều map ra cùng public service error:
+
+```text
+PAIRING_CODE_UNAVAILABLE
+```
+
+Mục đích là giữ behavior deterministic nhưng không cung cấp endpoint oracle để phân biệt code có tồn tại hay đã từng được dùng.
+
+Validation của `ownerId`, `deviceName` và device metadata xảy ra trước mutation. Raw pairing code không xuất hiện trong error message.
+
+## Anti-bruteforce hook
+
+`PairingClaimAttemptGuard` là boundary cho M4/HTTP layer áp rate limit theo trusted owner/user và network context.
+
+Hook nhận:
+
+- `ownerId`;
+- SHA-256 `codeDigest` hoặc `null` nếu format code invalid;
+- optional `remoteAddress`.
+
+Hook cố ý **không nhận raw pairing code** để giảm nguy cơ secret bị log bởi rate-limit/observability layer. M3.2 chưa triển khai full user auth/IP rate-limit infrastructure.
+
+## Device identity — M3.1
+
+Mỗi thiết bị có immutable `deviceId` dùng cho routing và authorization. M3.1 sinh ID bằng `crypto.randomUUID()` nên format hiện tại là UUID v4.
+
+`Device` persist:
 
 - immutable `deviceId`;
 - immutable opaque `ownerId`;
@@ -50,45 +136,32 @@ deviceName: DoCT-MAC
 - mutable `platform`, optional `appVersion`, optional `runtimeVersion`;
 - `createdAt`, `updatedAt`.
 
-`Device` không persist authoritative `online` boolean, bridge/MCP session id hoặc raw credential.
+`deviceName` chỉ là display metadata. Rename/metadata không thay đổi ownership.
 
-Persistence contract nằm sau `DeviceRepository`; M3.1 chỉ có deterministic in-memory adapter cho test. Production database chưa được chọn.
-
-## Ownership boundary — đã khóa ở M3.1
-
-Owner-scoped repository API yêu cầu cả `ownerId` + `deviceId`. Device của owner A không được lookup/update qua API scoped của owner B.
-
-`ownerId` trong M3 vẫn là opaque principal do caller/control-plane đáng tin cậy cung cấp; implementation login/OAuth đầy đủ thuộc milestone sau.
+Raw credential, authoritative `online`, bridge/MCP session id không thuộc `Device` record.
 
 ## Credential sau pairing — M3.3
 
-Device credential riêng phải:
+M3.3 (#32) mới chịu trách nhiệm:
 
-- gắn với một `deviceId` cụ thể;
-- revoke được;
-- rotate được;
-- không được ghi log đầy đủ;
-- được lưu local bằng cơ chế phù hợp hệ điều hành ở giai đoạn production.
+- sinh long-lived credential riêng sau pairing;
+- lưu hash/secret material đúng boundary;
+- authenticated WebSocket reconnect;
+- revoke/rotate credential.
 
-Pairing code không được tái sử dụng làm device token. Raw credential cũng không thuộc `Device` record; credential lifecycle có store/service riêng ở M3.3.
+Pairing code tuyệt đối không được promote thành device token.
 
-## UX CLI dự kiến
+## Test coverage M3.2
 
-```text
-$ doctmcp pair
-
-Pairing code: G7FK-P2QM
-Expires in 5 minutes.
-```
-
-UX cuối cùng chưa cần khóa ở M3; CLI chỉ là giao diện đầu tiên dễ test.
-
-## Test cần có khi triển khai pairing/auth
-
-- claim code hợp lệ;
-- code hết hạn;
-- code đã dùng;
-- code sai user/session;
-- credential sau pairing authenticate được;
-- revoked credential bị từ chối;
-- rotate credential làm credential cũ mất hiệu lực theo policy đã chốt.
+- create pairing session trả code + expiry đúng contract;
+- default generator không phụ thuộc `Math.random()`;
+- claim code hợp lệ tạo/bind đúng một device;
+- expiry boundary bị reject;
+- reused/cancelled/invalid code bị reject generic;
+- concurrent claim chỉ một request thắng;
+- invalid device metadata bị reject trước mutation;
+- normalization case/dash/whitespace deterministic;
+- guard chỉ nhận digest, không nhận raw code;
+- structured error/session snapshot không chứa raw code;
+- explicit expire chuyển pending session sang `expired`;
+- device creation fail không consume pairing code.
