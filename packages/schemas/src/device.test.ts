@@ -7,9 +7,9 @@ import {
 
 describe("device schemas", () => {
   test("accepts UUID v4 and normalizes mutable display input", () => {
-    expect(
-      deviceIdSchema.parse("11111111-1111-4111-8111-111111111111"),
-    ).toBe("11111111-1111-4111-8111-111111111111");
+    expect(deviceIdSchema.parse("11111111-1111-4111-8111-111111111111")).toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
 
     const input = createDeviceInputSchema.parse({
       ownerId: "owner-a",
@@ -25,9 +25,9 @@ describe("device schemas", () => {
   });
 
   test("rejects non-v4 device id and malformed metadata", () => {
-    expect(
-      deviceIdSchema.safeParse("0199-opaque-but-not-a-uuid").success,
-    ).toBe(false);
+    expect(deviceIdSchema.safeParse("0199-opaque-but-not-a-uuid").success).toBe(
+      false,
+    );
 
     expect(
       createDeviceInputSchema.safeParse({
