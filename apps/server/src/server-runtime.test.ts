@@ -33,7 +33,9 @@ describe("DoctmcpServerRuntime", () => {
     await Promise.allSettled(
       transports.splice(0).map((transport) => transport.close()),
     );
-    await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.stop()));
+    await Promise.allSettled(
+      runtimes.splice(0).map((runtime) => runtime.stop()),
+    );
   });
 
   async function createPairedRuntime() {
@@ -126,7 +128,9 @@ describe("DoctmcpServerRuntime", () => {
     transports.push(oldTransport);
     await oldTransport.start();
 
-    const rotated = await runtime.rotateDeviceCredential(completed.device.deviceId);
+    const rotated = await runtime.rotateDeviceCredential(
+      completed.device.deviceId,
+    );
     await waitFor(() => (oldTransport.state === "closed" ? true : undefined));
 
     const staleReconnect = new BridgeServerTransport({
