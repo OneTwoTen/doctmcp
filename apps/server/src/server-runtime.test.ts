@@ -75,9 +75,9 @@ describe("DoctmcpServerRuntime", () => {
     );
   });
 
-  async function createPairedRuntime(options: {
-    credentialRepository?: InMemoryDeviceCredentialRepository;
-  } = {}) {
+  async function createPairedRuntime(
+    options: { credentialRepository?: InMemoryDeviceCredentialRepository } = {},
+  ) {
     let readySession: BridgeGatewaySession | undefined;
     const runtime = createDoctmcpServerRuntime({
       port: 0,
