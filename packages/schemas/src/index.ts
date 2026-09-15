@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export * from "./device";
+export * from "./pairing";
 
 /** Phiên bản control-plane của bridge, độc lập với MCP protocol version. */
 export const BRIDGE_PROTOCOL_VERSION = "1" as const;
