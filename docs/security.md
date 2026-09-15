@@ -172,11 +172,13 @@ Payload không chứa pairing code. Duplicate/replay pairing claim dừng trư�
 
 Reference runtime giữ completion thành công transient trong memory theo `pairingSessionId` cho tới khi local acknowledge đã persist secret. Retry cùng process trả lại đúng pending delivery, không issue generation mới.
 
-Nếu claim đã commit nhưng credential issue fail, `resumeClaimedPairing(pairingSessionId, ownerId)` resolve lại claimed session và ownership từ server-side `DeviceRepository`, rồi retry issue. Wrong owner nhận generic `PAIRING_COMPLETION_UNAVAILABLE`.
+`resumeClaimedPairing(pairingSessionId, ownerId)` luôn resolve claimed session và kiểm tra ownership từ server-side `DeviceRepository` **trước** khi đọc transient cache. `pairingSessionId` vì vậy không trở thành bearer secret; wrong owner luôn nhận generic `PAIRING_COMPLETION_UNAVAILABLE` kể cả raw credential đang còn trong memory.
+
+Nếu process restart sau khi credential digest đã persist nhưng trước delivery/ack, raw secret cũ không thể khôi phục từ digest. Recovery path sẽ phát hiện credential active đã tồn tại, rotate sang generation mới và trả raw secret mới cho đúng owner. Generation thất lạc cũ bị vô hiệu ngay; server không cần persist raw credential để đạt crash recovery.
 
 `acknowledgeDelivery(pairingSessionId)` xóa raw secret pending khỏi memory sau khi local lưu thành công. Raw secret này không được persist hoặc log.
 
-Với production persistence dùng chung database, pairing transition + device creation + credential persistence vẫn phải nằm trong cùng transaction/unit-of-work. Recovery cache chỉ là reference-runtime safety net cho same-process delivery, không thay thế transaction durability.
+Với production persistence dùng chung database, pairing transition + device creation + credential persistence vẫn nên nằm trong cùng transaction/unit-of-work. Recovery-by-rotation là safety net cho cửa sổ persist-before-delivery, không thay thế transaction durability.
 
 ### Authenticated bridge handshake
 
@@ -194,6 +196,8 @@ bridge.hello
 Không đưa credential vào URL/query string.
 
 Production gateway mặc định yêu cầu auth. `createDoctmcpServerRuntime()` luôn wire gateway với `DeviceCredentialService.verify()` dùng cùng repository instance với credential lifecycle. Legacy unauthenticated handshake không được expose từ production composition root.
+
+Credential service/repository mutation không được expose trên `DoctmcpServerRuntime`; caller chỉ có thể revoke/rotate qua lifecycle API có session invalidation. Repository adapters có thể được inject lúc tạo runtime để production thay in-memory persistence mà không phá security boundary này.
 
 Legacy mode chỉ được bật rõ ràng bằng `allowLegacyUnauthenticated: true` khi tạo gateway trực tiếp cho M2 compatibility/test; auth failure không được fallback sang legacy mode.
 
@@ -221,8 +225,11 @@ Local `BridgeServerTransport` giữ credential trong auth config và chỉ đưa
 
 Server composition root cung cấp lifecycle API có active-session propagation:
 
-- `revokeDeviceCredential(deviceId)` revoke generation hiện tại, đóng ngay authenticated session đang active của đúng device và làm credential cũ fail khi reconnect;
+- `revokeDeviceCredential(deviceId)` revoke generation hiện tại, đóng authenticated session đang active của đúng device và làm credential cũ fail khi reconnect;
 - `rotateDeviceCredential(deviceId)` atomically tạo generation mới, đóng active session cũ, làm secret cũ fail và chỉ secret mới reconnect được;
+- credential mutation đóng auth boundary của device trong suốt mutation;
+- auth đã bắt đầu trước mutation phải drain xong; nếu verify trả snapshot cũ trong lúc mutation đang active thì authenticator reject generic thay vì bind session;
+- trường hợp authenticator vừa return ngay trước mutation được chặn bằng on-session mutation guard + final session sweep trước khi boundary mở lại;
 - failure CAS không làm mất generation đang active;
 - concurrent rotate/rotate và rotate/revoke đều có regression test.
 
@@ -256,11 +263,13 @@ Ví dụ:
 - raw pairing code không xuất hiện trong structured error/snapshot;
 - wrong/mismatched/revoked device credential;
 - concurrent credential rotate/revoke;
-- credential issue failure sau pairing claim có recovery path;
-- wrong owner không resume được pairing completion;
+- cached pairing completion vẫn owner-check trước khi trả raw secret;
+- process-restart recovery sau persist-before-delivery rotate credential thất lạc;
 - raw credential không xuất hiện trong URL/error/log snapshot;
 - MCP frame trước authenticated handshake;
 - revoke/rotate đóng active authenticated session đúng device;
+- revoke thắng handshake đang verify snapshot credential cũ;
+- runtime không expose credential mutation service/repository;
 - shell timeout;
 - oversized output;
 - invalid bridge handshake;
