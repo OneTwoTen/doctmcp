@@ -20,17 +20,26 @@ import {
   PairingService,
   type PairingSessionRepository,
 } from "./pairing";
-import { PairingCredentialCompletionService } from "./pairing-credential-completion";
+import {
+  InMemoryPairingCredentialCompletionRepository,
+  type PairingCredentialCompletionRepository,
+  PairingCredentialCompletionService,
+} from "./pairing-credential-completion";
 
 export interface CreateDoctmcpServerRuntimeOptions
   extends Omit<
     CreateBridgeGatewayOptions,
-    "authenticateDevice" | "allowLegacyUnauthenticated" | "onSession"
+    | "authenticateDevice"
+    | "allowLegacyUnauthenticated"
+    | "beginSessionReady"
+    | "validateSessionReady"
+    | "onSession"
   > {
   readonly onSession?: (session: BridgeGatewaySession) => void;
   readonly deviceRepository?: DeviceRepository;
   readonly credentialRepository?: DeviceCredentialRepository;
   readonly pairingRepository?: PairingSessionRepository;
+  readonly pairingCredentialCompletionRepository?: PairingCredentialCompletionRepository;
 }
 
 export interface DoctmcpServerRuntime {
@@ -58,6 +67,8 @@ export function createDoctmcpServerRuntime(
     deviceRepository: configuredDeviceRepository,
     credentialRepository: configuredCredentialRepository,
     pairingRepository: configuredPairingRepository,
+    pairingCredentialCompletionRepository:
+      configuredPairingCredentialCompletionRepository,
     onSession,
     ...gatewayOptions
   } = options;
@@ -74,11 +85,17 @@ export function createDoctmcpServerRuntime(
     configuredPairingRepository ??
     new InMemoryPairingSessionRepository(deviceRepository);
   const pairingService = new PairingService({ repository: pairingRepository });
+  const pairingCredentialCompletionRepository =
+    configuredPairingCredentialCompletionRepository ??
+    new InMemoryPairingCredentialCompletionRepository();
 
   const trackedSessions = new Set<BridgeGatewaySession>();
   const credentialMutationCounts = new Map<string, number>();
   const authenticationCounts = new Map<string, number>();
   const authenticationDrainWaiters = new Map<string, Set<() => void>>();
+  const sessionReadyCounts = new Map<string, number>();
+  const sessionReadyDrainWaiters = new Map<string, Set<() => void>>();
+  let stopping = false;
 
   const pruneClosedSessions = (): void => {
     for (const session of trackedSessions) {
@@ -90,6 +107,7 @@ export function createDoctmcpServerRuntime(
     (credentialMutationCounts.get(deviceId) ?? 0) > 0;
 
   const beginCredentialMutation = (deviceId: string): void => {
+    if (stopping) throw new Error("Server runtime is stopping");
     credentialMutationCounts.set(
       deviceId,
       (credentialMutationCounts.get(deviceId) ?? 0) + 1,
@@ -103,6 +121,15 @@ export function createDoctmcpServerRuntime(
       return;
     }
     credentialMutationCounts.set(deviceId, remaining);
+  };
+
+  const resolveDrainWaiters = (
+    waitersByDevice: Map<string, Set<() => void>>,
+  ): void => {
+    for (const waiters of waitersByDevice.values()) {
+      for (const resolve of waiters) resolve();
+    }
+    waitersByDevice.clear();
   };
 
   const beginAuthentication = (deviceId: string): void => {
@@ -126,7 +153,7 @@ export function createDoctmcpServerRuntime(
   };
 
   const waitForAuthenticationDrain = (deviceId: string): Promise<void> => {
-    if ((authenticationCounts.get(deviceId) ?? 0) === 0) {
+    if (stopping || (authenticationCounts.get(deviceId) ?? 0) === 0) {
       return Promise.resolve();
     }
 
@@ -134,6 +161,43 @@ export function createDoctmcpServerRuntime(
       const waiters = authenticationDrainWaiters.get(deviceId) ?? new Set();
       waiters.add(resolve);
       authenticationDrainWaiters.set(deviceId, waiters);
+    });
+  };
+
+  const beginSessionReady = (deviceId: string): (() => void) => {
+    if (stopping || isCredentialMutationActive(deviceId)) {
+      throw new Error("Device credential mutation is in progress");
+    }
+    sessionReadyCounts.set(
+      deviceId,
+      (sessionReadyCounts.get(deviceId) ?? 0) + 1,
+    );
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (sessionReadyCounts.get(deviceId) ?? 1) - 1;
+      if (remaining > 0) {
+        sessionReadyCounts.set(deviceId, remaining);
+        return;
+      }
+      sessionReadyCounts.delete(deviceId);
+      const waiters = sessionReadyDrainWaiters.get(deviceId);
+      sessionReadyDrainWaiters.delete(deviceId);
+      for (const resolve of waiters ?? []) resolve();
+    };
+  };
+
+  const waitForSessionReadyDrain = (deviceId: string): Promise<void> => {
+    if (stopping || (sessionReadyCounts.get(deviceId) ?? 0) === 0) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      const waiters = sessionReadyDrainWaiters.get(deviceId) ?? new Set();
+      waiters.add(resolve);
+      sessionReadyDrainWaiters.set(deviceId, waiters);
     });
   };
 
@@ -152,29 +216,23 @@ export function createDoctmcpServerRuntime(
     await Promise.allSettled(closes);
   };
 
-  const nextEventLoopTurn = (): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, 0));
-
   const runCredentialMutation = async <T>(
     deviceId: string,
     operation: () => Promise<T>,
   ): Promise<T> => {
     beginCredentialMutation(deviceId);
     try {
+      // Một handshake đã acquire ready lease được phép commit trong khi credential còn
+      // hợp lệ. Mutation chỉ bắt đầu sau khi toàn bộ ready commit của device drain xong.
+      await waitForSessionReadyDrain(deviceId);
+      if (stopping) throw new Error("Server runtime is stopping");
+
       const result = await operation();
-
-      // Đóng session đã ready ngay sau mutation.
       await closeDeviceSessions(deviceId);
 
-      // Auth bắt đầu trước mutation phải kết thúc trước khi boundary được mở lại.
-      // Authenticator sẽ tự reject nếu thấy mutation active sau verify.
+      // Auth bắt đầu trước mutation có thể đã đọc snapshot cũ. Giữ mutation boundary
+      // active tới khi auth đó kết thúc để post-verify check reject deterministic.
       await waitForAuthenticationDrain(deviceId);
-
-      // Nếu authenticator đã return ngay trước khi mutation bắt đầu, continuation của
-      // gateway có thể đang nằm trong microtask queue. Giữ mutation active qua một turn
-      // để onSession thấy boundary và reject/close session đó trước khi expose ra caller.
-      await nextEventLoopTurn();
-      await closeDeviceSessions(deviceId);
       return result;
     } finally {
       endCredentialMutation(deviceId);
@@ -196,23 +254,24 @@ export function createDoctmcpServerRuntime(
       pairingService,
       credentialService,
       deviceRepository,
+      completionRepository: pairingCredentialCompletionRepository,
       recoverExistingCredential: rotateDeviceCredentialInternal,
     });
 
   const gateway = createBridgeGateway({
     ...gatewayOptions,
     authenticateDevice: async (deviceId, credential) => {
-      if (isCredentialMutationActive(deviceId)) {
+      if (stopping || isCredentialMutationActive(deviceId)) {
         throw new Error("Device credential mutation is in progress");
       }
 
       beginAuthentication(deviceId);
       try {
-        if (isCredentialMutationActive(deviceId)) {
+        if (stopping || isCredentialMutationActive(deviceId)) {
           throw new Error("Device credential mutation is in progress");
         }
         const verified = await credentialService.verify(deviceId, credential);
-        if (isCredentialMutationActive(deviceId)) {
+        if (stopping || isCredentialMutationActive(deviceId)) {
           throw new Error("Device credential changed during authentication");
         }
         return verified.identity;
@@ -220,13 +279,21 @@ export function createDoctmcpServerRuntime(
         endAuthentication(deviceId);
       }
     },
+    beginSessionReady: (identity) => {
+      if (!identity) return undefined;
+      return beginSessionReady(identity.deviceId);
+    },
+    validateSessionReady: async (deviceId, credential, identity) => {
+      const verified = await credentialService.verify(deviceId, credential);
+      if (
+        verified.identity.deviceId !== identity.deviceId ||
+        verified.identity.ownerId !== identity.ownerId
+      ) {
+        throw new Error("Device credential changed before session readiness");
+      }
+    },
     onSession: (session) => {
       pruneClosedSessions();
-      const deviceId = session.identity?.deviceId;
-      if (deviceId && isCredentialMutationActive(deviceId)) {
-        void session.close("NORMAL");
-        return;
-      }
       trackedSessions.add(session);
       onSession?.(session);
     },
@@ -240,11 +307,18 @@ export function createDoctmcpServerRuntime(
     revokeDeviceCredential: revokeDeviceCredentialInternal,
     rotateDeviceCredential: rotateDeviceCredentialInternal,
     async stop() {
-      trackedSessions.clear();
-      authenticationDrainWaiters.clear();
-      authenticationCounts.clear();
-      credentialMutationCounts.clear();
+      if (stopping) return;
+      stopping = true;
+
+      // Không clear waiter im lặng: mọi revoke/rotate đang drain phải settle khi shutdown.
+      resolveDrainWaiters(authenticationDrainWaiters);
+      resolveDrainWaiters(sessionReadyDrainWaiters);
+
       await gateway.stop();
+      trackedSessions.clear();
+      authenticationCounts.clear();
+      sessionReadyCounts.clear();
+      credentialMutationCounts.clear();
     },
   });
 }
