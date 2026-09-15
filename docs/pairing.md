@@ -4,7 +4,7 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 
 ## Trạng thái hiện tại
 
-M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) đã hoàn tất qua PR #38 với pairing session/code lifecycle và atomic claim. M3.3 (#32) đã hoàn tất implementation trên PR #39 với long-lived device credential + authenticated bridge handshake; head implementation sau vòng review mới đã pass 208/208 test.
+M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) đã hoàn tất qua PR #38 với pairing session/code lifecycle và atomic claim. M3.3 (#32) đã hoàn tất implementation trên PR #39 với long-lived device credential + authenticated bridge handshake; head implementation sau vòng review mới đã pass 212/212 test.
 
 ## Mục tiêu M3.2
 
@@ -70,7 +70,7 @@ Pairing code:
 
 ## Pairing state
 
-External state chỉ có:
+External pairing state chỉ có:
 
 ```text
 pending -> claimed
@@ -79,6 +79,14 @@ pending -> cancelled
 ```
 
 `claimed` bắt buộc có `claimedAt` + `deviceId`. `expired`/`cancelled` không mang claimed device identity.
+
+Credential delivery có lifecycle riêng của M3.3:
+
+```text
+pending -> delivered
+```
+
+`delivered` là terminal state authoritative; pairing session đã delivered không được resume để mint/rotate credential mới.
 
 Claim tại đúng `expiresAt` đã được coi là hết hạn.
 
@@ -168,15 +176,30 @@ Duplicate/replay pairing code bị chặn tại one-time pairing boundary trư�
 
 ### Recoverable/idempotent completion
 
-Reference runtime giữ completion thành công transient trong memory theo `pairingSessionId` cho tới khi local xác nhận đã persist credential:
+Reference runtime giữ raw completion transient trong memory, còn `PairingCredentialCompletionRepository` giữ durable contract không chứa secret:
+
+```text
+pairingSessionId
+deviceId
+credentialId
+credentialVersion
+state: pending | delivered
+```
+
+Behavior:
 
 - retry `resumeClaimedPairing(pairingSessionId, ownerId)` trong cùng process trả lại đúng raw credential pending, không issue generation thứ hai;
 - owner được kiểm tra lại từ server-side `DeviceRepository` **trước khi đọc cache**, nên biết `pairingSessionId` không đủ để lấy raw credential;
 - nếu pairing claim đã commit nhưng credential issue fail, cùng API resolve claimed session rồi retry issue mà không pair lại;
 - nếu process restart sau khi credential digest đã persist nhưng raw secret chưa được delivery/ack, resume phát hiện credential active đã tồn tại, rotate sang generation mới và trả secret mới; secret thất lạc cũ bị vô hiệu;
-- `acknowledgeDelivery(pairingSessionId)` xóa raw secret pending khỏi memory sau khi local lưu thành công.
+- ACK yêu cầu `pairingSessionId + ownerId + credentialId + credentialVersion` và repository CAS đúng generation từ `pending -> delivered`;
+- wrong owner hoặc stale generation ACK bị reject và **không** xóa pending secret;
+- sau `delivered`, resume luôn trả `PAIRING_COMPLETION_UNAVAILABLE`, kể cả sau restart hoặc sau khi credential hiện tại bị revoke;
+- raw secret chỉ bị xóa khỏi transient cache sau khi terminal ACK thành công.
 
-Reference cache không persist raw secret. Production adapter dùng chung database vẫn nên đặt pairing claim + device creation + credential persistence trong cùng transaction/unit-of-work; recovery-by-rotation là safety net cho cửa sổ persist-before-delivery chứ không thay thế transaction durability.
+`InMemoryPairingCredentialCompletionRepository` là reference adapter. Production persistence phải implement cùng contract và persist `delivered` để terminal state sống qua restart; repository này tuyệt đối không persist raw secret. Runtime cho phép inject `pairingCredentialCompletionRepository` cùng các persistence adapter khác.
+
+Production adapter dùng chung database vẫn nên đặt pairing claim + device creation + credential persistence/completion state trong transaction hoặc unit-of-work phù hợp. Recovery-by-rotation là safety net cho cửa sổ persist-before-delivery chứ không thay thế transaction durability.
 
 ### Credential contract
 
@@ -216,9 +239,12 @@ Server runtime expose lifecycle API đúng security boundary:
 
 - `revokeDeviceCredential(deviceId)` revoke credential, đóng active authenticated session của đúng device và làm old secret reconnect fail;
 - `rotateDeviceCredential(deviceId)` tạo generation mới atomically, đóng active session cũ, old secret fail và new secret reconnect được;
-- trong lúc revoke/rotate, auth mới của cùng device bị chặn;
-- auth đã bắt đầu trước mutation phải drain; verify snapshot cũ sau mutation bị reject generic trước khi upper layer nhận session;
-- trường hợp auth vừa return ngay trước mutation vẫn bị on-session guard/final sweep đóng trước khi mutation boundary mở lại.
+- auth đã bắt đầu trước mutation phải drain; verify snapshot cũ sau mutation bị reject generic;
+- sau initial auth, gateway acquire synchronous **ready lease** trước khi session có thể chuyển `ready`;
+- dưới ready lease, gateway reverify credential lần cuối **trước** `bridge.hello.ack`;
+- revoke/rotate đến sau ready lease phải chờ lease drain rồi mới mutate, nên handshake được linearize rõ ràng: hoặc commit khi credential còn valid, hoặc bị reject trước ACK;
+- không còn dựa vào `setTimeout(0)`, event-loop turn hay post-ACK `onSession` sweep để vá race;
+- shutdown resolve/cancel các drain waiter để revoke/rotate đang chờ auth/ready lease không treo vô hạn.
 
 Tracking ở M3.3 chỉ đủ cho active invalidation. #33 vẫn xây authoritative device-session registry, duplicate-session replacement, heartbeat và online/offline state.
 
@@ -241,6 +267,8 @@ M3.2 + M3.3 hiện có regression coverage cho:
 - cached pending delivery vẫn owner-check trước khi trả raw secret;
 - credential issue fail sau claim vẫn recover bằng `pairingSessionId`;
 - process-restart recovery sau persist-before-delivery rotate sang credential mới;
+- wrong/stale ACK không consume pending delivery;
+- correct ACK persist `delivered` terminal qua restart và sau revoke;
 - wrong owner không resume được completion;
 - credential issue/verify/revoke/rotate;
 - wrong/mismatched/revoked credential generic;
@@ -251,7 +279,8 @@ M3.2 + M3.3 hiện có regression coverage cho:
 - raw credential không xuất hiện trong URL/error;
 - authenticated MCP initialize/tools flow thật;
 - revoke/rotate đóng active session và enforce credential generation khi reconnect;
-- revoke thắng handshake đang giữ snapshot credential cũ;
+- credential thay đổi giữa auth và ready revalidation bị reject trước ACK/session;
+- shutdown resolve drain waiter để credential mutation không treo;
 - M2 acceptance vẫn pass trong explicit legacy compatibility mode.
 
-CI #199 trên implementation head: `check` xanh, `typecheck` xanh, **208/208 test**, M2 acceptance 6/6 và Windows shell regression step xanh.
+CI #212 trên implementation head: `check` xanh, `typecheck` xanh, **212/212 test**, 863 assertions, 29 files; M2 acceptance 6/6 và Windows shell regression step xanh.
