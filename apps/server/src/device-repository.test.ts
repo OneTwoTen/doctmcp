@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CreateDeviceInput } from "@doctmcp/schemas";
 import {
-  DeviceRepositoryError,
+  type DeviceRepositoryError,
   InMemoryDeviceRepository,
 } from "./device-repository";
 
@@ -101,7 +101,9 @@ describe("InMemoryDeviceRepository", () => {
     await repo.create(baseInput("owner-b"));
 
     expect(await repo.getForOwner("owner-a", DEVICE_B)).toBeNull();
-    expect(await repo.updateForOwner("owner-a", DEVICE_B, { deviceName: "Nope" })).toBeNull();
+    expect(
+      await repo.updateForOwner("owner-a", DEVICE_B, { deviceName: "Nope" }),
+    ).toBeNull();
     expect(await repo.isOwnedBy("owner-a", DEVICE_B)).toBe(false);
 
     const ownerADevices = await repo.listByOwnerId("owner-a");
