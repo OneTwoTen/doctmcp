@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ClaimPairingInput } from "@doctmcp/schemas";
 import {
-  type DeviceRepository,
   type DeviceRepositoryError,
   InMemoryDeviceRepository,
 } from "./device-repository";
 import {
   DEFAULT_PAIRING_TTL_MS,
-  digestPairingCode,
   InMemoryPairingSessionRepository,
   PAIRING_CODE_ENTROPY_BITS,
   PairingService,
@@ -169,88 +167,35 @@ describe("PairingService", () => {
     expect(await deviceRepository.listByOwnerId("owner-a")).toHaveLength(0);
   });
 
-  test("claim queued trước expiry nhưng vào atomic boundary sau expiry vẫn bị reject", async () => {
-    let nowMs = Date.parse("2026-09-15T06:00:00.000Z");
-    let releaseFirstCreate: () => void = () => undefined;
-    let markFirstCreateStarted: () => void = () => undefined;
-    const firstCreateStarted = new Promise<void>((resolve) => {
-      markFirstCreateStarted = resolve;
+  test("atomic claim dùng repository clock thay vì timestamp stale từ caller", async () => {
+    const createdAtMs = Date.parse("2026-09-15T06:00:00.000Z");
+    let serviceNowMs = createdAtMs;
+    let repositoryNowMs = createdAtMs;
+    const deviceRepository = new InMemoryDeviceRepository({
+      generateDeviceId: () => DEVICE_A,
     });
-    const firstCreateGate = new Promise<void>((resolve) => {
-      releaseFirstCreate = resolve;
-    });
-    let createCount = 0;
-
-    const backingDeviceRepository = new InMemoryDeviceRepository({
-      generateDeviceId: sequence([DEVICE_A, DEVICE_B]),
-      now: () => new Date(nowMs),
-    });
-    const blockingDeviceRepository: DeviceRepository = {
-      async create(input) {
-        createCount += 1;
-        if (createCount === 1) {
-          markFirstCreateStarted();
-          await firstCreateGate;
-        }
-        return backingDeviceRepository.create(input);
-      },
-      getById: (deviceId) => backingDeviceRepository.getById(deviceId),
-      getForOwner: (ownerId, deviceId) =>
-        backingDeviceRepository.getForOwner(ownerId, deviceId),
-      listByOwnerId: (ownerId) =>
-        backingDeviceRepository.listByOwnerId(ownerId),
-      updateForOwner: (ownerId, deviceId, patch) =>
-        backingDeviceRepository.updateForOwner(ownerId, deviceId, patch),
-      isOwnedBy: (ownerId, deviceId) =>
-        backingDeviceRepository.isOwnedBy(ownerId, deviceId),
-    };
     const pairingRepository = new InMemoryPairingSessionRepository(
-      blockingDeviceRepository,
-      { now: () => new Date(nowMs) },
+      deviceRepository,
+      { now: () => new Date(repositoryNowMs) },
     );
-    const createdAt = new Date(nowMs);
-    const expiresAt = new Date(nowMs + DEFAULT_PAIRING_TTL_MS);
-    const digestA = await digestPairingCode("ABCDEFGHIJKL");
-    const digestB = await digestPairingCode("NPQRSTUVWXYZ");
+    const service = new PairingService({
+      repository: pairingRepository,
+      now: () => new Date(serviceNowMs),
+      generatePairingCode: () => CODE_A,
+      generatePairingSessionId: () => SESSION_A,
+    });
+    await service.createPairingSession();
 
-    await pairingRepository.create({
-      pairingSessionId: SESSION_A,
-      codeDigest: digestA,
-      createdAt,
-      expiresAt,
-    });
-    await pairingRepository.create({
-      pairingSessionId: SESSION_B,
-      codeDigest: digestB,
-      createdAt,
-      expiresAt,
-    });
+    serviceNowMs = createdAtMs + DEFAULT_PAIRING_TTL_MS - 1;
+    repositoryNowMs = createdAtMs + DEFAULT_PAIRING_TTL_MS;
 
-    nowMs = expiresAt.getTime() - 1;
-    const firstClaim = pairingRepository.claim({
-      codeDigest: digestA,
-      ...validClaim("owner-a"),
-    });
-    await firstCreateStarted;
-
-    const queuedClaim = pairingRepository.claim({
-      codeDigest: digestB,
-      ...validClaim("owner-b"),
-    });
-    const queuedClaimExpectation = expect(queuedClaim).rejects.toMatchObject({
+    await expect(
+      service.claimPairingCode(CODE_A, validClaim()),
+    ).rejects.toMatchObject({
       code: "PAIRING_CODE_UNAVAILABLE",
-    });
-    nowMs = expiresAt.getTime();
-    releaseFirstCreate();
-
-    await expect(firstClaim).resolves.toMatchObject({
-      session: { state: "claimed", deviceId: DEVICE_A },
-    });
-    await queuedClaimExpectation;
-    expect((await pairingRepository.getById(SESSION_B))?.state).toBe("expired");
-    expect(await backingDeviceRepository.listByOwnerId("owner-b")).toHaveLength(
-      0,
-    );
+    } satisfies Partial<PairingServiceError>);
+    expect((await service.getPairingSession(SESSION_A))?.state).toBe("expired");
+    expect(await deviceRepository.listByOwnerId("owner-a")).toHaveLength(0);
   });
 
   test("hai claim concurrent chỉ một request thắng và chỉ một device được tạo", async () => {
