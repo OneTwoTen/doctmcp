@@ -1,11 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BRIDGE_MAX_MESSAGE_BYTES,
+  BRIDGE_MAX_QUEUED_BYTES,
+  BRIDGE_MAX_QUEUED_MESSAGES,
   BRIDGE_PROTOCOL_VERSION,
   type BridgeMessage,
   bridgeMessageSchema,
 } from "./index";
 
 describe("schemas", () => {
+  test("exposes deterministic bridge size and queue limits", () => {
+    expect(BRIDGE_MAX_MESSAGE_BYTES).toBe(1_048_576);
+    expect(BRIDGE_MAX_QUEUED_MESSAGES).toBe(256);
+    expect(BRIDGE_MAX_QUEUED_BYTES).toBe(4_194_304);
+  });
+
   test("validates the local-first handshake", () => {
     expect(
       bridgeMessageSchema.parse({

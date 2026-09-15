@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@doctmcp/schemas": "workspace:*"
+    "@doctmcp/schemas": "workspace:*",
+    "@modelcontextprotocol/client": "2.0.0"
   }
 }

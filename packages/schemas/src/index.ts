@@ -2,6 +2,9 @@ import { z } from "zod";
 
 /** Phiên bản control-plane của bridge, độc lập với MCP protocol version. */
 export const BRIDGE_PROTOCOL_VERSION = "1" as const;
+export const BRIDGE_MAX_MESSAGE_BYTES = 1_048_576 as const;
+export const BRIDGE_MAX_QUEUED_MESSAGES = 256 as const;
+export const BRIDGE_MAX_QUEUED_BYTES = 4_194_304 as const;
 
 export const bridgeRoleSchema = z.enum(["local-agent", "public-server"]);
 
@@ -36,11 +39,13 @@ export const bridgeMcpMessageSchema = z
 
 export const bridgeErrorCodeSchema = z.enum([
   "INVALID_MESSAGE",
+  "MESSAGE_TOO_LARGE",
   "UNSUPPORTED_VERSION",
   "HANDSHAKE_REQUIRED",
   "UNEXPECTED_MESSAGE",
   "SESSION_CLOSED",
   "TIMEOUT",
+  "BACKPRESSURE",
 ]);
 
 export const bridgeErrorSchema = z

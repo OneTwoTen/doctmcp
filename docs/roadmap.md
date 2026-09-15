@@ -86,7 +86,7 @@ Acceptance criteria đã được khóa bằng test:
 
 **Đang triển khai — M2.1/#19 hoàn tất.** Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
 
-M2.1 đã khóa bridge protocol/transport contract và schema validation dùng chung trong [`specs/2026-09-15-m2-bridge-design.md`](specs/2026-09-15-m2-bridge-design.md). Gateway và hai transport chưa được triển khai.
+M2.1 đã khóa bridge protocol/transport contract, message-size/backpressure policy, lifecycle/error matrix và test plan trong [`specs/2026-09-15-m2-bridge-design.md`](specs/2026-09-15-m2-bridge-design.md). Gateway và hai transport chưa được triển khai.
 
 Phạm vi:
 
