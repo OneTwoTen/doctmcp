@@ -158,9 +158,7 @@ function parseIncomingFrame(frame: string | Buffer): BridgeMessage {
 
   let text: string;
   if (typeof frame === "string") {
-    if (
-      new TextEncoder().encode(frame).byteLength > BRIDGE_MAX_MESSAGE_BYTES
-    ) {
+    if (new TextEncoder().encode(frame).byteLength > BRIDGE_MAX_MESSAGE_BYTES) {
       throw new BridgeGatewayError(
         "MESSAGE_TOO_LARGE",
         "Bridge message exceeds the maximum size",
@@ -259,10 +257,7 @@ function closeConnection(
 export function sendWebSocketFrameOnce(send: () => number): void {
   const status = send();
   if (status === 0 || status < -1) {
-    throw new BridgeGatewayError(
-      "SESSION_CLOSED",
-      "Bridge socket send failed",
-    );
+    throw new BridgeGatewayError("SESSION_CLOSED", "Bridge socket send failed");
   }
 }
 
