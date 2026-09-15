@@ -125,4 +125,4 @@ Verification của **final PR head** được lấy từ GitHub Actions/PR check
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
 | 2026-09-15 | Khóa Device domain, UUID v4 và repository abstraction | Foundation cho pairing/auth/routing M3 | verified, pending merge |
-| 2026-09-15 | Canonicalize UUID và làm update atomic/monotonic | Sửa findings review trước merge | pending final-head CI |
+| 2026-09-15 | Canonicalize UUID và làm update atomic/monotonic | Sửa findings review trước merge | review fixes complete; final-head CI là merge gate |

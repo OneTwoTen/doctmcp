@@ -53,4 +53,4 @@ Ngoài full suite, regression M3.1 phải chứng minh:
 |---|---|---|
 | 2026-09-15 | Tạo plan và triển khai scope M3.1 | implementation complete |
 | 2026-09-15 | CI baseline xác nhận check/typecheck/full tests và M2 regression | verified |
-| 2026-09-15 | Sửa review findings về UUID canonicalization và atomic update | pending final-head CI |
+| 2026-09-15 | Sửa review findings về UUID canonicalization và atomic update | review fixes complete; final-head CI là merge gate |
