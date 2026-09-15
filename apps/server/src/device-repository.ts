@@ -1,12 +1,12 @@
 import {
-  createDeviceInputSchema,
-  deviceIdSchema,
-  ownerIdSchema,
-  updateDeviceInputSchema,
   type CreateDeviceInput,
+  createDeviceInputSchema,
   type Device,
   type DeviceMetadata,
+  deviceIdSchema,
+  ownerIdSchema,
   type UpdateDeviceInput,
+  updateDeviceInputSchema,
 } from "@doctmcp/schemas";
 
 export type DeviceRepositoryErrorCode =
@@ -142,10 +142,7 @@ export class InMemoryDeviceRepository implements DeviceRepository {
     return record ? toSnapshot(record) : null;
   }
 
-  async getForOwner(
-    ownerId: string,
-    deviceId: string,
-  ): Promise<Device | null> {
+  async getForOwner(ownerId: string, deviceId: string): Promise<Device | null> {
     const parsedOwnerId = parseOwnerId(ownerId);
     const parsedDeviceId = parseDeviceId(deviceId);
     const record = this.#records.get(parsedDeviceId);
