@@ -197,7 +197,7 @@ bridge sessionId
 identity { ownerId, deviceId }
 ```
 
-hai namespace này độc lập. Authenticator output còn được runtime-validate trước khi bind session.
+hai namespace này độc lập. Authenticator output còn được runtime-validate trước khi bind session. Duplicate `sessionId` được kiểm tra lại sau async authentication để hai handshake đồng thời không cùng tạo ready session.
 
 Trước khi auth hoàn tất:
 
@@ -216,7 +216,7 @@ Local `BridgeServerTransport` giữ credential trong auth config và chỉ đưa
 - failure CAS không làm mất generation đang active;
 - concurrent rotate/rotate và rotate/revoke đều có regression test.
 
-M3.3 **không tự tạo một session registry song song** chỉ để force-close WebSocket đang active. Chính sách hiện tại là revoke/rotate chặn reconnect mới ngay; active-session invalidation sẽ được nối vào authoritative device/session registry của #33 để behavior online/close có một nguồn sự thật duy nhất.
+M3.3 **không tự tạo một session registry song song** chỉ để force-close WebSocket đang active. Chính sách hiện tại là revoke/rotate chặn reconnect mới ngay. Active authenticated session đang tồn tại có thể tiếp tục sống đến khi tự đóng/timeout; #33 sẽ cung cấp authoritative device/session registry để revoke/rotate có thể đóng hoặc propagate invalidation theo một policy duy nhất. Vì vậy deployment yêu cầu immediate active-session revocation phải chờ #33 trước khi coi behavior đó hoàn chỉnh.
 
 ## Audit
 
