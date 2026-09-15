@@ -31,6 +31,7 @@ export type DeviceCredentialErrorCode =
   | "INVALID_CLOCK"
   | "DEVICE_NOT_FOUND"
   | "CREDENTIAL_ALREADY_EXISTS"
+  | "CREDENTIAL_ID_CONFLICT"
   | "CREDENTIAL_UNAVAILABLE";
 
 export class DeviceCredentialError extends Error {
@@ -61,10 +62,20 @@ export interface DeviceCredentialRepository {
     readonly createdAt: Date;
   }): Promise<DeviceCredential>;
   getActive(deviceId: string): Promise<DeviceCredential | null>;
-  verify(deviceId: string, secretDigest: string): Promise<DeviceCredential | null>;
-  revoke(deviceId: string, revokedAt: Date): Promise<DeviceCredential | null>;
+  verify(
+    deviceId: string,
+    secretDigest: string,
+  ): Promise<DeviceCredential | null>;
+  revoke(input: {
+    readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedVersion: number;
+    readonly revokedAt: Date;
+  }): Promise<DeviceCredential | null>;
   rotate(input: {
     readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedVersion: number;
     readonly credentialId: string;
     readonly secretDigest: string;
     readonly rotatedAt: Date;
@@ -99,6 +110,13 @@ function parseCredentialId(value: string): string {
   return parsed.data;
 }
 
+function parseVersion(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    return fail("INVALID_CREDENTIAL_INPUT", "Credential version không hợp lệ.");
+  }
+  return value;
+}
+
 function parseDigest(value: string): string {
   if (!DIGEST_PATTERN.test(value)) {
     return fail("INVALID_CREDENTIAL_INPUT", "Credential digest không hợp lệ.");
@@ -127,6 +145,7 @@ export class InMemoryDeviceCredentialRepository
   implements DeviceCredentialRepository
 {
   readonly #byDeviceId = new Map<string, StoredCredential>();
+  readonly #usedCredentialIds = new Set<string>();
   #tail: Promise<void> = Promise.resolve();
 
   async issue(input: {
@@ -148,6 +167,7 @@ export class InMemoryDeviceCredentialRepository
           "Device đã có credential active.",
         );
       }
+      this.#requireUnusedCredentialId(credentialId);
       const version = (existing?.version ?? 0) + 1;
       const record: StoredCredential = {
         credentialId,
@@ -159,6 +179,7 @@ export class InMemoryDeviceCredentialRepository
       };
       const result = snapshot(record);
       this.#byDeviceId.set(deviceId, record);
+      this.#usedCredentialIds.add(credentialId);
       return result;
     });
   }
@@ -177,8 +198,7 @@ export class InMemoryDeviceCredentialRepository
     const parsedDigest = parseDigest(secretDigest);
     const record = this.#byDeviceId.get(parsedDeviceId);
     if (
-      !record ||
-      record.state !== "active" ||
+      record?.state !== "active" ||
       !constantTimeEqualHex(record.secretDigest, parsedDigest)
     ) {
       return null;
@@ -186,15 +206,25 @@ export class InMemoryDeviceCredentialRepository
     return snapshot(record);
   }
 
-  async revoke(
-    deviceId: string,
-    revokedAt: Date,
-  ): Promise<DeviceCredential | null> {
-    const parsedDeviceId = parseDeviceId(deviceId);
-    const revokedAtMs = readTime(revokedAt);
+  async revoke(input: {
+    readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedVersion: number;
+    readonly revokedAt: Date;
+  }): Promise<DeviceCredential | null> {
+    const deviceId = parseDeviceId(input.deviceId);
+    const expectedCredentialId = parseCredentialId(input.expectedCredentialId);
+    const expectedVersion = parseVersion(input.expectedVersion);
+    const revokedAtMs = readTime(input.revokedAt);
     return this.#exclusive(async () => {
-      const record = this.#byDeviceId.get(parsedDeviceId);
-      if (!record || record.state !== "active") return null;
+      const record = this.#byDeviceId.get(deviceId);
+      if (
+        record?.state !== "active" ||
+        record.credentialId !== expectedCredentialId ||
+        record.version !== expectedVersion
+      ) {
+        return null;
+      }
       if (revokedAtMs < record.createdAtMs) {
         return fail("INVALID_CLOCK", "revokedAt không được trước createdAt.");
       }
@@ -206,20 +236,29 @@ export class InMemoryDeviceCredentialRepository
 
   async rotate(input: {
     readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedVersion: number;
     readonly credentialId: string;
     readonly secretDigest: string;
     readonly rotatedAt: Date;
   }): Promise<DeviceCredential> {
     const deviceId = parseDeviceId(input.deviceId);
+    const expectedCredentialId = parseCredentialId(input.expectedCredentialId);
+    const expectedVersion = parseVersion(input.expectedVersion);
     const credentialId = parseCredentialId(input.credentialId);
     const secretDigest = parseDigest(input.secretDigest);
     const rotatedAtMs = readTime(input.rotatedAt);
 
     return this.#exclusive(async () => {
       const current = this.#byDeviceId.get(deviceId);
-      if (!current || current.state !== "active") {
+      if (
+        current?.state !== "active" ||
+        current.credentialId !== expectedCredentialId ||
+        current.version !== expectedVersion
+      ) {
         return fail("CREDENTIAL_UNAVAILABLE", "Credential không khả dụng.");
       }
+      this.#requireUnusedCredentialId(credentialId);
       if (rotatedAtMs < current.createdAtMs) {
         return fail("INVALID_CLOCK", "rotatedAt không được trước createdAt.");
       }
@@ -233,8 +272,15 @@ export class InMemoryDeviceCredentialRepository
       };
       const result = snapshot(next);
       this.#byDeviceId.set(deviceId, next);
+      this.#usedCredentialIds.add(credentialId);
       return result;
     });
+  }
+
+  #requireUnusedCredentialId(credentialId: string): void {
+    if (this.#usedCredentialIds.has(credentialId)) {
+      fail("CREDENTIAL_ID_CONFLICT", "credentialId đã được sử dụng.");
+    }
   }
 
   async #exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -273,7 +319,8 @@ export class DeviceCredentialService {
     this.#now = options.now ?? (() => new Date());
     this.#generateCredentialId =
       options.generateCredentialId ?? (() => globalThis.crypto.randomUUID());
-    this.#generateSecret = options.generateSecret ?? generateDeviceCredentialSecret;
+    this.#generateSecret =
+      options.generateSecret ?? generateDeviceCredentialSecret;
   }
 
   async issue(deviceId: string): Promise<IssuedDeviceCredential> {
@@ -305,28 +352,46 @@ export class DeviceCredentialService {
     if (!credential) throw unavailable();
     return Object.freeze({
       credential,
-      identity: Object.freeze({ ownerId: device.ownerId, deviceId: device.deviceId }),
+      identity: Object.freeze({
+        ownerId: device.ownerId,
+        deviceId: device.deviceId,
+      }),
     });
   }
 
   async revoke(deviceId: string): Promise<DeviceCredential> {
     const device = await this.#requireDevice(deviceId);
-    const revoked = await this.#repository.revoke(device.deviceId, this.#readNow());
+    const current = await this.#requireActiveCredential(device.deviceId);
+    const revoked = await this.#repository.revoke({
+      deviceId: device.deviceId,
+      expectedCredentialId: current.credentialId,
+      expectedVersion: current.version,
+      revokedAt: this.#readNow(),
+    });
     if (!revoked) throw unavailable();
     return revoked;
   }
 
   async rotate(deviceId: string): Promise<IssuedDeviceCredential> {
     const device = await this.#requireDevice(deviceId);
+    const current = await this.#requireActiveCredential(device.deviceId);
     const secret = this.#generateSecret();
     const digest = await digestDeviceCredentialSecret(secret);
     const credential = await this.#repository.rotate({
       deviceId: device.deviceId,
+      expectedCredentialId: current.credentialId,
+      expectedVersion: current.version,
       credentialId: this.#generateCredentialId(),
       secretDigest: digest,
       rotatedAt: this.#readNow(),
     });
     return Object.freeze({ credential, secret });
+  }
+
+  async #requireActiveCredential(deviceId: string): Promise<DeviceCredential> {
+    const credential = await this.#repository.getActive(deviceId);
+    if (!credential) throw unavailable();
+    return credential;
   }
 
   async #requireDevice(deviceId: string) {
@@ -366,7 +431,9 @@ export function generateDeviceCredentialSecret(): string {
     .replace(/=+$/g, "");
 }
 
-export async function digestDeviceCredentialSecret(secret: string): Promise<string> {
+export async function digestDeviceCredentialSecret(
+  secret: string,
+): Promise<string> {
   const encoded = new TextEncoder().encode(
     `${DEVICE_CREDENTIAL_DIGEST_PREFIX}${secret}`,
   );
