@@ -1,10 +1,47 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { BridgeServerTransport } from "../../agent/src/bridge-server-transport";
+import { InMemoryDeviceCredentialRepository } from "./device-credential";
 import type { BridgeGatewaySession } from "./gateway";
 import {
   createDoctmcpServerRuntime,
   type DoctmcpServerRuntime,
 } from "./server-runtime";
+
+class BlockingVerifyCredentialRepository extends InMemoryDeviceCredentialRepository {
+  #armed = false;
+  #verifyStarted: Promise<void> = Promise.resolve();
+  #resolveVerifyStarted: (() => void) | undefined;
+  #releaseVerify: Promise<void> = Promise.resolve();
+  #resolveReleaseVerify: (() => void) | undefined;
+
+  armNextVerify(): void {
+    this.#armed = true;
+    this.#verifyStarted = new Promise((resolve) => {
+      this.#resolveVerifyStarted = resolve;
+    });
+    this.#releaseVerify = new Promise((resolve) => {
+      this.#resolveReleaseVerify = resolve;
+    });
+  }
+
+  waitUntilVerifyBlocked(): Promise<void> {
+    return this.#verifyStarted;
+  }
+
+  releaseVerify(): void {
+    this.#resolveReleaseVerify?.();
+  }
+
+  override async verify(deviceId: string, secretDigest: string) {
+    const result = await super.verify(deviceId, secretDigest);
+    if (!this.#armed) return result;
+
+    this.#armed = false;
+    this.#resolveVerifyStarted?.();
+    await this.#releaseVerify;
+    return result;
+  }
+}
 
 function waitFor<T>(value: () => T | undefined): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -38,11 +75,16 @@ describe("DoctmcpServerRuntime", () => {
     );
   });
 
-  async function createPairedRuntime() {
+  async function createPairedRuntime(options: {
+    credentialRepository?: InMemoryDeviceCredentialRepository;
+  } = {}) {
     let readySession: BridgeGatewaySession | undefined;
     const runtime = createDoctmcpServerRuntime({
       port: 0,
       idleTimeoutMs: 0,
+      ...(options.credentialRepository
+        ? { credentialRepository: options.credentialRepository }
+        : {}),
       onSession: (session) => {
         readySession = session;
       },
@@ -87,6 +129,13 @@ describe("DoctmcpServerRuntime", () => {
     expect(runtime.gateway.sessionCount).toBe(1);
   });
 
+  test("runtime không expose credential service/repository mutation để bypass invalidation", async () => {
+    const { runtime } = await createPairedRuntime();
+
+    expect("credentialService" in runtime).toBe(false);
+    expect("credentialRepository" in runtime).toBe(false);
+  });
+
   test("revoke closes active authenticated session and old credential cannot reconnect", async () => {
     const { runtime, completed } = await createPairedRuntime();
     const transport = new BridgeServerTransport({
@@ -114,6 +163,35 @@ describe("DoctmcpServerRuntime", () => {
     await expect(reconnect.start()).rejects.toMatchObject({
       code: "AUTH_FAILED",
     });
+  });
+
+  test("revoke thắng handshake đã verify snapshot cũ nhưng chưa được expose ready", async () => {
+    const repository = new BlockingVerifyCredentialRepository();
+    const { runtime, completed, getReadySession } = await createPairedRuntime({
+      credentialRepository: repository,
+    });
+    repository.armNextVerify();
+
+    const transport = new BridgeServerTransport({
+      url: runtime.gateway.url,
+      auth: {
+        deviceId: completed.device.deviceId,
+        credential: completed.secret,
+      },
+    });
+    transports.push(transport);
+    const startPromise = transport.start();
+    await repository.waitUntilVerifyBlocked();
+
+    const revokePromise = runtime.revokeDeviceCredential(
+      completed.device.deviceId,
+    );
+    repository.releaseVerify();
+
+    await expect(startPromise).rejects.toMatchObject({ code: "AUTH_FAILED" });
+    await revokePromise;
+    expect(getReadySession()).toBeUndefined();
+    expect(runtime.gateway.sessionCount).toBe(0);
   });
 
   test("rotate closes old session, rejects old secret and accepts the new generation", async () => {
