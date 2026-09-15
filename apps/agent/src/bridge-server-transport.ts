@@ -36,9 +36,15 @@ export class BridgeServerTransportError extends Error {
 
 export type BridgeWebSocketFactory = (url: string) => WebSocket;
 
+export interface BridgeServerTransportDeviceAuth {
+  readonly deviceId: string;
+  readonly credential: string;
+}
+
 export interface BridgeServerTransportOptions {
   readonly url: string;
   readonly sessionId?: string;
+  readonly auth?: BridgeServerTransportDeviceAuth;
   readonly handshakeTimeoutMs?: number;
   readonly webSocketFactory?: BridgeWebSocketFactory;
 }
@@ -172,6 +178,7 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
   sessionId?: string;
 
   private readonly url: string;
+  private readonly auth: BridgeServerTransportDeviceAuth | undefined;
   private readonly handshakeTimeoutMs: number;
   private readonly webSocketFactory: BridgeWebSocketFactory;
   private socket: WebSocket | null = null;
@@ -209,9 +216,24 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
         "Bridge WebSocket URL is required",
       );
     }
+    if (
+      options.auth &&
+      (!options.auth.deviceId.trim() || !options.auth.credential)
+    ) {
+      throw new BridgeServerTransportError(
+        "INVALID_STATE",
+        "Bridge device authentication requires deviceId and credential",
+      );
+    }
 
     this.url = options.url;
     this.sessionId = options.sessionId ?? crypto.randomUUID();
+    this.auth = options.auth
+      ? Object.freeze({
+          deviceId: options.auth.deviceId,
+          credential: options.auth.credential,
+        })
+      : undefined;
     this.handshakeTimeoutMs =
       options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.webSocketFactory =
@@ -358,6 +380,15 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
         bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
         role: "local-agent",
         sessionId: this.sessionId ?? crypto.randomUUID(),
+        ...(this.auth
+          ? {
+              auth: {
+                mode: "device" as const,
+                deviceId: this.auth.deviceId,
+                credential: this.auth.credential,
+              },
+            }
+          : {}),
       });
       this.socket?.send(hello.text);
     } catch (error) {
@@ -688,6 +719,8 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
         case "SESSION_CLOSED":
         case "TIMEOUT":
         case "BACKPRESSURE":
+        case "AUTH_REQUIRED":
+        case "AUTH_FAILED":
           return error.code;
       }
     }
