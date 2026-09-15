@@ -39,6 +39,8 @@ export {
   BridgeGatewayError,
   type BridgeGatewayLogger,
   type BridgeGatewaySession,
+  type BridgeSessionReadyGuard,
+  type BridgeSessionReadyValidator,
   type CreateBridgeGatewayOptions,
   createBridgeGateway,
   DEFAULT_BRIDGE_PATH,
@@ -74,11 +76,16 @@ export {
   type PairingSessionRepository,
 } from "./pairing";
 export {
+  type AcknowledgePairingCredentialDeliveryInput,
   type CompletedPairingCredential,
+  InMemoryPairingCredentialCompletionRepository,
   PairingCredentialCompletionError,
   type PairingCredentialCompletionErrorCode,
   type PairingCredentialCompletionOptions,
+  type PairingCredentialCompletionRecord,
+  type PairingCredentialCompletionRepository,
   PairingCredentialCompletionService,
+  type PairingCredentialCompletionState,
   type PairingCredentialDelivery,
   toPairingCredentialDelivery,
 } from "./pairing-credential-completion";
