@@ -7,7 +7,7 @@ Repository hiện đã có:
 - Bun 1.4.2 + TypeScript 7 strict.
 - Bun workspaces cho `apps/*` và `packages/*`.
 - Biome, TypeScript typecheck, Bun test và GitHub Actions CI.
-- `apps/server` và `apps/agent` ở mức scaffold.
+- `apps/agent` đã có local MCP runtime; `apps/server` đã có WebSocket gateway tối thiểu của M2.2 nhưng MCP client/transport bridge chưa được triển khai.
 - `packages/protocol` và `packages/schemas` ở mức foundation ban đầu.
 
 MCP server local, custom WebSocket transport, device pairing và public MCP endpoint **chưa được coi là đã triển khai** cho tới khi có code + test tương ứng.

@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Hoàn tất M2.1.** Đây là contract cho các task #20–#23. WebSocket gateway và hai transport chưa được triển khai ở tài liệu này.
+**Hoàn tất M2.1.** Đây là contract cho các task #20–#23. WebSocket gateway tối thiểu của #20 đã được triển khai; hai MCP transport vẫn chưa được triển khai.
 
 ## Mục tiêu
 
@@ -189,3 +189,4 @@ Disconnect: socket close/error → stop queue → reject pending sends/requests 
 |---|---|---|---|
 | 2026-09-15 | Khóa contract bridge M2.1 và schema validation dùng chung | Làm nền cho gateway và hai transport, giữ MCP là data plane duy nhất | complete |
 | 2026-09-15 | Bổ sung size/backpressure, transport surface, state/failure matrix và test plan theo review PR #24 | Đảm bảo #20–#23 có contract deterministic trước khi implement | complete |
+| 2026-09-15 | Triển khai gateway WebSocket tối thiểu cho #20 | Cho local agent kết nối outbound, handshake và forwarding envelope qua session abstraction | complete |

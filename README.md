@@ -6,7 +6,7 @@ Mục tiêu cuối cùng là để ChatGPT gọi các capability trên Windows, 
 
 ## Trạng thái hiện tại
 
-M1 — Local MCP đã có đầy đủ implementation cho **8/8 work item** và đủ **6/6 tool** đã chốt: `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec`. Issue #9 bổ sung acceptance suite dùng MCP client/server thật để khóa catalog, schema/annotations, vertical flow, permission/security boundary và shell limits trên temp workspace. M1 chỉ được coi là hoàn tất khi `bun run check`, `bun run typecheck`, `bun test` cùng xanh; sau quality gate này, bước phát triển tiếp theo là M2 custom WebSocket transport server → local. Networking/public server, pairing và ChatGPT integration chưa được triển khai.
+M1 — Local MCP đã có đầy đủ implementation cho **8/8 work item** và đủ **6/6 tool** đã chốt: `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec`. Issue #9 bổ sung acceptance suite dùng MCP client/server thật để khóa catalog, schema/annotations, vertical flow, permission/security boundary và shell limits trên temp workspace. M2.2/#20 hiện đã có WebSocket gateway tối thiểu với handshake, session lifecycle, validation, giới hạn wire-size và timeout/cleanup; hai MCP transport, public MCP endpoint, pairing và ChatGPT integration chưa được triển khai.
 
 Thứ tự phát triển đã chốt:
 
@@ -64,7 +64,7 @@ Protocol riêng của `doctmcp` chỉ dành cho phần nằm ngoài MCP, ví d�
 - CI: GitHub Actions.
 - MCP: SDK TypeScript chính thức.
 
-Framework HTTP cho public server chưa phải quyết định cần khóa ở M1; chỉ thêm khi M2/M4 thực sự cần.
+Gateway M2.2 dùng `Bun.serve` và WebSocket native; framework HTTP/public MCP endpoint production vẫn chưa được chốt.
 
 ## Cấu trúc repository
 

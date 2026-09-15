@@ -26,7 +26,7 @@ Tài liệu chi tiết cho milestone đang ưu tiên:
 ## Contract và vận hành
 
 - [protocol.md](protocol.md): ranh giới giữa MCP data plane và protocol control plane riêng của doctmcp.
-- [spec M2 bridge](specs/2026-09-15-m2-bridge-design.md): contract handshake, MCP frame và lifecycle cho WebSocket bridge.
+- [spec M2 bridge](specs/2026-09-15-m2-bridge-design.md): contract handshake, MCP frame và lifecycle cho WebSocket bridge; gateway tối thiểu đã triển khai ở M2.2.
 - [security.md](security.md): trust boundary và yêu cầu bảo mật.
 - [permissions.md](permissions.md): permission model được enforce tại local.
 - [pairing.md](pairing.md): thiết kế pairing thiết bị cho giai đoạn sau.
