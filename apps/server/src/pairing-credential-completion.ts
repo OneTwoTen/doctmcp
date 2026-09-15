@@ -8,18 +8,14 @@ import type {
   DeviceCredentialService,
   IssuedDeviceCredential,
 } from "./device-credential";
-import type {
-  PairingClaimContext,
-  PairingService,
-} from "./pairing";
+import type { PairingClaimContext, PairingService } from "./pairing";
 
 /**
  * Payload một lần để control-plane giao lại cho đúng local pairing channel.
- * `credential` là raw secret và không được persist/log ở server.
+ * `secret` là raw credential và không được persist/log ở server.
  */
 export interface CompletedPairingCredential {
-  readonly pairingSessionId: string;
-  readonly localCorrelationId?: string;
+  readonly session: PairingSession;
   readonly device: Device;
   readonly credential: DeviceCredential;
   readonly secret: string;
@@ -61,10 +57,7 @@ export class PairingCredentialCompletionService {
       await this.#credentialService.issue(claimed.device.deviceId);
 
     return Object.freeze({
-      pairingSessionId: claimed.session.pairingSessionId,
-      ...(claimed.session.localCorrelationId !== undefined
-        ? { localCorrelationId: claimed.session.localCorrelationId }
-        : {}),
+      session: claimed.session,
       device: claimed.device,
       credential: issued.credential,
       secret: issued.secret,
@@ -73,7 +66,8 @@ export class PairingCredentialCompletionService {
 }
 
 export interface PairingCredentialDelivery {
-  readonly pairingSession: PairingSession;
+  readonly pairingSessionId: string;
+  readonly localCorrelationId?: string;
   readonly deviceId: string;
   readonly credentialId: string;
   readonly credentialVersion: number;
@@ -87,20 +81,11 @@ export interface PairingCredentialDelivery {
 export function toPairingCredentialDelivery(
   completed: CompletedPairingCredential,
 ): PairingCredentialDelivery {
-  const pairingSession: PairingSession = Object.freeze({
-    pairingSessionId: completed.pairingSessionId,
-    state: "claimed",
-    createdAt: completed.device.createdAt,
-    expiresAt: completed.device.createdAt,
-    claimedAt: completed.device.createdAt,
-    deviceId: completed.device.deviceId,
-    ...(completed.localCorrelationId !== undefined
-      ? { localCorrelationId: completed.localCorrelationId }
-      : {}),
-  });
-
   return Object.freeze({
-    pairingSession,
+    pairingSessionId: completed.session.pairingSessionId,
+    ...(completed.session.localCorrelationId !== undefined
+      ? { localCorrelationId: completed.session.localCorrelationId }
+      : {}),
     deviceId: completed.device.deviceId,
     credentialId: completed.credential.credentialId,
     credentialVersion: completed.credential.version,
