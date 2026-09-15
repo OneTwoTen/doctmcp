@@ -157,7 +157,7 @@ M3.3 tách long-lived device credential khỏi `Device` record và khóa các bo
 
 ### Pairing → credential completion
 
-Sau atomic pairing claim, `PairingCredentialCompletionService` issue credential cho đúng `deviceId` vừa được tạo và tạo one-time delivery payload gồm:
+Sau atomic pairing claim, `PairingCredentialCompletionService` issue credential cho đúng `deviceId` vừa được tạo và tạo pending-delivery payload gồm:
 
 ```text
 pairingSessionId
@@ -170,7 +170,13 @@ raw credential
 
 Payload không chứa pairing code. Duplicate/replay pairing claim dừng trước credential issue thứ hai.
 
-Reference in-memory implementation không giả vờ cung cấp distributed transaction giữa pairing repository và credential repository. Với production persistence dùng chung database, pairing transition + device creation + credential persistence phải nằm trong cùng transaction/unit-of-work để tránh trạng thái pairing đã claim nhưng credential chưa persist.
+Reference runtime giữ completion thành công transient trong memory theo `pairingSessionId` cho tới khi local acknowledge đã persist secret. Retry cùng process trả lại đúng pending delivery, không issue generation mới.
+
+Nếu claim đã commit nhưng credential issue fail, `resumeClaimedPairing(pairingSessionId, ownerId)` resolve lại claimed session và ownership từ server-side `DeviceRepository`, rồi retry issue. Wrong owner nhận generic `PAIRING_COMPLETION_UNAVAILABLE`.
+
+`acknowledgeDelivery(pairingSessionId)` xóa raw secret pending khỏi memory sau khi local lưu thành công. Raw secret này không được persist hoặc log.
+
+Với production persistence dùng chung database, pairing transition + device creation + credential persistence vẫn phải nằm trong cùng transaction/unit-of-work. Recovery cache chỉ là reference-runtime safety net cho same-process delivery, không thay thế transaction durability.
 
 ### Authenticated bridge handshake
 
@@ -187,7 +193,9 @@ bridge.hello
 
 Không đưa credential vào URL/query string.
 
-Production gateway mặc định yêu cầu auth. Legacy unauthenticated handshake chỉ được bật rõ ràng bằng `allowLegacyUnauthenticated: true` cho M2 compatibility/test; auth failure không được fallback sang legacy mode.
+Production gateway mặc định yêu cầu auth. `createDoctmcpServerRuntime()` luôn wire gateway với `DeviceCredentialService.verify()` dùng cùng repository instance với credential lifecycle. Legacy unauthenticated handshake không được expose từ production composition root.
+
+Legacy mode chỉ được bật rõ ràng bằng `allowLegacyUnauthenticated: true` khi tạo gateway trực tiếp cho M2 compatibility/test; auth failure không được fallback sang legacy mode.
 
 Gateway chỉ tạo/expose `BridgeGatewaySession` sau khi authenticator verify thành công. Authenticated session giữ:
 
@@ -211,12 +219,14 @@ Local `BridgeServerTransport` giữ credential trong auth config và chỉ đưa
 
 `revoke`/`rotate` dùng expected `credentialId + version` làm CAS generation boundary. Hai mutation concurrent trên cùng generation chỉ một mutation được commit.
 
-- revoke làm credential hiện tại không verify được cho reconnect mới;
-- rotate atomically thay generation active; secret cũ fail sau commit;
+Server composition root cung cấp lifecycle API có active-session propagation:
+
+- `revokeDeviceCredential(deviceId)` revoke generation hiện tại, đóng ngay authenticated session đang active của đúng device và làm credential cũ fail khi reconnect;
+- `rotateDeviceCredential(deviceId)` atomically tạo generation mới, đóng active session cũ, làm secret cũ fail và chỉ secret mới reconnect được;
 - failure CAS không làm mất generation đang active;
 - concurrent rotate/rotate và rotate/revoke đều có regression test.
 
-M3.3 **không tự tạo một session registry song song** chỉ để force-close WebSocket đang active. Chính sách hiện tại là revoke/rotate chặn reconnect mới ngay. Active authenticated session đang tồn tại có thể tiếp tục sống đến khi tự đóng/timeout; #33 sẽ cung cấp authoritative device/session registry để revoke/rotate có thể đóng hoặc propagate invalidation theo một policy duy nhất. Vì vậy deployment yêu cầu immediate active-session revocation phải chờ #33 trước khi coi behavior đó hoàn chỉnh.
+M3.3 chỉ giữ tracking active session tối thiểu để security property revoke/rotate không bị mơ hồ. #33 vẫn là nơi xây authoritative device-session registry, duplicate connection policy, heartbeat/liveness và online/offline state; không tồn tại hai source of truth lâu dài.
 
 ## Audit
 
@@ -246,8 +256,11 @@ Ví dụ:
 - raw pairing code không xuất hiện trong structured error/snapshot;
 - wrong/mismatched/revoked device credential;
 - concurrent credential rotate/revoke;
+- credential issue failure sau pairing claim có recovery path;
+- wrong owner không resume được pairing completion;
 - raw credential không xuất hiện trong URL/error/log snapshot;
 - MCP frame trước authenticated handshake;
+- revoke/rotate đóng active authenticated session đúng device;
 - shell timeout;
 - oversized output;
 - invalid bridge handshake;
