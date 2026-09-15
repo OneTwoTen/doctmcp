@@ -130,23 +130,41 @@ class GatewaySession implements BridgeGatewaySession {
 function serializeFrame(message: BridgeMessage): SerializedFrame {
   const parsed = bridgeMessageSchema.safeParse(message);
   if (!parsed.success) {
-    throw new BridgeGatewayError("SESSION_CLOSED", "Gateway cannot send an invalid bridge message");
+    throw new BridgeGatewayError(
+      "SESSION_CLOSED",
+      "Gateway cannot send an invalid bridge message",
+    );
   }
   const text = JSON.stringify(parsed.data);
   if (new TextEncoder().encode(text).byteLength > BRIDGE_MAX_MESSAGE_BYTES) {
-    throw new BridgeGatewayError("MESSAGE_TOO_LARGE", "Bridge message exceeds the maximum size");
+    throw new BridgeGatewayError(
+      "MESSAGE_TOO_LARGE",
+      "Bridge message exceeds the maximum size",
+    );
   }
   return { text };
 }
 
 function parseIncomingFrame(frame: string | Buffer): BridgeMessage {
-  if (typeof frame !== "string" && frame.byteLength > BRIDGE_MAX_MESSAGE_BYTES) {
-    throw new BridgeGatewayError("MESSAGE_TOO_LARGE", "Bridge message exceeds the maximum size");
+  if (
+    typeof frame !== "string" &&
+    frame.byteLength > BRIDGE_MAX_MESSAGE_BYTES
+  ) {
+    throw new BridgeGatewayError(
+      "MESSAGE_TOO_LARGE",
+      "Bridge message exceeds the maximum size",
+    );
   }
+
   let text: string;
   if (typeof frame === "string") {
-    if (new TextEncoder().encode(frame).byteLength > BRIDGE_MAX_MESSAGE_BYTES) {
-      throw new BridgeGatewayError("MESSAGE_TOO_LARGE", "Bridge message exceeds the maximum size");
+    if (
+      new TextEncoder().encode(frame).byteLength > BRIDGE_MAX_MESSAGE_BYTES
+    ) {
+      throw new BridgeGatewayError(
+        "MESSAGE_TOO_LARGE",
+        "Bridge message exceeds the maximum size",
+      );
     }
     text = frame;
   } else {
@@ -156,23 +174,30 @@ function parseIncomingFrame(frame: string | Buffer): BridgeMessage {
       throw new BridgeGatewayError("SESSION_CLOSED", "Invalid bridge frame");
     }
   }
+
   let value: unknown;
   try {
     value = JSON.parse(text);
   } catch {
     throw new BridgeGatewayError("SESSION_CLOSED", "Invalid bridge JSON");
   }
+
   const parsed = bridgeMessageSchema.safeParse(value);
-  if (!parsed.success) throw new BridgeGatewayError("SESSION_CLOSED", "Invalid bridge message");
+  if (!parsed.success)
+    throw new BridgeGatewayError("SESSION_CLOSED", "Invalid bridge message");
   return parsed.data;
 }
 
 function nativeCloseCode(code: BridgeCloseCode): number {
   switch (code) {
-    case "NORMAL": return 1000;
-    case "TIMEOUT": return 1001;
-    case "PROTOCOL_ERROR": return WEBSOCKET_PROTOCOL_ERROR;
-    case "SERVER_SHUTDOWN": return 1012;
+    case "NORMAL":
+      return 1000;
+    case "TIMEOUT":
+      return 1001;
+    case "PROTOCOL_ERROR":
+      return WEBSOCKET_PROTOCOL_ERROR;
+    case "SERVER_SHUTDOWN":
+      return 1012;
   }
 }
 
@@ -203,9 +228,14 @@ function closeConnection(
   code: BridgeCloseCode,
   announce = true,
 ): Promise<void> {
-  if (connection.finalized || connection.state === "closing" || connection.state === "closed") {
+  if (
+    connection.finalized ||
+    connection.state === "closing" ||
+    connection.state === "closed"
+  ) {
     return Promise.resolve();
   }
+
   clearConnectionTimeout(connection);
   connection.closeReason = code;
   connection.state = "closing";
@@ -214,8 +244,13 @@ function closeConnection(
     finalizeConnection(connection, code);
     return Promise.resolve();
   }
+
   if (announce) {
-    try { ws.send(serializeFrame({ kind: "bridge.close", code }).text); } catch {}
+    try {
+      ws.send(serializeFrame({ kind: "bridge.close", code }).text);
+    } catch {
+      // Native close remains authoritative.
+    }
   }
   ws.close(nativeCloseCode(code), code);
   return Promise.resolve();
@@ -224,7 +259,10 @@ function closeConnection(
 export function sendWebSocketFrameOnce(send: () => number): void {
   const status = send();
   if (status === 0 || status < -1) {
-    throw new BridgeGatewayError("SESSION_CLOSED", "Bridge socket send failed");
+    throw new BridgeGatewayError(
+      "SESSION_CLOSED",
+      "Bridge socket send failed",
+    );
   }
 }
 
@@ -232,7 +270,8 @@ export function createBridgeGateway(
   options: CreateBridgeGatewayOptions = {},
 ): BridgeGateway {
   const path = options.path ?? DEFAULT_BRIDGE_PATH;
-  const handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
+  const handshakeTimeoutMs =
+    options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   const connections = new Map<string, GatewayConnection>();
   const sessions = new Map<string, GatewaySession>();
@@ -242,12 +281,17 @@ export function createBridgeGateway(
     const details: Record<string, string> = {};
     if (connection.session) {
       details.sessionId = connection.session.id;
-      if (connection.session.identity) details.deviceId = connection.session.identity.deviceId;
+      if (connection.session.identity)
+        details.deviceId = connection.session.identity.deviceId;
     }
     options.logger?.(event, details);
   };
 
-  const setTimeoutFor = (connection: GatewayConnection, timeoutMs: number, handler: () => void): void => {
+  const setTimeoutFor = (
+    connection: GatewayConnection,
+    timeoutMs: number,
+    handler: () => void,
+  ): void => {
     clearConnectionTimeout(connection);
     if (timeoutMs > 0) connection.timeout = setTimeout(handler, timeoutMs);
   };
@@ -262,46 +306,99 @@ export function createBridgeGateway(
     clearConnectionTimeout(connection);
     connection.closeReason = closeCode;
     connection.state = "closing";
+
     if (connection.ws) {
       try {
-        sendWebSocketFrameOnce(() => connection.ws?.send(serializeFrame({ kind: "bridge.error", code: errorCode, message }).text) ?? 0);
-        sendWebSocketFrameOnce(() => connection.ws?.send(serializeFrame({ kind: "bridge.close", code: closeCode }).text) ?? 0);
-      } catch {}
+        sendWebSocketFrameOnce(
+          () =>
+            connection.ws?.send(
+              serializeFrame({
+                kind: "bridge.error",
+                code: errorCode,
+                message,
+              }).text,
+            ) ?? 0,
+        );
+        sendWebSocketFrameOnce(
+          () =>
+            connection.ws?.send(
+              serializeFrame({ kind: "bridge.close", code: closeCode }).text,
+            ) ?? 0,
+        );
+      } catch {
+        // Best-effort protocol error; native close remains authoritative.
+      }
       connection.ws.close(nativeCloseCode(closeCode), message);
     }
     log("bridge.connection.failed", connection);
   };
 
-  const sendFrame = async (connection: GatewayConnection, message: BridgeMessage): Promise<void> => {
-    if (connection.finalized || connection.state !== "ready" || !connection.ws) {
-      throw new BridgeGatewayError("SESSION_CLOSED", "Bridge session is closed");
+  const sendFrame = async (
+    connection: GatewayConnection,
+    message: BridgeMessage,
+  ): Promise<void> => {
+    if (
+      connection.finalized ||
+      connection.state !== "ready" ||
+      !connection.ws
+    ) {
+      throw new BridgeGatewayError(
+        "SESSION_CLOSED",
+        "Bridge session is closed",
+      );
     }
-    sendWebSocketFrameOnce(() => connection.ws?.send(serializeFrame(message).text) ?? 0);
+
+    sendWebSocketFrameOnce(
+      () => connection.ws?.send(serializeFrame(message).text) ?? 0,
+    );
     setTimeoutFor(connection, idleTimeoutMs, () => {
-      void failConnection(connection, "TIMEOUT", "TIMEOUT", "Bridge session timed out");
+      void failConnection(
+        connection,
+        "TIMEOUT",
+        "TIMEOUT",
+        "Bridge session timed out",
+      );
     });
   };
 
-  const authenticate = async (message: Extract<BridgeMessage, { kind: "bridge.hello" }>): Promise<AuthenticatedDeviceIdentity | null> => {
+  const authenticate = async (
+    message: Extract<BridgeMessage, { kind: "bridge.hello" }>,
+  ): Promise<AuthenticatedDeviceIdentity | null> => {
     if (!message.auth) {
       if (options.allowLegacyUnauthenticated === true) return null;
       throw new Error("AUTH_REQUIRED");
     }
     if (!options.authenticateDevice) throw new Error("AUTH_FAILED");
-    const identity = await options.authenticateDevice(message.auth.deviceId, message.auth.credential);
-    if (identity.deviceId !== message.auth.deviceId) throw new Error("AUTH_FAILED");
-    return Object.freeze({ ownerId: identity.ownerId, deviceId: identity.deviceId });
+
+    const identity = await options.authenticateDevice(
+      message.auth.deviceId,
+      message.auth.credential,
+    );
+    if (identity.deviceId !== message.auth.deviceId) {
+      throw new Error("AUTH_FAILED");
+    }
+    return Object.freeze({
+      ownerId: identity.ownerId,
+      deviceId: identity.deviceId,
+    });
   };
 
-  const handleMessage = async (connection: GatewayConnection, raw: string | Buffer): Promise<void> => {
+  const handleMessage = async (
+    connection: GatewayConnection,
+    raw: string | Buffer,
+  ): Promise<void> => {
     if (connection.finalized || connection.state === "closing") return;
+
     let message: BridgeMessage;
     try {
       message = parseIncomingFrame(raw);
     } catch (error) {
       await failConnection(
         connection,
-        error instanceof BridgeGatewayError && error.code === "MESSAGE_TOO_LARGE" ? "MESSAGE_TOO_LARGE" : "INVALID_MESSAGE",
+        error instanceof BridgeGatewayError &&
+          error.code === "MESSAGE_TOO_LARGE"
+          ? "MESSAGE_TOO_LARGE"
+          : "INVALID_MESSAGE",
         "PROTOCOL_ERROR",
         "Invalid bridge message",
       );
@@ -310,15 +407,30 @@ export function createBridgeGateway(
 
     if (connection.state === "handshaking") {
       if (message.kind !== "bridge.hello") {
-        await failConnection(connection, "HANDSHAKE_REQUIRED", "PROTOCOL_ERROR", "Handshake is required before this message");
+        await failConnection(
+          connection,
+          "HANDSHAKE_REQUIRED",
+          "PROTOCOL_ERROR",
+          "Handshake is required before this message",
+        );
         return;
       }
       if (message.bridgeProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
-        await failConnection(connection, "UNSUPPORTED_VERSION", "PROTOCOL_ERROR", "Unsupported bridge protocol version");
+        await failConnection(
+          connection,
+          "UNSUPPORTED_VERSION",
+          "PROTOCOL_ERROR",
+          "Unsupported bridge protocol version",
+        );
         return;
       }
       if (sessions.has(message.sessionId)) {
-        await failConnection(connection, "UNEXPECTED_MESSAGE", "PROTOCOL_ERROR", "Bridge session is already active");
+        await failConnection(
+          connection,
+          "UNEXPECTED_MESSAGE",
+          "PROTOCOL_ERROR",
+          "Bridge session is already active",
+        );
         return;
       }
 
@@ -326,36 +438,62 @@ export function createBridgeGateway(
       try {
         identity = await authenticate(message);
       } catch (error) {
-        const code = error instanceof Error && error.message === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "AUTH_FAILED";
+        const code =
+          error instanceof Error && error.message === "AUTH_REQUIRED"
+            ? "AUTH_REQUIRED"
+            : "AUTH_FAILED";
         await failConnection(
           connection,
           code,
           "PROTOCOL_ERROR",
-          code === "AUTH_REQUIRED" ? "Device authentication is required" : "Device authentication failed",
+          code === "AUTH_REQUIRED"
+            ? "Device authentication is required"
+            : "Device authentication failed",
         );
         return;
       }
       if (connection.finalized || connection.state !== "handshaking") return;
 
-      const session = new GatewaySession(connection, sendFrame, message.sessionId, identity);
+      const session = new GatewaySession(
+        connection,
+        sendFrame,
+        message.sessionId,
+        identity,
+      );
       connection.session = session;
       sessions.set(session.id, session);
       clearConnectionTimeout(connection);
       connection.state = "ready";
       setTimeoutFor(connection, idleTimeoutMs, () => {
-        void failConnection(connection, "TIMEOUT", "TIMEOUT", "Bridge session timed out");
+        void failConnection(
+          connection,
+          "TIMEOUT",
+          "TIMEOUT",
+          "Bridge session timed out",
+        );
       });
+
       try {
-        sendWebSocketFrameOnce(() => connection.ws?.send(serializeFrame({
-          kind: "bridge.hello.ack",
-          bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
-          role: "public-server",
-          sessionId: session.id,
-        }).text) ?? 0);
+        sendWebSocketFrameOnce(
+          () =>
+            connection.ws?.send(
+              serializeFrame({
+                kind: "bridge.hello.ack",
+                bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+                role: "public-server",
+                sessionId: session.id,
+              }).text,
+            ) ?? 0,
+        );
         options.onSession?.(session);
       } catch {
         sessions.delete(session.id);
-        await failConnection(connection, "SESSION_CLOSED", "PROTOCOL_ERROR", "Bridge session binding failed");
+        await failConnection(
+          connection,
+          "SESSION_CLOSED",
+          "PROTOCOL_ERROR",
+          "Bridge session binding failed",
+        );
         return;
       }
       log("bridge.session.ready", connection);
@@ -367,16 +505,32 @@ export function createBridgeGateway(
       return;
     }
     if (message.kind !== "mcp.message") {
-      await failConnection(connection, "UNEXPECTED_MESSAGE", "PROTOCOL_ERROR", "Unexpected bridge message");
+      await failConnection(
+        connection,
+        "UNEXPECTED_MESSAGE",
+        "PROTOCOL_ERROR",
+        "Unexpected bridge message",
+      );
       return;
     }
+
     setTimeoutFor(connection, idleTimeoutMs, () => {
-      void failConnection(connection, "TIMEOUT", "TIMEOUT", "Bridge session timed out");
+      void failConnection(
+        connection,
+        "TIMEOUT",
+        "TIMEOUT",
+        "Bridge session timed out",
+      );
     });
     try {
       connection.session?.onmessage?.(message);
     } catch {
-      await failConnection(connection, "SESSION_CLOSED", "PROTOCOL_ERROR", "Bridge session forwarding failed");
+      await failConnection(
+        connection,
+        "SESSION_CLOSED",
+        "PROTOCOL_ERROR",
+        "Bridge session forwarding failed",
+      );
     }
   };
 
@@ -396,7 +550,12 @@ export function createBridgeGateway(
         }
         connection.ws = ws;
         setTimeoutFor(connection, handshakeTimeoutMs, () => {
-          void failConnection(connection, "TIMEOUT", "TIMEOUT", "Bridge handshake timed out");
+          void failConnection(
+            connection,
+            "TIMEOUT",
+            "TIMEOUT",
+            "Bridge handshake timed out",
+          );
         });
         log("bridge.connection.opened", connection);
       },
@@ -409,14 +568,22 @@ export function createBridgeGateway(
         if (!connection) return;
         if (connection.session) sessions.delete(connection.session.id);
         connections.delete(connection.connectionId);
-        finalizeConnection(connection, connection.closeReason ?? "REMOTE_CLOSE");
+        finalizeConnection(
+          connection,
+          connection.closeReason ?? "REMOTE_CLOSE",
+        );
         log("bridge.connection.closed", connection);
       },
     },
     fetch(request, serverInstance) {
       const requestUrl = new URL(request.url);
-      if (requestUrl.pathname !== path) return new Response("Not found", { status: 404 });
-      if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+      if (requestUrl.pathname !== path) {
+        return new Response("Not found", { status: 404 });
+      }
+      if (request.method !== "GET") {
+        return new Response("Method not allowed", { status: 405 });
+      }
+
       const connectionId = crypto.randomUUID();
       const connection: GatewayConnection = {
         connectionId,
@@ -435,20 +602,33 @@ export function createBridgeGateway(
   });
 
   return {
-    get url() { return `ws://${server.hostname}:${server.port}${path}`; },
+    get url() {
+      return `ws://${server.hostname}:${server.port}${path}`;
+    },
     path,
-    get sessionCount() { return sessions.size; },
+    get sessionCount() {
+      return sessions.size;
+    },
     server,
-    getSession(sessionId) { return sessions.get(sessionId); },
+    getSession(sessionId) {
+      return sessions.get(sessionId);
+    },
     async stop() {
       if (stopped) return;
       stopped = true;
       const activeConnections = [...connections.values()];
-      await Promise.all(activeConnections.map((connection) => closeConnection(connection, "SERVER_SHUTDOWN")));
+      await Promise.all(
+        activeConnections.map((connection) =>
+          closeConnection(connection, "SERVER_SHUTDOWN"),
+        ),
+      );
       for (const connection of activeConnections) {
         if (connection.session) sessions.delete(connection.session.id);
         connections.delete(connection.connectionId);
-        finalizeConnection(connection, connection.closeReason ?? "SERVER_SHUTDOWN");
+        finalizeConnection(
+          connection,
+          connection.closeReason ?? "SERVER_SHUTDOWN",
+        );
       }
       await server.stop(true);
     },
