@@ -141,19 +141,82 @@ Raw pairing code không được truyền vào guard để tránh bị observabi
 
 M3.2 chưa triển khai full user auth/IP rate-limit infrastructure. Endpoint production sau này vẫn bắt buộc có rate limit phù hợp vì pairing code là human-readable credential.
 
-## Device credential — M3.3+
+## Device credential và bridge authentication — M3.3
 
-Device credential phải:
+M3.3 tách long-lived device credential khỏi `Device` record và khóa các boundary sau:
 
-- gắn với immutable device identity;
-- revoke được;
-- rotate được;
-- không xuất hiện đầy đủ trong log;
-- không được gửi qua chat nếu không có lý do thật sự cần thiết.
+- raw credential được sinh từ 32 random bytes bằng `crypto.getRandomValues()` = 256 bit entropy;
+- server persist SHA-256 digest của domain-prefixed secret, không persist raw credential;
+- raw credential chỉ được trả ở thời điểm issue/rotate để giao một lần cho local runtime;
+- `credentialId` là UUID v4 riêng, không được reuse giữa device hoặc generation;
+- mỗi device có tối đa một credential active;
+- ownership luôn lấy từ `DeviceRepository`, không tin `ownerId` do local gửi;
+- verify failure dùng generic `CREDENTIAL_UNAVAILABLE`, không echo secret;
+- manual digest compare dùng constant-time loop;
+- pairing code tuyệt đối không được promote thành long-lived credential.
 
-Raw long-lived credential không thuộc `Device` record. M3.3 phải dùng credential store/service riêng và lấy ownership từ server-side `Device`, không tin `ownerId` do local tự khai báo.
+### Pairing → credential completion
 
-Pairing code không được promote thành long-lived credential.
+Sau atomic pairing claim, `PairingCredentialCompletionService` issue credential cho đúng `deviceId` vừa được tạo và tạo one-time delivery payload gồm:
+
+```text
+pairingSessionId
+localCorrelationId?
+deviceId
+credentialId
+credentialVersion
+raw credential
+```
+
+Payload không chứa pairing code. Duplicate/replay pairing claim dừng trước credential issue thứ hai.
+
+Reference in-memory implementation không giả vờ cung cấp distributed transaction giữa pairing repository và credential repository. Với production persistence dùng chung database, pairing transition + device creation + credential persistence phải nằm trong cùng transaction/unit-of-work để tránh trạng thái pairing đã claim nhưng credential chưa persist.
+
+### Authenticated bridge handshake
+
+Credential được gửi trong `bridge.hello` WebSocket control frame:
+
+```text
+bridge.hello
+  sessionId
+  auth:
+    mode: device
+    deviceId
+    credential
+```
+
+Không đưa credential vào URL/query string.
+
+Production gateway mặc định yêu cầu auth. Legacy unauthenticated handshake chỉ được bật rõ ràng bằng `allowLegacyUnauthenticated: true` cho M2 compatibility/test; auth failure không được fallback sang legacy mode.
+
+Gateway chỉ tạo/expose `BridgeGatewaySession` sau khi authenticator verify thành công. Authenticated session giữ:
+
+```text
+bridge sessionId
++
+identity { ownerId, deviceId }
+```
+
+hai namespace này độc lập. Authenticator output còn được runtime-validate trước khi bind session.
+
+Trước khi auth hoàn tất:
+
+- `mcp.message` bị reject;
+- invalid/unknown/revoked/mismatched credential không tạo ready session;
+- error trả `AUTH_REQUIRED`/`AUTH_FAILED` generic và không echo credential.
+
+Local `BridgeServerTransport` giữ credential trong auth config và chỉ đưa secret vào `bridge.hello`. Khi gateway trả auth error rồi đóng socket ngay, transport xử lý queued control frame trước native-close cleanup để giữ đúng generic auth error thay vì ghi đè thành `SESSION_CLOSED`.
+
+### Revoke và rotate
+
+`revoke`/`rotate` dùng expected `credentialId + version` làm CAS generation boundary. Hai mutation concurrent trên cùng generation chỉ một mutation được commit.
+
+- revoke làm credential hiện tại không verify được cho reconnect mới;
+- rotate atomically thay generation active; secret cũ fail sau commit;
+- failure CAS không làm mất generation đang active;
+- concurrent rotate/rotate và rotate/revoke đều có regression test.
+
+M3.3 **không tự tạo một session registry song song** chỉ để force-close WebSocket đang active. Chính sách hiện tại là revoke/rotate chặn reconnect mới ngay; active-session invalidation sẽ được nối vào authoritative device/session registry của #33 để behavior online/close có một nguồn sự thật duy nhất.
 
 ## Audit
 
@@ -181,7 +244,10 @@ Ví dụ:
 - concurrent pairing claim;
 - malformed pairing input không mutate state;
 - raw pairing code không xuất hiện trong structured error/snapshot;
-- revoked device credential;
+- wrong/mismatched/revoked device credential;
+- concurrent credential rotate/revoke;
+- raw credential không xuất hiện trong URL/error/log snapshot;
+- MCP frame trước authenticated handshake;
 - shell timeout;
 - oversized output;
 - invalid bridge handshake;
