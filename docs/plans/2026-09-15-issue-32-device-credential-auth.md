@@ -17,19 +17,23 @@ Hoàn tất M3.3 trên foundation #30/#31: sau khi pairing đã tạo/bind `Devi
 - [x] `credentialId` unique giữa device/generation trong reference repository.
 - [x] Pairing completion helper cấp credential đúng device đã claim và giữ `pairingSessionId`/`localCorrelationId` cho delivery channel.
 - [x] Pairing completion owner-check trước cache lookup; `pairingSessionId` không phải bearer secret.
+- [x] Completion repository tách raw secret khỏi durable state và khóa lifecycle `pending -> delivered`.
+- [x] ACK owner/generation-aware; wrong/stale ACK không consume pending delivery; `delivered` là terminal qua restart/revoke.
 - [x] Same-process pending-delivery retry idempotent, không issue generation thứ hai.
 - [x] Crash-style recovery sau persist-before-delivery: nếu active credential đã tồn tại nhưng raw secret mất, rotate sang generation mới và trả secret mới.
 - [x] Authenticated bridge hello gửi `deviceId` + credential trong frame, không dùng URL/query string.
 - [x] Gateway verify credential trước khi session chuyển `ready`/được expose qua `onSession`.
+- [x] Gateway acquire ready lease và reverify credential lần cuối trước `bridge.hello.ack`.
 - [x] Session authenticated resolve được `{ ownerId, deviceId }` tách khỏi bridge `sessionId`.
 - [x] Production composition root luôn wire `DeviceCredentialService.verify()` vào gateway; không có accidental legacy bypass.
 - [x] Runtime không expose `credentialService`/`credentialRepository` mutation để caller bypass active-session invalidation.
-- [x] Revoke/rotate đóng auth boundary theo device, drain verify in-flight và chặn handshake dùng snapshot credential cũ.
+- [x] Revoke/rotate serialize với ready commit, drain verify in-flight và chặn handshake dùng credential stale.
+- [x] Shutdown resolve drain waiter, không để credential mutation treo vô hạn.
 - [x] Pre-auth MCP frame bị reject; invalid/unknown/revoked/mismatched credential bị reject generic, không echo secret.
 - [x] `revoke`/`rotate` qua server runtime đóng active authenticated session của đúng device và chặn reconnect bằng generation cũ.
 - [x] M2 legacy/test handshake explicit qua `allowLegacyUnauthenticated: true`, không là production fallback.
 - [x] Authenticated MCP end-to-end và security regression tests.
-- [x] Verification implementation CI #199: `check`, `typecheck`, full test xanh; 208/208 test, M2 acceptance 6/6, Windows regression xanh.
+- [x] Verification implementation CI #212: `check`, `typecheck`, full test xanh; 212/212 test, M2 acceptance 6/6, Windows regression xanh.
 
 ## Quyết định kỹ thuật
 
@@ -62,6 +66,16 @@ pairing code
        raw credential
 ```
 
+Raw credential chỉ nằm trong transient cache. Authoritative completion state nằm trong `PairingCredentialCompletionRepository` và không chứa secret:
+
+```text
+pairingSessionId
+deviceId
+credentialId
+credentialVersion
+state: pending | delivered
+```
+
 Reference runtime giữ completion thành công **transient trong memory** cho tới khi local acknowledge đã lưu credential. Retry cùng `pairingSessionId` trong cùng process trả đúng completion/raw secret cũ, không issue generation mới.
 
 `resumeClaimedPairing(pairingSessionId, ownerId)` luôn resolve claimed session và ownership từ server-side `DeviceRepository` trước khi đọc cache. Wrong owner nhận generic `PAIRING_COMPLETION_UNAVAILABLE` ngay cả khi pending raw secret còn trong memory.
@@ -70,9 +84,17 @@ Nếu pairing claim đã commit nhưng credential issue fail, resume retry issue
 
 Nếu process restart sau khi credential digest đã persist nhưng trước delivery/ack, raw secret cũ không thể phục hồi từ hash. Resume phát hiện active credential đã tồn tại và dùng recovery hook để rotate generation đó, trả secret mới cho local; generation thất lạc cũ bị vô hiệu. Production runtime nối recovery hook vào cùng credential-mutation/session-invalidation boundary với explicit rotate.
 
-Sau khi local persist credential thành công, control-plane gọi `acknowledgeDelivery(pairingSessionId)` để xóa raw credential pending khỏi memory.
+ACK yêu cầu `pairingSessionId + ownerId + credentialId + credentialVersion`. Owner được resolve server-side và completion repository CAS đúng generation `pending -> delivered`:
 
-Production persistence dùng chung database vẫn nên đặt pairing claim + device creation + credential persistence trong cùng transaction/unit-of-work. Raw credential pending delivery không được persist/log; recovery-by-rotation chỉ là safety net cho cửa sổ persist-before-delivery.
+- wrong owner bị reject;
+- stale credential id/version bị reject;
+- failed ACK không xóa transient pending secret;
+- correct ACK xóa raw secret transient sau khi terminal state đã persist;
+- sau `delivered`, resume fail deterministic qua restart và kể cả sau khi credential active bị revoke.
+
+Production persistence phải implement `PairingCredentialCompletionRepository` bằng durable store để terminal state sống qua restart; raw credential tuyệt đối không được persist trong completion record. Runtime hỗ trợ inject adapter này qua `pairingCredentialCompletionRepository`.
+
+Production persistence dùng chung database vẫn nên đặt pairing claim + device creation + credential persistence/completion state trong cùng transaction/unit-of-work phù hợp. Recovery-by-rotation chỉ là safety net cho cửa sổ persist-before-delivery.
 
 ### Authenticated bridge
 
@@ -87,14 +109,21 @@ bridge.hello
     credential
 ```
 
-`BridgeServerTransport` chỉ đặt credential trong WebSocket control frame, không đưa vào URL/query. Gateway có `authenticateDevice(deviceId, credential)` callback/service. Chỉ khi callback trả server-side identity `{ ownerId, deviceId }` hợp lệ và khớp request thì mới:
+`BridgeServerTransport` chỉ đặt credential trong WebSocket control frame, không đưa vào URL/query. Gateway có `authenticateDevice(deviceId, credential)` callback/service.
+
+Authenticated ready flow hiện là:
 
 ```text
-handshaking -> ready
-create session
-onSession(session)
-allow mcp.message
+initial authenticate
+  -> acquire synchronous ready lease
+  -> reverify credential dưới lease
+  -> handshaking -> ready
+  -> bridge.hello.ack
+  -> onSession(session)
+  -> release ready lease
 ```
+
+Nếu ready guard hoặc final reverify fail, gateway trả generic `AUTH_FAILED` **trước** ACK và không tạo ready session.
 
 Authenticator output được runtime-validate. Gateway re-check duplicate `sessionId` sau async authentication để hai handshake đồng thời không cùng vượt qua pre-auth check.
 
@@ -111,7 +140,10 @@ M2 compatibility không fallback tự động khi auth fail. Legacy hello chỉ 
 - credential mutation đánh dấu device đang mutate trước khi repository operation bắt đầu;
 - auth mới của cùng device bị reject trong mutation window;
 - auth đã bắt đầu trước mutation được track/drain; nếu verify trả snapshot cũ trong lúc mutation active, authenticator trả generic auth failure;
-- nếu auth vừa return ngay trước mutation, mutation giữ boundary qua một event-loop turn; `onSession` mutation guard + final sweep ngăn session stale được expose lâu dài;
+- handshake đã acquire ready lease được phép commit khi credential còn valid; mutation đến sau phải chờ ready lease drain rồi mới revoke/rotate;
+- gateway reverify credential dưới lease ngay trước `ready`/ACK, nên mutation đã hoàn tất giữa initial auth và ready commit làm handshake fail trước ACK;
+- correctness không còn dựa vào `setTimeout(0)`, event-loop turn, post-ACK `onSession` guard hoặc final sweep;
+- `stop()` resolve auth/ready drain waiters trước gateway shutdown để revoke/rotate đang chờ không treo vô hạn;
 - failure CAS không làm mất generation hiện tại;
 - #33 vẫn chịu trách nhiệm thay tracking tối thiểu bằng authoritative device-session registry, duplicate-session policy, heartbeat và online/offline state.
 
@@ -135,6 +167,7 @@ M2 compatibility không fallback tự động khi auth fail. Legacy hello chỉ 
 - authenticated gateway + local runtime + MCP Client chạy flow thật;
 - revoke đóng active session và credential cũ không reconnect được;
 - revoke thắng handshake đang verify snapshot credential cũ trước khi upper layer nhận session;
+- credential thay đổi giữa initial auth và ready revalidation bị reject trước ACK/session;
 - rotate đóng active session, old secret fail và new generation reconnect được;
 - pairing completion giữ đúng correlation/device;
 - duplicate claim không issue credential thứ hai;
@@ -142,23 +175,26 @@ M2 compatibility không fallback tự động khi auth fail. Legacy hello chỉ 
 - cached pending delivery vẫn owner-check trước raw secret;
 - issue fail sau claimed pairing recover được bằng `pairingSessionId`;
 - restart sau persist-before-delivery rotate credential thất lạc và trả secret mới;
+- wrong/stale ACK không consume pending delivery;
+- correct ACK làm `delivered` terminal qua restart và sau revoke;
 - recovery không tin owner do caller tự khai báo;
+- shutdown resolve credential mutation drain waiter;
 - M2 acceptance dùng explicit legacy/test mode.
 
 ## Verification cuối
 
-CI #199 trên implementation head `b30d4b2e`:
+CI #212 trên implementation head `95edf138`:
 
 - `bun run check`: pass;
 - `bun run typecheck`: pass;
-- `bun test`: **208 pass / 0 fail**, 849 expects, 27 files;
+- `bun test`: **212 pass / 0 fail**, 863 expects, 29 files;
 - M2 acceptance: **6/6 pass**;
 - M3 authenticated acceptance: pass;
-- server runtime auth/invalidation regression: **5/5 pass**;
-- pairing completion/recovery regression: **7/7 pass**;
+- server runtime auth/invalidation + boundary regressions: **7/7 pass**;
+- pairing completion/recovery + terminal delivery regressions: **9/9 pass**;
 - Windows `shell.exec` regression step: pass.
 
-Script `bun run test:m2` trỏ trực tiếp tới `apps/server/src/m2-acceptance.test.ts`; cùng file này đã chạy 6/6 trong full test của CI #199.
+Script `bun run test:m2` trỏ trực tiếp tới `apps/server/src/m2-acceptance.test.ts`; cùng file này đã chạy 6/6 trong full test của CI #212.
 
 ## Out of scope
 
