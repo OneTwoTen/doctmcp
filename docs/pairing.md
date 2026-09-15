@@ -4,7 +4,7 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 
 ## Trạng thái hiện tại
 
-M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) đã hoàn tất qua PR #38 với pairing session/code lifecycle và atomic claim. M3.3 (#32) đã hoàn tất implementation trên PR #39 với long-lived device credential + authenticated bridge handshake; head đã pass CI 204/204 test sau vòng review fix.
+M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) đã hoàn tất qua PR #38 với pairing session/code lifecycle và atomic claim. M3.3 (#32) đã hoàn tất implementation trên PR #39 với long-lived device credential + authenticated bridge handshake; head implementation sau vòng review mới đã pass 208/208 test.
 
 ## Mục tiêu M3.2
 
@@ -171,11 +171,12 @@ Duplicate/replay pairing code bị chặn tại one-time pairing boundary trư�
 Reference runtime giữ completion thành công transient trong memory theo `pairingSessionId` cho tới khi local xác nhận đã persist credential:
 
 - retry `resumeClaimedPairing(pairingSessionId, ownerId)` trong cùng process trả lại đúng raw credential pending, không issue generation thứ hai;
+- owner được kiểm tra lại từ server-side `DeviceRepository` **trước khi đọc cache**, nên biết `pairingSessionId` không đủ để lấy raw credential;
 - nếu pairing claim đã commit nhưng credential issue fail, cùng API resolve claimed session rồi retry issue mà không pair lại;
-- ownership được resolve từ server-side `DeviceRepository`; caller dùng owner sai nhận `PAIRING_COMPLETION_UNAVAILABLE`;
+- nếu process restart sau khi credential digest đã persist nhưng raw secret chưa được delivery/ack, resume phát hiện credential active đã tồn tại, rotate sang generation mới và trả secret mới; secret thất lạc cũ bị vô hiệu;
 - `acknowledgeDelivery(pairingSessionId)` xóa raw secret pending khỏi memory sau khi local lưu thành công.
 
-Reference cache không persist raw secret. Production adapter dùng chung database vẫn phải đặt pairing claim + device creation + credential persistence trong cùng transaction/unit-of-work; recovery cache không thay thế transaction durability.
+Reference cache không persist raw secret. Production adapter dùng chung database vẫn nên đặt pairing claim + device creation + credential persistence trong cùng transaction/unit-of-work; recovery-by-rotation là safety net cho cửa sổ persist-before-delivery chứ không thay thế transaction durability.
 
 ### Credential contract
 
@@ -201,7 +202,9 @@ bridge.hello
     credential
 ```
 
-Credential không nằm trong URL/query string. Production gateway mặc định yêu cầu auth và chỉ expose ready session sau verify thành công. `createDoctmcpServerRuntime()` luôn wire verifier thật vào gateway bằng cùng `DeviceCredentialService` instance mà pairing/credential lifecycle sử dụng.
+Credential không nằm trong URL/query string. Production gateway mặc định yêu cầu auth và chỉ expose ready session sau verify thành công. `createDoctmcpServerRuntime()` luôn wire verifier thật vào gateway bằng cùng credential repository mà pairing/credential lifecycle sử dụng.
+
+Runtime production không expose trực tiếp `credentialService` hoặc `credentialRepository`; caller phải đi qua lifecycle API có active-session invalidation. Persistence adapters có thể inject lúc tạo runtime để production thay in-memory store.
 
 Session giữ `{ownerId, deviceId}` riêng với bridge `sessionId`.
 
@@ -212,7 +215,10 @@ M2 legacy handshake chỉ được bật bằng explicit `allowLegacyUnauthentic
 Server runtime expose lifecycle API đúng security boundary:
 
 - `revokeDeviceCredential(deviceId)` revoke credential, đóng active authenticated session của đúng device và làm old secret reconnect fail;
-- `rotateDeviceCredential(deviceId)` tạo generation mới atomically, đóng active session cũ, old secret fail và new secret reconnect được.
+- `rotateDeviceCredential(deviceId)` tạo generation mới atomically, đóng active session cũ, old secret fail và new secret reconnect được;
+- trong lúc revoke/rotate, auth mới của cùng device bị chặn;
+- auth đã bắt đầu trước mutation phải drain; verify snapshot cũ sau mutation bị reject generic trước khi upper layer nhận session;
+- trường hợp auth vừa return ngay trước mutation vẫn bị on-session guard/final sweep đóng trước khi mutation boundary mở lại.
 
 Tracking ở M3.3 chỉ đủ cho active invalidation. #33 vẫn xây authoritative device-session registry, duplicate-session replacement, heartbeat và online/offline state.
 
@@ -232,16 +238,20 @@ M3.2 + M3.3 hiện có regression coverage cho:
 - device creation fail không consume pairing code;
 - pairing completion issue đúng một credential và giữ local correlation;
 - successful completion resume trả cùng pending delivery;
+- cached pending delivery vẫn owner-check trước khi trả raw secret;
 - credential issue fail sau claim vẫn recover bằng `pairingSessionId`;
+- process-restart recovery sau persist-before-delivery rotate sang credential mới;
 - wrong owner không resume được completion;
 - credential issue/verify/revoke/rotate;
 - wrong/mismatched/revoked credential generic;
 - concurrent rotate/revoke và rotate/rotate chỉ một generation mutation thắng;
 - production composition root wire credential verifier thật;
+- runtime không expose credential mutation service/repository;
 - authenticated gateway chặn MCP trước auth;
 - raw credential không xuất hiện trong URL/error;
 - authenticated MCP initialize/tools flow thật;
 - revoke/rotate đóng active session và enforce credential generation khi reconnect;
+- revoke thắng handshake đang giữ snapshot credential cũ;
 - M2 acceptance vẫn pass trong explicit legacy compatibility mode.
 
-CI #189 trên implementation head: `check` xanh, `typecheck` xanh, **204/204 test**, M2 acceptance 6/6 và Windows shell regression step xanh.
+CI #199 trên implementation head: `check` xanh, `typecheck` xanh, **208/208 test**, M2 acceptance 6/6 và Windows shell regression step xanh.
