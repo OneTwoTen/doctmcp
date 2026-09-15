@@ -17,6 +17,15 @@ export {
   type InMemoryDeviceRepositoryOptions,
 } from "./device-repository";
 export {
+  type BridgeGateway,
+  BridgeGatewayError,
+  type BridgeGatewayLogger,
+  type BridgeGatewaySession,
+  type CreateBridgeGatewayOptions,
+  createBridgeGateway,
+  DEFAULT_BRIDGE_PATH,
+} from "./gateway";
+export {
   type ClaimPairingRecordInput,
   type ClaimPairingResult,
   type CreatePairingRecordInput,
@@ -46,15 +55,6 @@ export {
   type PairingSessionIdGenerator,
   type PairingSessionRepository,
 } from "./pairing";
-export {
-  type BridgeGateway,
-  BridgeGatewayError,
-  type BridgeGatewayLogger,
-  type BridgeGatewaySession,
-  type CreateBridgeGatewayOptions,
-  createBridgeGateway,
-  DEFAULT_BRIDGE_PATH,
-} from "./gateway";
 
 if (import.meta.main) {
   const gateway = createBridgeGateway({
