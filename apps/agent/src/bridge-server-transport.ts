@@ -218,7 +218,10 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
     }
     if (
       options.auth &&
-      (!options.auth.deviceId.trim() || !options.auth.credential)
+      (typeof options.auth.deviceId !== "string" ||
+        !options.auth.deviceId.trim() ||
+        typeof options.auth.credential !== "string" ||
+        !options.auth.credential)
     ) {
       throw new BridgeServerTransportError(
         "INVALID_STATE",
@@ -456,6 +459,20 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
     }
 
     if (this._state === "handshaking") {
+      if (message.kind === "bridge.error") {
+        this.fail(new BridgeServerTransportError(message.code, message.message));
+        return;
+      }
+      if (message.kind === "bridge.close") {
+        this.remoteClose = true;
+        this._state = "closing";
+        try {
+          this.socket?.close(nativeCloseCode(message.code), message.code);
+        } catch {
+          this.finalizeClose();
+        }
+        return;
+      }
       if (message.kind !== "bridge.hello.ack") {
         this.fail(
           new BridgeServerTransportError(
