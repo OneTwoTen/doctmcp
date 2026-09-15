@@ -7,10 +7,10 @@ Repository hiện đã có:
 - Bun 1.4.2 + TypeScript 7 strict.
 - Bun workspaces cho `apps/*` và `packages/*`.
 - Biome, TypeScript typecheck, Bun test và GitHub Actions CI.
-- `apps/agent` đã có local MCP runtime và `BridgeServerTransport` của M2.3; `apps/server` đã có WebSocket gateway tối thiểu của M2.2 nhưng MCP client/`BridgeClientTransport` phía public chưa được triển khai.
+- `apps/agent` đã có local MCP runtime và `BridgeServerTransport` của M2.3; `apps/server` đã có WebSocket gateway M2.2 và `BridgeClientTransport` M2.4 bind vào active ready session để MCP Client gọi local runtime.
 - `packages/protocol` và `packages/schemas` ở mức foundation ban đầu.
 
-MCP server local, custom WebSocket transport, device pairing và public MCP endpoint **chưa được coi là đã triển khai** cho tới khi có code + test tương ứng.
+MCP server local và custom WebSocket bridge M2 đã có implementation theo từng lớp; device pairing và public MCP endpoint vẫn **chưa được coi là đã triển khai** cho tới milestone tương ứng.
 
 ## Kiến trúc mục tiêu
 
@@ -69,13 +69,17 @@ Tool implementation không được phụ thuộc vào public server hoặc Chat
 
 ### Public server (`apps/server`)
 
-Ở M2, server trước hết chỉ cần chứng minh được:
+Ở M2, server chứng minh được:
 
 - nhận kết nối WebSocket từ local runtime;
-- bind kết nối đó vào một custom MCP client transport;
+- bind kết nối đó vào `BridgeClientTransport` theo MCP client role;
+- thực hiện MCP initialize;
 - thực hiện `tools/list`;
 - thực hiện `tools/call`;
-- nhận MCP result/error đúng correlation của protocol MCP.
+- nhận MCP result/error đúng correlation của protocol MCP;
+- propagate disconnect/session failure để request đang pending không treo.
+
+`BridgeClientTransport` không mở WebSocket và không thực hiện bridge handshake. Nó chỉ bind vào một `BridgeGatewaySession` đã `ready`; Gateway sở hữu socket/session lifecycle. Bridge session identity được expose riêng (`bridgeSessionId`), không dùng MCP SDK `Transport.sessionId`, vì field MCP đó có semantics reconnect và có thể khiến `Client.connect()` bỏ qua initialize.
 
 Device router, pairing/auth và public MCP endpoint được bổ sung sau khi luồng này ổn định.
 
@@ -108,7 +112,7 @@ Control plane không được trở thành protocol thực thi tool song song v�
 
 ## M1 — Local MCP
 
-M1 là ưu tiên hiện tại.
+M1 đã hoàn tất và là foundation cho bridge M2.
 
 ```text
 MCP test client
@@ -135,13 +139,14 @@ Chi tiết contract nằm tại [`specs/2026-09-14-m1-local-mcp-design.md`](spec
 ## M2 — Server gọi local
 
 ```text
-Public server
-  MCP client
+Public MCP Client
       │
-      │ BridgeClientTransport
       ▼
-WebSocket session
-      │
+BridgeClientTransport
+      │ bind ready session
+      ▼
+Public Gateway
+      │ WebSocket
       ▼
 BridgeServerTransport
       │
@@ -152,7 +157,7 @@ Local MCP server
 local tool
 ```
 
-Custom WebSocket transport chỉ chịu trách nhiệm chuyển MCP message qua kết nối đã có. Nó không định nghĩa lại `tools/list`, `tools/call` hoặc result format.
+Custom WebSocket bridge chỉ chịu trách nhiệm chuyển MCP message qua kết nối đã có. Nó không định nghĩa lại `tools/list`, `tools/call` hoặc result format.
 
 ## Security boundary
 
@@ -168,13 +173,13 @@ Custom WebSocket transport chỉ chịu trách nhiệm chuyển MCP message qua 
 - Tách tool implementation khỏi transport.
 - Tách MCP semantics khỏi device/session control plane.
 - Không thêm database, queue, Redis hoặc service riêng trước khi M1/M2 chứng minh nhu cầu thật.
-- Không khóa framework HTTP public server ở M1 khi chưa cần HTTP endpoint production.
+- Không khóa framework HTTP public server trước khi public endpoint production thực sự cần.
 - Breaking change của custom bridge/control plane phải có version/compatibility strategy riêng; không trộn version này với MCP protocol version.
 - Thêm tool mới dựa trên semantic/permission boundary, không dựa trên mục tiêu làm `tools/list` ngắn bằng mọi giá.
 
 ## Phần chưa chốt
 
-Các quyết định sau chưa cần khóa ở M1:
+Các quyết định sau chưa cần khóa trong M2:
 
 - framework HTTP cuối cùng của public server;
 - database cho user/device registry;
