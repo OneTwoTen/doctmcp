@@ -124,15 +124,32 @@ Lifecycle rules:
 ```text
 Public MCP Client     BridgeClientTransport     Public Gateway     BridgeServerTransport     Local MCP Server
        |                       |                       |                       |                       |
-       |                       |<-- WebSocket connect ------------------------|                       |
-       |                       |--- bridge.hello --------------------------->|                       |
-       |                       |<-- bridge.hello.ack ------------------------|                       |
-       |--- initialize ------->|--- mcp.message (initialize) --------------->|--- mcp.message ------>|
-       |<-- initialize result -|<-- mcp.message (initialize result) ----------|<-- mcp.message -------|
-       |--- tools/list ------->|--- mcp.message (tools/list) ---------------->|--- mcp.message ------>|
-       |<-- tools/list result -|<-- mcp.message (tools/list result) ----------|<-- mcp.message -------|
-       |--- tools/call ------->|--- mcp.message (tools/call system/info) ---->|--- mcp.message ------>|
-       |<-- structured result -|<-- mcp.message (structured result) ----------|<-- mcp.message -------|
+       |                       |                       |<-- WebSocket connect --|                       |
+       |                       |                       |<-- bridge.hello ------|                       |
+       |                       |<-- bridge.hello ------|                       |                       |
+       |                       |--- bridge.hello.ack ->|                       |                       |
+       |                       |                       |--- bridge.hello.ack ->|                       |
+       |--- initialize ------>|                       |                       |                       |
+       |                       |--- mcp.message ------>|                       |                       |
+       |                       |                       |--- mcp.message ------>|--- initialize ------>|
+       |                       |                       |                       |<-- initialize result-|
+       |                       |                       |<-- mcp.message -------|                       |
+       |                       |<-- mcp.message -------|                       |                       |
+       |<-- initialize result-|                       |                       |                       |
+       |--- tools/list ------>|                       |                       |                       |
+       |                       |--- mcp.message ------>|                       |                       |
+       |                       |                       |--- mcp.message ------>|--- tools/list ------>|
+       |                       |                       |                       |<-- tools/list result-|
+       |                       |                       |<-- mcp.message -------|                       |
+       |                       |<-- mcp.message -------|                       |                       |
+       |<-- tools/list result-|                       |                       |                       |
+       |--- tools/call ------>|                       |                       |                       |
+       |                       |--- mcp.message ------>|                       |                       |
+       |                       |                       |--- mcp.message ------>|--- system/info ---->|
+       |                       |                       |                       |<-- structured result|
+       |                       |                       |<-- mcp.message -------|                       |
+       |                       |<-- mcp.message -------|                       |                       |
+       |<-- structured result-|                       |                       |                       |
 ```
 
 Disconnect: socket close/error → stop queue → reject pending sends/requests → gọi `onerror` (nếu có) và `onclose` đúng một lần → MCP client/server nhận transport failure.
