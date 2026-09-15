@@ -4,6 +4,10 @@
 
 Hoàn tất M3.2 mà không kéo long-lived credential/authenticated reconnect của #32 vào scope.
 
+## Trạng thái
+
+**Implementation hoàn tất trong PR #38; chờ review/merge.** Final merge gate phải dùng CI của head mới nhất.
+
 ## Scope triển khai
 
 - [x] Shared schema/type cho `PairingSession`, state và create/claim input.
@@ -84,3 +88,11 @@ Regression M3.2 phải chứng minh thêm:
 - heartbeat/session registry;
 - multi-device routing;
 - public MCP endpoint/login UI.
+
+## History
+
+| Ngày | Thay đổi | Lý do | Trạng thái |
+|---|---|---|---|
+| 2026-09-15 | Khởi tạo plan M3.2 và triển khai pairing lifecycle | Ánh xạ acceptance criteria issue #31 sang code/test/docs | implemented |
+| 2026-09-15 | Khóa atomic claim, generic unavailable error và anti-bruteforce hook | Chặn double claim và giảm secret/oracle leakage | implemented |
+| 2026-09-15 | CI #138 trên head `fce2985` xanh: check/typecheck/full suite, M2 6/6 và Windows regression | Verification trước review; docs-only head sau đó vẫn cần final-head CI mới | verified, pending final-head CI |
