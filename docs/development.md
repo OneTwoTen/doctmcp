@@ -25,7 +25,17 @@ bun test
 
 - `check`: chạy Biome trên repository.
 - `typecheck`: chạy TypeScript 7 strict check.
-- `bun test`: chạy Bun test suite.
+- `bun test`: chạy toàn bộ Bun test suite.
+
+Acceptance suite chuyên biệt:
+
+```sh
+bun run test:local
+bun run test:m2
+```
+
+- `test:local`: khóa catalog/contract/security của M1 Local MCP.
+- `test:m2`: khóa public MCP Client ↔ WebSocket bridge ↔ Local MCP Runtime của M2.
 
 Entrypoint scaffold:
 
@@ -34,13 +44,13 @@ bun run dev:agent
 bun run dev:server
 ```
 
-Cho tới khi M1/M2 hoàn tất, việc entrypoint khởi động được không đồng nghĩa MCP runtime hoặc server ↔ local networking đã hoạt động.
+M1 và M2 đã hoàn tất bằng test. Entrypoint chạy được vẫn không đồng nghĩa các milestone sau như pairing/device routing/public MCP endpoint đã tồn tại.
 
 ## Thứ tự phát triển hiện tại
 
 ### M1 — Local MCP
 
-Mọi behavior local nên test độc lập trước:
+Mọi behavior local được test độc lập:
 
 ```text
 MCP test client
@@ -53,15 +63,23 @@ Không đưa WebSocket, pairing hoặc ChatGPT vào test M1 nếu không cần.
 
 ### M2 — Server → Local
 
-Sau khi local MCP ổn định, thêm integration test:
+M2 đã có acceptance suite production path:
 
 ```text
-server MCP client
-    -> custom WebSocket transport
-    -> local MCP server
+Public MCP Client
+    -> BridgeClientTransport
+    -> Public WebSocket Gateway
+    -> BridgeServerTransport
+    -> Local MCP Runtime
 ```
 
-Acceptance test quan trọng nhất là server gọi được `tools/list` và `tools/call` thật từ local.
+Suite phải giữ xanh các behavior: initialize, exact 6-tool catalog, `system/info`, filesystem round-trip, structured error, pending disconnect, public close, malformed/oversized frame và cleanup.
+
+Chi tiết: [`testing/m2-server-local.md`](testing/m2-server-local.md).
+
+### M3 — Device management và pairing
+
+Đây là milestone active tiếp theo. Khi triển khai M3, giữ transport core M2 độc lập với pairing/auth persistence và thêm test riêng cho device identity, credential, reconnect/heartbeat và security lifecycle.
 
 ## Quy tắc test-first
 
@@ -98,6 +116,7 @@ Tài liệu mặc định viết tiếng Việt. Không dịch code, command, AP
 feat(agent): add local MCP system info tool
 test(agent): cover filesystem permission denial
 feat(server): add websocket MCP client transport
+test(m2): lock server-local bridge acceptance
 docs: record local MCP first architecture
 ```
 
@@ -113,4 +132,4 @@ bun run typecheck
 bun test
 ```
 
-Feature cross-layer phải chạy thêm integration test tương ứng. Không dùng kết quả CI cũ hoặc suy đoán thay cho bằng chứng kiểm tra mới.
+Feature cross-layer phải chạy thêm acceptance/integration test tương ứng. Với thay đổi M2 bridge, chạy thêm `bun run test:m2`. Không dùng kết quả CI cũ hoặc suy đoán thay cho bằng chứng kiểm tra mới.
