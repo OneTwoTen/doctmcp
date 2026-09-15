@@ -3,6 +3,11 @@ import { createBridgeGateway } from "./gateway";
 export const SERVER_COMPONENT = "doctmcp-server";
 
 export {
+  BridgeClientTransport,
+  BridgeClientTransportError,
+  type BridgeClientTransportErrorCode,
+} from "./bridge-client-transport";
+export {
   type BridgeGateway,
   BridgeGatewayError,
   type BridgeGatewayLogger,

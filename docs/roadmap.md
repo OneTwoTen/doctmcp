@@ -84,17 +84,17 @@ Acceptance criteria đã được khóa bằng test:
 
 ## M2 — Public server gọi local MCP
 
-**Đang triển khai — M2.3/#21 hoàn tất.** Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
+**Đang triển khai — M2.4/#22 hoàn tất trong PR #27; task tiếp theo là M2.5/#23.** Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
 
-M2.1/#19 đã khóa bridge protocol/transport contract, message-size/backpressure policy, lifecycle/error matrix và test plan trong [`specs/2026-09-15-m2-bridge-design.md`](specs/2026-09-15-m2-bridge-design.md). M2.2/#20 đã hoàn tất gateway WebSocket tối thiểu với session lifecycle, handshake validation, wire-size limit, backpressure semantics và timeout/cleanup. M2.3/#21 đã hoàn tất `BridgeServerTransport` phía local với handshake, validation, queue bounded và cleanup. `BridgeClientTransport` phía public và integration proof server ↔ local vẫn chưa triển khai.
+M2.1/#19 đã khóa bridge protocol/transport contract. M2.2/#20 có gateway WebSocket tối thiểu; M2.3/#21 có `BridgeServerTransport` phía local; M2.4/#22 có `BridgeClientTransport` phía public bind vào active gateway session. Vertical test hiện đã chạy MCP Client thật xuyên gateway/WebSocket tới production Local MCP Runtime với `initialize → tools/list → tools/call system/info`. M2.5/#23 sẽ khóa toàn bộ milestone bằng acceptance/integration suite và các failure boundary cuối.
 
 Các work item M2:
 
 - ✅ M2.1 / #19 — Thiết kế Bridge protocol và transport contract.
 - ✅ M2.2 / #20 — WebSocket gateway tối thiểu trên public server qua PR #25.
 - ✅ M2.3 / #21 — `BridgeServerTransport` phía local agent qua PR #26.
-- ⬜ M2.4 / #22 — `BridgeClientTransport` phía public server.
-- ⬜ M2.5 / #23 — Acceptance/integration suite server ↔ local.
+- ✅ M2.4 / #22 — `BridgeClientTransport` phía public server qua PR #27.
+- 🚧 M2.5 / #23 — Acceptance/integration suite server ↔ local.
 
 Phạm vi:
 
@@ -107,12 +107,16 @@ Phạm vi:
 - disconnect/timeout/error cơ bản;
 - integration test server ↔ local.
 
-Đã triển khai trong M2.3:
+Đã triển khai tới M2.4:
 
-- local `BridgeServerTransport` tương thích MCP SDK v2;
-- local chủ động mở WebSocket, handshake và chuyển envelope MCP;
-- wire-size/queue limit, malformed frame, disconnect/error và close idempotency;
-- production local runtime được kiểm thử trên WebSocket thật.
+- local chủ động mở WebSocket và hoàn tất bridge handshake;
+- gateway quản lý active bridge session và lifecycle/cleanup;
+- local `BridgeServerTransport` tương thích MCP server role;
+- public `BridgeClientTransport` tương thích MCP client role và bind độc quyền ready session;
+- wire-size 1 MiB, FIFO queue 256 message / 4 MiB và backpressure deterministic;
+- remote disconnect làm MCP request pending fail thay vì treo;
+- bridge session identity được tách khỏi MCP SDK `Transport.sessionId` để không làm `Client.connect()` bỏ qua initialize;
+- production local runtime được gọi qua MCP Client thật trên WebSocket thật.
 
 Acceptance criteria:
 
