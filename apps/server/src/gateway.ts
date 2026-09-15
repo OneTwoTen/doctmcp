@@ -37,7 +37,7 @@ export type BridgeDeviceAuthenticator = (
 export type BridgeSessionReadyGuard = (
   identity: AuthenticatedDeviceIdentity | null,
   sessionId: string,
-) => (() => void) | void;
+) => (() => void) | undefined;
 
 export type BridgeSessionReadyValidator = (
   deviceId: string,
