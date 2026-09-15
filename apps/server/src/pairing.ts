@@ -100,7 +100,6 @@ export interface CreatePairingRecordInput {
 
 export interface ClaimPairingRecordInput extends ClaimPairingInput {
   readonly codeDigest: string;
-  readonly claimedAt: Date;
 }
 
 export interface PairingSessionRepository {
@@ -109,6 +108,10 @@ export interface PairingSessionRepository {
   claim(input: ClaimPairingRecordInput): Promise<ClaimPairingResult>;
   cancel(pairingSessionId: string, cancelledAt: Date): Promise<PairingSession>;
   expire(expiredAt: Date): Promise<number>;
+}
+
+export interface InMemoryPairingSessionRepositoryOptions {
+  readonly now?: PairingClock;
 }
 
 interface StoredPairingSession {
@@ -187,20 +190,25 @@ function toSessionSnapshot(record: StoredPairingSession): PairingSession {
 
 /**
  * Adapter deterministic cho M3 integration/concurrency test.
- * Tất cả mutation dùng cùng một async critical section. Device creation được chạy
- * bên trong atomic claim boundary, vì vậy hai claim đồng thời không thể cùng tạo device.
+ * Tất cả mutation dùng cùng một async critical section. Claim đọc authoritative clock
+ * sau khi đã acquire boundary và Device creation cũng chạy bên trong boundary đó.
  * Production adapter phải thay boundary này bằng transaction/lock/CAS tương đương.
  */
 export class InMemoryPairingSessionRepository
   implements PairingSessionRepository
 {
   readonly #deviceRepository: DeviceRepository;
+  readonly #now: PairingClock;
   readonly #recordsById = new Map<string, StoredPairingSession>();
   readonly #sessionIdByDigest = new Map<string, string>();
   #mutationTail: Promise<void> = Promise.resolve();
 
-  constructor(deviceRepository: DeviceRepository) {
+  constructor(
+    deviceRepository: DeviceRepository,
+    options: InMemoryPairingSessionRepositoryOptions = {},
+  ) {
     this.#deviceRepository = deviceRepository;
+    this.#now = options.now ?? (() => new Date());
   }
 
   async create(input: CreatePairingRecordInput): Promise<PairingSession> {
@@ -256,9 +264,9 @@ export class InMemoryPairingSessionRepository
 
   async claim(input: ClaimPairingRecordInput): Promise<ClaimPairingResult> {
     const codeDigest = parseDigest(input.codeDigest);
-    const claimedAtMs = readTimestamp(input.claimedAt, "claimedAt");
 
     return this.#runExclusive(async () => {
+      const claimedAtMs = readTimestamp(this.#now(), "claimedAt");
       const pairingSessionId = this.#sessionIdByDigest.get(codeDigest);
       const record = pairingSessionId
         ? this.#recordsById.get(pairingSessionId)
@@ -489,7 +497,7 @@ export class PairingService {
   }
 
   async claimPairingCode(
-    pairingCode: string,
+    pairingCode: unknown,
     input: ClaimPairingInput,
     context: PairingClaimContext = {},
   ): Promise<ClaimPairingResult> {
@@ -531,7 +539,6 @@ export class PairingService {
         ownerId: parsedInput.data.ownerId,
         deviceName: parsedInput.data.deviceName,
         metadata: parsedInput.data.metadata,
-        claimedAt: this.#readNow(),
       });
     } catch (error) {
       throw this.#mapRepositoryError(error);
@@ -649,7 +656,11 @@ export function generateSecurePairingCode(): string {
 }
 
 /** Canonical lookup form: uppercase, bỏ whitespace/dash, giữ đúng 12 symbol. */
-export function normalizePairingCode(pairingCode: string): string | null {
+export function normalizePairingCode(pairingCode: unknown): string | null {
+  if (typeof pairingCode !== "string") {
+    return null;
+  }
+
   const compact = pairingCode.toUpperCase().replace(/[\s-]/g, "");
   if (compact.length !== PAIRING_CODE_SYMBOLS) {
     return null;
