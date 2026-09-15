@@ -1,7 +1,7 @@
 import {
   type ClaimPairingInput,
-  claimPairingInputSchema,
   type CreatePairingSessionInput,
+  claimPairingInputSchema,
   createPairingSessionInputSchema,
   type Device,
   type PairingSession,
@@ -419,7 +419,8 @@ export class PairingService {
     this.#generatePairingCode =
       options.generatePairingCode ?? generateSecurePairingCode;
     this.#generatePairingSessionId =
-      options.generatePairingSessionId ?? (() => globalThis.crypto.randomUUID());
+      options.generatePairingSessionId ??
+      (() => globalThis.crypto.randomUUID());
     this.#claimAttemptGuard =
       options.claimAttemptGuard ?? ALLOW_ALL_CLAIM_ATTEMPTS;
   }
