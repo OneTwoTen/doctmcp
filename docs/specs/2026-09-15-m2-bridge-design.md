@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Hoàn tất implementation M2.1–M2.4.** Đây là contract cho các task #20–#23. Gateway WebSocket (#20), `BridgeServerTransport` phía local (#21) và `BridgeClientTransport` phía public (#22) đã được triển khai; #23 còn lại để khóa acceptance/integration toàn M2.
+**M2.1–M2.5 đã hoàn tất.** Contract, gateway, hai MCP transport và acceptance/integration suite server ↔ local đều đã được triển khai. M2 đã chứng minh public MCP Client gọi production Local MCP Runtime qua WebSocket thật; milestone tiếp theo là M3 — device management và pairing.
 
 ## Mục tiêu
 
@@ -168,6 +168,25 @@ Disconnect: socket close/error → stop queue → reject pending sends/requests 
 - Session semantics: bridge id không làm MCP Client skip initialize; duplicate public binding bị reject.
 - Boundary: production server/local không import implementation của nhau; cross-app import chỉ được dùng trong integration/acceptance test orchestration khi cần dựng vertical proof.
 
+## Acceptance proof M2.5 / #23
+
+`apps/server/src/m2-acceptance.test.ts` dựng production path và khóa các behavior cuối của milestone:
+
+- MCP Client thật initialize qua `BridgeClientTransport` → gateway → WebSocket → `BridgeServerTransport` → `createLocalMcpRuntime()`;
+- `tools/list` trả exact catalog 6 tool M1;
+- `tools/call system/info` trả structured content;
+- `filesystem.write` + `filesystem.read` round-trip trên temp workspace;
+- unknown tool và `WORKSPACE_NOT_FOUND` giữ MCP/domain error semantics;
+- local disconnect giữa request làm pending public request reject;
+- public close propagate về local, session count về 0 và cleanup idempotent;
+- malformed JSON và frame UTF-8 vượt 1 MiB bị production gateway reject/close deterministic.
+
+Suite chạy riêng bằng:
+
+```sh
+bun run test:m2
+```
+
 ## Invariants cho transport
 
 - Chỉ local được khởi tạo outbound connection trong flow M2.
@@ -199,3 +218,4 @@ Disconnect: socket close/error → stop queue → reject pending sends/requests 
 | 2026-09-15 | Triển khai gateway WebSocket tối thiểu cho #20 | Cho local agent kết nối outbound, handshake và forwarding envelope qua session abstraction | complete |
 | 2026-09-15 | Triển khai `BridgeServerTransport` phía local cho #21 | Cho Local MCP Runtime handshake và chuyển MCP message qua WebSocket thật với queue/cleanup bounded | complete |
 | 2026-09-15 | Triển khai `BridgeClientTransport` phía public cho #22 | Bind MCP Client vào ready gateway session, chạy initialize/tools flow xuyên bridge và khóa bridge-session/MCP-session semantic boundary | complete |
+| 2026-09-15 | Khóa M2 bằng acceptance suite #23 | Chứng minh success/error/disconnect/protocol boundary trên production server ↔ local path trước khi chuyển sang M3 | complete |
