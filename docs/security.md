@@ -95,9 +95,53 @@ M3.1 khóa các invariants sau:
 
 Identity đã authenticated ở server vẫn **không** bypass permission local của M1.
 
-## Pairing và device credential
+## Pairing security — M3.2
 
-Pairing code chỉ là credential ngắn hạn, dùng một lần. Nó không được tái sử dụng làm device token dài hạn.
+Pairing code là credential ngắn hạn, dùng một lần. Nó không được tái sử dụng làm device token dài hạn.
+
+Contract hiện tại:
+
+- TTL mặc định 5 phút;
+- 12 symbol trên alphabet 32 ký tự dễ đọc = 60 bit entropy;
+- generator dùng `crypto.getRandomValues()`, không dùng `Math.random()`;
+- raw pairing code chỉ trả về lúc create session;
+- store lookup bằng SHA-256 digest của canonical code với domain prefix;
+- claim tại `expiresAt` hoặc muộn hơn bị coi là expired;
+- claim thành công invalidate code ngay lập tức;
+- cancelled/expired/reused/unknown/malformed code đều map ra generic `PAIRING_CODE_UNAVAILABLE` ở service boundary;
+- production log/structured error không được chứa raw code.
+
+Code normalization cho phép case-insensitive và bỏ whitespace/dash. Đây chỉ là UX normalization, không làm thay đổi entropy của code được sinh.
+
+### Atomic claim
+
+Pairing claim và device creation không được tách thành chuỗi write độc lập kiểu:
+
+```text
+check pending -> await create device -> mark claimed
+```
+
+nếu không có transaction/lock/CAS bao quanh toàn bộ sequence.
+
+`InMemoryPairingSessionRepository` dùng async critical section và gọi `DeviceRepository.create()` bên trong atomic claim boundary. Hai claim đồng thời cùng một code chỉ một request được phép tạo device.
+
+Production persistence phải dùng database transaction, row lock, compare-and-swap hoặc cơ chế tương đương. Nếu database adapter không thể đặt pairing transition + device creation trong cùng atomic unit-of-work thì adapter đó chưa đáp ứng M3.2 security contract.
+
+### Anti-bruteforce boundary
+
+`PairingClaimAttemptGuard` là abstraction để HTTP/auth layer sau này áp rate limit theo trusted owner/user và network context mà không sửa domain flow.
+
+Guard chỉ nhận:
+
+- `ownerId`;
+- code digest hoặc `null` nếu malformed;
+- optional remote address.
+
+Raw pairing code không được truyền vào guard để tránh bị observability/rate-limit layer log ngoài ý muốn.
+
+M3.2 chưa triển khai full user auth/IP rate-limit infrastructure. Endpoint production sau này vẫn bắt buộc có rate limit phù hợp vì pairing code là human-readable credential.
+
+## Device credential — M3.3+
 
 Device credential phải:
 
@@ -108,6 +152,8 @@ Device credential phải:
 - không được gửi qua chat nếu không có lý do thật sự cần thiết.
 
 Raw long-lived credential không thuộc `Device` record. M3.3 phải dùng credential store/service riêng và lấy ownership từ server-side `Device`, không tin `ownerId` do local tự khai báo.
+
+Pairing code không được promote thành long-lived credential.
 
 ## Audit
 
@@ -131,7 +177,10 @@ Ví dụ:
 
 - path ngoài allow root;
 - path nằm trong deny root;
-- expired/reused pairing code;
+- expired/reused/cancelled pairing code;
+- concurrent pairing claim;
+- malformed pairing input không mutate state;
+- raw pairing code không xuất hiện trong structured error/snapshot;
 - revoked device credential;
 - shell timeout;
 - oversized output;
