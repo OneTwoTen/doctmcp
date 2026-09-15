@@ -3,6 +3,7 @@
 export type {
   BridgeClose,
   BridgeCloseCode,
+  BridgeDeviceAuth,
   BridgeError,
   BridgeErrorCode,
   BridgeHello,
@@ -18,6 +19,7 @@ export {
   BRIDGE_PROTOCOL_VERSION,
   bridgeCloseCodeSchema,
   bridgeCloseSchema,
+  bridgeDeviceAuthSchema,
   bridgeErrorCodeSchema,
   bridgeErrorSchema,
   bridgeHelloAckSchema,
