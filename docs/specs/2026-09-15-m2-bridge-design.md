@@ -78,12 +78,27 @@ Bridge dùng `bridge.error` cho lỗi control-plane với các code: `INVALID_ME
 
 ## Transport interface và lifecycle
 
-`BridgeClientTransport` và `BridgeServerTransport` implement `BridgeTransportContract` trong `@doctmcp/protocol`, tương thích MCP SDK v2 (`start/send/close` và callbacks `onmessage/onerror/onclose`). Contract cũng expose `state`, các limit message/queue và hướng bridge.
+`BridgeClientTransport` và `BridgeServerTransport` implement `BridgeTransportContract` trong `@doctmcp/protocol`, tương thích MCP SDK v2 (`start/send/close` và callbacks `onmessage/onerror/onclose`). Tên transport được đặt theo **MCP role**, không theo WebSocket socket role. Contract expose `state`, các limit message/queue và `mcpRole`.
+
+```text
+Public MCP Client
+        ↓
+BridgeClientTransport (mcpRole: "client")
+        ↓
+Public WebSocket Gateway
+        ↓
+WebSocket connection
+        ↓
+BridgeServerTransport (mcpRole: "server") ← local chủ động mở socket
+        ↓
+Local MCP Server
+```
 
 Lifecycle rules:
 
 - `start()` chỉ hợp lệ ở `idle`, cài listener trước khi kết nối, chuyển `connecting → handshaking → ready`; gọi lại hoặc gọi sau `closed` thì reject.
-- Local `BridgeClientTransport` tạo outbound WebSocket; server `BridgeServerTransport` nhận socket đã được gateway accept.
+- Public `BridgeClientTransport` gắn với public MCP Client; local `BridgeServerTransport` gắn với local MCP Server.
+- Local `BridgeServerTransport` là bên chủ động tạo outbound WebSocket tới gateway. WebSocket client/server role không được dùng để suy ra MCP transport name.
 - `send()` ở `idle/connecting/handshaking` reject `HANDSHAKE_REQUIRED` và không buffer; ở `ready` giữ FIFO; ở `closing/closed/failed` reject `SESSION_CLOSED`.
 - `close()` idempotent, chuyển qua `closing`, dừng nhận/gửi, reject send pending, đóng socket và gọi `onclose` đúng một lần.
 - Native WebSocket `error` gọi `onerror`; `close` gọi `onclose` và reject request pending qua MCP transport failure. `onerror` không thay thế `onclose`.
@@ -93,7 +108,7 @@ Lifecycle rules:
 
 | State/event | Behavior | MCP/bridge result |
 |---|---|---|
-| `idle → start` | Mở/kết nối socket và gửi hello | `connecting → handshaking` |
+| `idle → start` | Local server transport mở/kết nối socket và gửi hello; public client transport gắn vào gateway socket | `connecting → handshaking` |
 | Nhận `hello.ack` đúng version/session | Cho phép MCP frame | `ready` |
 | Hello sai version | Không forward MCP | `UNSUPPORTED_VERSION`, `PROTOCOL_ERROR`, close |
 | MCP frame trước ready | Không forward | `HANDSHAKE_REQUIRED`, reject/close protocol |

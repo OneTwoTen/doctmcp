@@ -59,9 +59,9 @@ export interface BridgeTransportContract extends Transport {
 }
 
 export interface BridgeClientTransportContract extends BridgeTransportContract {
-  readonly direction: "local-to-public";
+  readonly mcpRole: "client";
 }
 
 export interface BridgeServerTransportContract extends BridgeTransportContract {
-  readonly direction: "public-to-local";
+  readonly mcpRole: "server";
 }
