@@ -36,10 +36,124 @@ export class PairingCredentialCompletionError extends Error {
   }
 }
 
+export type PairingCredentialCompletionState = "pending" | "delivered";
+
+export interface PairingCredentialCompletionRecord {
+  readonly pairingSessionId: string;
+  readonly deviceId: string;
+  readonly credentialId: string;
+  readonly credentialVersion: number;
+  readonly state: PairingCredentialCompletionState;
+}
+
+export interface PairingCredentialCompletionRepository {
+  get(pairingSessionId: string): Promise<PairingCredentialCompletionRecord | null>;
+  setPending(input: {
+    readonly pairingSessionId: string;
+    readonly deviceId: string;
+    readonly credentialId: string;
+    readonly credentialVersion: number;
+  }): Promise<PairingCredentialCompletionRecord | null>;
+  acknowledge(input: {
+    readonly pairingSessionId: string;
+    readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedCredentialVersion: number;
+  }): Promise<PairingCredentialCompletionRecord | null>;
+}
+
+function completionSnapshot(
+  record: PairingCredentialCompletionRecord,
+): PairingCredentialCompletionRecord {
+  return Object.freeze({ ...record });
+}
+
+/**
+ * Reference adapter. Production adapter phải persist state này cùng persistence boundary
+ * của pairing/device credential để `delivered` vẫn terminal sau process restart.
+ * Repository tuyệt đối không chứa raw credential.
+ */
+export class InMemoryPairingCredentialCompletionRepository
+  implements PairingCredentialCompletionRepository
+{
+  readonly #records = new Map<string, PairingCredentialCompletionRecord>();
+  #tail: Promise<void> = Promise.resolve();
+
+  async get(
+    pairingSessionId: string,
+  ): Promise<PairingCredentialCompletionRecord | null> {
+    const record = this.#records.get(pairingSessionId);
+    return record ? completionSnapshot(record) : null;
+  }
+
+  async setPending(input: {
+    readonly pairingSessionId: string;
+    readonly deviceId: string;
+    readonly credentialId: string;
+    readonly credentialVersion: number;
+  }): Promise<PairingCredentialCompletionRecord | null> {
+    return this.#exclusive(async () => {
+      const existing = this.#records.get(input.pairingSessionId);
+      if (existing?.state === "delivered") return null;
+
+      const record = Object.freeze({
+        pairingSessionId: input.pairingSessionId,
+        deviceId: input.deviceId,
+        credentialId: input.credentialId,
+        credentialVersion: input.credentialVersion,
+        state: "pending" as const,
+      });
+      this.#records.set(input.pairingSessionId, record);
+      return completionSnapshot(record);
+    });
+  }
+
+  async acknowledge(input: {
+    readonly pairingSessionId: string;
+    readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedCredentialVersion: number;
+  }): Promise<PairingCredentialCompletionRecord | null> {
+    return this.#exclusive(async () => {
+      const existing = this.#records.get(input.pairingSessionId);
+      if (
+        existing?.state !== "pending" ||
+        existing.deviceId !== input.deviceId ||
+        existing.credentialId !== input.expectedCredentialId ||
+        existing.credentialVersion !== input.expectedCredentialVersion
+      ) {
+        return null;
+      }
+
+      const delivered = Object.freeze({
+        ...existing,
+        state: "delivered" as const,
+      });
+      this.#records.set(input.pairingSessionId, delivered);
+      return completionSnapshot(delivered);
+    });
+  }
+
+  async #exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.#tail;
+    let release: () => void = () => undefined;
+    this.#tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+}
+
 export interface PairingCredentialCompletionOptions {
   readonly pairingService: PairingService;
   readonly credentialService: DeviceCredentialService;
   readonly deviceRepository: DeviceRepository;
+  readonly completionRepository?: PairingCredentialCompletionRepository;
   /**
    * Runtime hook cho crash recovery khi credential đã persist nhưng raw secret cũ đã mất.
    * Production composition root dùng hook này để rotate qua cùng active-session
@@ -50,10 +164,18 @@ export interface PairingCredentialCompletionOptions {
   ) => Promise<IssuedDeviceCredential>;
 }
 
+export interface AcknowledgePairingCredentialDeliveryInput {
+  readonly pairingSessionId: string;
+  readonly ownerId: string;
+  readonly credentialId: string;
+  readonly credentialVersion: number;
+}
+
 export class PairingCredentialCompletionService {
   readonly #pairingService: PairingService;
   readonly #credentialService: DeviceCredentialService;
   readonly #deviceRepository: DeviceRepository;
+  readonly #completionRepository: PairingCredentialCompletionRepository;
   readonly #recoverExistingCredential: (
     deviceId: string,
   ) => Promise<IssuedDeviceCredential>;
@@ -66,6 +188,9 @@ export class PairingCredentialCompletionService {
     this.#pairingService = options.pairingService;
     this.#credentialService = options.credentialService;
     this.#deviceRepository = options.deviceRepository;
+    this.#completionRepository =
+      options.completionRepository ??
+      new InMemoryPairingCredentialCompletionRepository();
     this.#recoverExistingCredential =
       options.recoverExistingCredential ??
       ((deviceId) => this.#credentialService.rotate(deviceId));
@@ -73,19 +198,7 @@ export class PairingCredentialCompletionService {
 
   /**
    * Claim code đúng một lần, sau đó issue credential cho device vừa được claim.
-   * Completion thành công được giữ tạm trong memory theo pairingSessionId cho tới khi
-   * delivery được acknowledge. Việc này cho phép retry cùng process trả lại đúng raw
-   * credential thay vì issue thêm generation mới.
-   *
-   * Nếu credential issue fail sau khi pairing đã claim, caller có thể gọi
-   * resumeClaimedPairing() bằng pairingSessionId đã biết từ local pairing channel.
-   *
-   * Nếu process restart sau khi credential digest đã persist nhưng trước delivery/ack,
-   * resume sẽ phát hiện credential active đã tồn tại, rotate generation đó và trả raw
-   * secret mới. Secret cũ trở thành vô hiệu nên server không cần persist raw credential.
-   *
-   * Production persistence dùng chung database vẫn nên đặt pairing + device + credential
-   * persistence trong cùng transaction/unit-of-work để giảm recovery path cần thiết.
+   * Raw secret chỉ được cache transient; durable completion state chỉ lưu generation id.
    */
   async claimAndIssue(
     pairingCode: unknown,
@@ -102,8 +215,7 @@ export class PairingCredentialCompletionService {
 
   /**
    * Recovery path sau khi pairing đã claim nhưng credential issue/delivery chưa hoàn tất.
-   * Ownership luôn được resolve lại từ server-side DeviceRepository, kể cả khi completion
-   * đang có trong transient cache; pairingSessionId một mình không phải authorization.
+   * `delivered` là terminal: pairingSessionId cũ không thể mint/rotate credential lại.
    */
   async resumeClaimedPairing(
     pairingSessionId: string,
@@ -121,6 +233,9 @@ export class PairingCredentialCompletionService {
     );
     if (!device) throw completionUnavailable();
 
+    const persisted = await this.#completionRepository.get(pairingSessionId);
+    if (persisted?.state === "delivered") throw completionUnavailable();
+
     const cached = this.#completionBySessionId.get(pairingSessionId);
     if (cached) return cached;
 
@@ -128,10 +243,33 @@ export class PairingCredentialCompletionService {
   }
 
   /**
-   * Gọi sau khi local đã persist credential thành công để xóa raw secret khỏi memory.
+   * Chỉ ACK đúng generation đã giao. Owner được resolve server-side trước mutation và
+   * repository CAS `pending -> delivered`, vì vậy stale/wrong ACK không xóa pending secret.
    */
-  acknowledgeDelivery(pairingSessionId: string): void {
-    this.#completionBySessionId.delete(pairingSessionId);
+  async acknowledgeDelivery(
+    input: AcknowledgePairingCredentialDeliveryInput,
+  ): Promise<void> {
+    const session =
+      await this.#pairingService.getPairingSession(input.pairingSessionId);
+    if (session?.state !== "claimed" || session.deviceId === undefined) {
+      throw completionUnavailable();
+    }
+
+    const device = await this.#deviceRepository.getForOwner(
+      input.ownerId,
+      session.deviceId,
+    );
+    if (!device) throw completionUnavailable();
+
+    const acknowledged = await this.#completionRepository.acknowledge({
+      pairingSessionId: input.pairingSessionId,
+      deviceId: device.deviceId,
+      expectedCredentialId: input.credentialId,
+      expectedCredentialVersion: input.credentialVersion,
+    });
+    if (!acknowledged) throw completionUnavailable();
+
+    this.#completionBySessionId.delete(input.pairingSessionId);
   }
 
   async #complete(
@@ -143,6 +281,11 @@ export class PairingCredentialCompletionService {
     if (existing) return existing;
 
     const completion = (async () => {
+      const persisted = await this.#completionRepository.get(
+        session.pairingSessionId,
+      );
+      if (persisted?.state === "delivered") throw completionUnavailable();
+
       let issued: IssuedDeviceCredential;
       try {
         issued = await this.#credentialService.issue(device.deviceId);
@@ -156,6 +299,14 @@ export class PairingCredentialCompletionService {
         }
         issued = await this.#recoverExistingCredential(device.deviceId);
       }
+
+      const pending = await this.#completionRepository.setPending({
+        pairingSessionId: session.pairingSessionId,
+        deviceId: device.deviceId,
+        credentialId: issued.credential.credentialId,
+        credentialVersion: issued.credential.version,
+      });
+      if (!pending) throw completionUnavailable();
 
       return Object.freeze({
         session,
