@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:local": "bun test apps/agent/src/m1-acceptance.test.ts apps/agent/src/m1-tool-contract.test.ts",
+    "test:m2": "bun test apps/server/src/m2-acceptance.test.ts",
     "ci": "bun run check && bun run typecheck && bun test"
   },
   "devDependencies": {

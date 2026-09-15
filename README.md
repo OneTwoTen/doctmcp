@@ -2,17 +2,21 @@
 
 `doctmcp` là dự án kết nối ChatGPT và các MCP client với máy cục bộ của người dùng mà không cần mở cổng public trên máy local.
 
-Mục tiêu cuối cùng là để ChatGPT gọi các capability trên Windows, macOS hoặc Linux thông qua một public server. Tuy nhiên, thứ tự triển khai hiện tại cố ý đi từ phần dễ kiểm thử nhất: **hoàn thiện MCP ở local trước, sau đó chứng minh public server gọi MCP local thành công, rồi mới tích hợp ChatGPT**.
+Mục tiêu cuối cùng là để ChatGPT gọi các capability trên Windows, macOS hoặc Linux thông qua một public server. Thứ tự triển khai cố ý đi từ phần dễ kiểm thử nhất: **hoàn thiện MCP ở local, chứng minh public server gọi MCP local thành công, sau đó mới thêm device management và tích hợp ChatGPT**.
 
 ## Trạng thái hiện tại
 
-M1 — Local MCP đã có đầy đủ implementation cho **8/8 work item** và đủ **6/6 tool** đã chốt: `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec`. M2.1/#19, M2.2/#20, M2.3/#21 và M2.4/#22 đã có contract bridge, WebSocket gateway, `BridgeServerTransport` phía local và `BridgeClientTransport` phía public; vertical test đã chạy MCP `initialize → tools/list → tools/call system/info` xuyên gateway/WebSocket thật. **Task tiếp theo là M2.5/#23 — khóa toàn M2 bằng acceptance/integration suite**; public MCP endpoint, pairing và ChatGPT integration vẫn thuộc các milestone sau.
+M1 — Local MCP đã hoàn tất **8/8 work item** và đủ **6/6 tool**: `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec`.
+
+M2 — Public server gọi Local MCP cũng đã hoàn tất **5/5 work item**. Public MCP Client hiện có thể chạy `initialize → tools/list → tools/call system/info` qua `BridgeClientTransport → Public Gateway → BridgeServerTransport → Local MCP Runtime` trên WebSocket thật. Acceptance suite #23 còn khóa filesystem round-trip, structured MCP/domain error, pending disconnect, public close, malformed/oversized frame và cleanup idempotent.
+
+**Milestone active tiếp theo là M3 — Device management và pairing.** Public MCP endpoint và ChatGPT integration vẫn thuộc M4/M5.
 
 Thứ tự phát triển đã chốt:
 
-1. **M1 — Local MCP**: local runtime chạy MCP server thật và expose các tool cơ bản.
-2. **M2 — Server → Local**: public server đóng vai MCP client, giao tiếp với MCP server local qua custom WebSocket transport.
-3. **M3 — Device management**: device identity, session, pairing, auth, reconnect và heartbeat.
+1. **M1 — Local MCP**: local runtime chạy MCP server thật và expose các tool cơ bản. ✅
+2. **M2 — Server → Local**: public server đóng vai MCP client, giao tiếp với MCP server local qua custom WebSocket transport. ✅
+3. **M3 — Device management**: device identity, session, pairing, auth, reconnect và heartbeat. 🚧 tiếp theo
 4. **M4 — Public MCP endpoint**: public server expose MCP endpoint cho client bên ngoài.
 5. **M5 — ChatGPT integration**: kết nối plugin/app của ChatGPT và hoàn thiện UX nhiều thiết bị.
 
@@ -70,8 +74,8 @@ Gateway M2.2 dùng `Bun.serve` và WebSocket native; framework HTTP/public MCP e
 
 ```text
 apps/
-  server/        Public server; về sau chứa MCP client, device router và public MCP endpoint
-  agent/         Local runtime; chứa MCP server, permission engine và local tools
+  server/        Public server; chứa gateway + MCP client bridge, về sau thêm device router/public MCP endpoint
+  agent/         Local runtime; chứa MCP server, permission engine, local tools và outbound bridge transport
 packages/
   protocol/      Contract control-plane ngoài MCP
   schemas/       Runtime validation dùng chung
@@ -111,6 +115,12 @@ Chạy riêng acceptance suite của Local MCP:
 bun run test:local
 ```
 
+Chạy riêng acceptance suite M2 server ↔ local:
+
+```sh
+bun run test:m2
+```
+
 Entrypoint phát triển:
 
 ```sh
@@ -139,6 +149,7 @@ Các tài liệu chính:
 - [Kiến trúc](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Protocol và transport](docs/protocol.md)
+- [M2 acceptance](docs/testing/m2-server-local.md)
 - [Bảo mật](docs/security.md)
 - [Permission](docs/permissions.md)
 - [Pairing thiết bị](docs/pairing.md)
