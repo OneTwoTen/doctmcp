@@ -135,12 +135,31 @@ Pairing, database, device identity/routing, public MCP endpoint và ChatGPT inte
 
 ## M3 — Device management và pairing
 
-**Milestone active tiếp theo.** Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
+**M3 đang triển khai — M3.1/#30 đã hoàn tất qua PR #37; task active là M3.2/#31.** Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
 
-Phạm vi dự kiến:
+Các work item M3:
 
-- immutable `deviceId`;
-- device name/metadata;
+- ✅ M3.1 / #30 — Device identity/domain model + persistence contract qua PR #37.
+- ⏳ M3.2 / #31 — Pairing session/code lifecycle và atomic claim flow.
+- ⬜ M3.3 / #32 — Device credential lifecycle + authenticated bridge handshake.
+- ⬜ M3.4 / #33 — Device session registry, heartbeat và online/offline state.
+- ⬜ M3.5 / #34 — Local reconnect/backoff + credential resume.
+- ⬜ M3.6 / #35 — Multi-device registry + routing theo `deviceId`.
+- ⬜ M3.7 / #36 — Acceptance/security suite pairing → reconnect → routing.
+
+M3.1 đã khóa:
+
+- immutable UUID v4 `deviceId`, canonical lowercase;
+- opaque immutable `ownerId`;
+- mutable device name/metadata;
+- `DeviceRepository` không leak database-specific type;
+- deterministic `InMemoryDeviceRepository` cho test;
+- owner-scoped lookup/list/update/check;
+- defensive snapshot và atomic/monotonic update;
+- raw credential, live session và authoritative online state không nằm trong `Device` record.
+
+Phạm vi còn lại của M3:
+
 - pairing session + pairing code ngắn hạn;
 - device credential dài hạn riêng;
 - revoke/rotate credential;
@@ -151,7 +170,7 @@ Phạm vi dự kiến:
 
 `device.list/get/ping` nếu cần expose cho model/client thuộc public/control-plane surface ở milestone sau, không phải local M1 tool catalog.
 
-Security test phải bao gồm expired/reused pairing code và credential bị revoke.
+Security test phải bao gồm expired/reused pairing code và credential bị revoke. M2 regression phải tiếp tục xanh trong toàn M3.
 
 ## M4 — Public MCP endpoint
 

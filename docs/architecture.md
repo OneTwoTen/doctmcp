@@ -7,10 +7,10 @@ Repository hiện đã có:
 - Bun 1.4.2 + TypeScript 7 strict.
 - Bun workspaces cho `apps/*` và `packages/*`.
 - Biome, TypeScript typecheck, Bun test và GitHub Actions CI.
-- `apps/agent` đã có local MCP runtime và `BridgeServerTransport` của M2.3; `apps/server` đã có WebSocket gateway M2.2 và `BridgeClientTransport` M2.4 bind vào active ready session để MCP Client gọi local runtime.
-- `packages/protocol` và `packages/schemas` ở mức foundation ban đầu.
+- `apps/agent` đã có local MCP runtime và `BridgeServerTransport` của M2.3; `apps/server` đã có WebSocket gateway M2.2, `BridgeClientTransport` M2.4 và foundation M3.1 cho device identity/persistence.
+- `packages/protocol` giữ bridge control-plane contract; `packages/schemas` đã có shared bridge schema và shared `Device` schema của M3.1.
 
-MCP server local và custom WebSocket bridge M2 đã có implementation theo từng lớp; device pairing và public MCP endpoint vẫn **chưa được coi là đã triển khai** cho tới milestone tương ứng.
+MCP server local và custom WebSocket bridge M2 đã hoàn tất. M3.1 cũng đã khóa immutable device identity, ownership boundary và persistence contract; pairing session/code, credential authentication, heartbeat/routing và public MCP endpoint vẫn **chưa được coi là đã triển khai** cho tới milestone tương ứng.
 
 ## Kiến trúc mục tiêu
 
@@ -81,7 +81,9 @@ Tool implementation không được phụ thuộc vào public server hoặc Chat
 
 `BridgeClientTransport` không mở WebSocket và không thực hiện bridge handshake. Nó chỉ bind vào một `BridgeGatewaySession` đã `ready`; Gateway sở hữu socket/session lifecycle. Bridge session identity được expose riêng (`bridgeSessionId`), không dùng MCP SDK `Transport.sessionId`, vì field MCP đó có semantics reconnect và có thể khiến `Client.connect()` bỏ qua initialize.
 
-Device router, pairing/auth và public MCP endpoint được bổ sung sau khi luồng này ổn định.
+Ở M3.1, public server đã có `DeviceRepository` abstraction và deterministic `InMemoryDeviceRepository` cho test. `Device` khóa immutable UUID v4 `deviceId`, opaque immutable `ownerId`, mutable name/metadata và timestamps; repository có owner-scoped get/list/update/check. Raw credential, live bridge session và authoritative online state không nằm trong `Device` record.
+
+Pairing/authenticated bridge, heartbeat/session registry và device routing được bổ sung trong các work item M3 tiếp theo. Public MCP endpoint thuộc M4.
 
 ### MCP data plane
 
@@ -159,6 +161,18 @@ local tool
 
 Custom WebSocket bridge chỉ chịu trách nhiệm chuyển MCP message qua kết nối đã có. Nó không định nghĩa lại `tools/list`, `tools/call` hoặc result format.
 
+## M3 — Device identity, pairing và authenticated sessions
+
+M3.1 đã hoàn tất qua #30/PR #37. Foundation hiện có:
+
+- immutable UUID v4 `deviceId`, canonical lowercase;
+- owner identity tách khỏi display metadata;
+- owner-scoped `DeviceRepository` contract;
+- deterministic in-memory adapter cho unit/integration test;
+- credential/session/online state tách khỏi persistent `Device` domain.
+
+Task active tiếp theo là M3.2/#31: pairing session/code lifecycle và atomic claim. Pairing claim phải tạo/bind đúng một device và invalidate code atomically; không được dựa vào chuỗi `check → await create → mark claimed` không có lock/CAS/transaction boundary.
+
 ## Security boundary
 
 - Workspace root là boundary đầu tiên cho filesystem/cwd.
@@ -167,24 +181,25 @@ Custom WebSocket bridge chỉ chịu trách nhiệm chuyển MCP message qua k�
 - `delete` là capability destructive riêng.
 - `shell.exec` dùng direct spawn trong M1, có timeout/output limit và command policy.
 - MCP tool annotations hỗ trợ mô tả risk nhưng không phải authorization.
+- Device ownership nằm server-side; authenticated device sau này vẫn không bypass local permission.
 
 ## Nguyên tắc mở rộng
 
 - Tách tool implementation khỏi transport.
 - Tách MCP semantics khỏi device/session control plane.
-- Không thêm database, queue, Redis hoặc service riêng trước khi M1/M2 chứng minh nhu cầu thật.
+- Không thêm database, queue, Redis hoặc service riêng trước khi milestone hiện tại chứng minh nhu cầu thật.
 - Không khóa framework HTTP public server trước khi public endpoint production thực sự cần.
 - Breaking change của custom bridge/control plane phải có version/compatibility strategy riêng; không trộn version này với MCP protocol version.
 - Thêm tool mới dựa trên semantic/permission boundary, không dựa trên mục tiêu làm `tools/list` ngắn bằng mọi giá.
 
 ## Phần chưa chốt
 
-Các quyết định sau chưa cần khóa trong M2:
+Các quyết định sau vẫn chưa cần khóa sau M3.1:
 
 - framework HTTP cuối cùng của public server;
-- database cho user/device registry;
+- production database adapter cho user/device registry;
 - cơ chế user authentication của public endpoint;
-- persistence/audit log;
+- persistence/audit log ngoài Device foundation hiện có;
 - installer/tray/auto-update cho local runtime;
 - UX chọn nhiều thiết bị trong ChatGPT;
 - shell mode/PTY/streaming;

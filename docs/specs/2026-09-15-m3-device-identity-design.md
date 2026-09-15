@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Implemented và verified trong issue #30; chờ merge PR tương ứng.**
+**Hoàn tất M3.1 / issue #30 qua PR #37, đã merge vào `main`.**
 
 Tài liệu này khóa domain foundation cho M3. Pairing code, credential, authenticated WebSocket, heartbeat và routing vẫn thuộc các issue sau.
 
@@ -118,11 +118,12 @@ M3.1 cover:
 
 M1/M2 regression phải tiếp tục xanh.
 
-Verification của **final PR head** được lấy từ GitHub Actions/PR checks của PR #37. PR chỉ được merge khi `bun run check`, `bun run typecheck`, `bun test`, M2 acceptance và Windows `shell.exec` regression đều xanh; PR body ghi lại run/count cụ thể gần nhất để tránh tài liệu thiết kế bị stale theo mỗi commit docs.
+Final PR head của #37 đã qua CI #131 trên Bun 1.4.2: `bun run check`, `bun run typecheck`, `bun test` đều pass; full suite có 165 test / 0 fail, M2 acceptance 6/6 pass và Windows `shell.exec` regression pass. PR được squash-merge thành commit `c5526eb`.
 
 ## History
 
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
-| 2026-09-15 | Khóa Device domain, UUID v4 và repository abstraction | Foundation cho pairing/auth/routing M3 | verified, pending merge |
-| 2026-09-15 | Canonicalize UUID và làm update atomic/monotonic | Sửa findings review trước merge | review fixes complete; final-head CI là merge gate |
+| 2026-09-15 | Khóa Device domain, UUID v4 và repository abstraction | Foundation cho pairing/auth/routing M3 | complete |
+| 2026-09-15 | Canonicalize UUID và làm update atomic/monotonic | Sửa findings review trước merge | complete |
+| 2026-09-15 | Merge PR #37 / đóng issue #30 | Hoàn tất M3.1 và chuyển active task sang M3.2/#31 | complete |
