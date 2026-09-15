@@ -8,6 +8,23 @@ export {
   type BridgeClientTransportErrorCode,
 } from "./bridge-client-transport";
 export {
+  DEVICE_CREDENTIAL_ENTROPY_BITS,
+  DEVICE_CREDENTIAL_SECRET_BYTES,
+  type DeviceCredentialClock,
+  DeviceCredentialError,
+  type DeviceCredentialErrorCode,
+  type DeviceCredentialIdGenerator,
+  type DeviceCredentialRepository,
+  DeviceCredentialService,
+  type DeviceCredentialServiceOptions,
+  type DeviceCredentialSecretGenerator,
+  digestDeviceCredentialSecret,
+  generateDeviceCredentialSecret,
+  InMemoryDeviceCredentialRepository,
+  type IssuedDeviceCredential,
+  type VerifiedDeviceCredential,
+} from "./device-credential";
+export {
   type DeviceClock,
   type DeviceIdGenerator,
   type DeviceRepository,
