@@ -94,7 +94,8 @@ export class PairingCredentialCompletionService {
     const cached = this.#completionBySessionId.get(pairingSessionId);
     if (cached) return cached;
 
-    const session = await this.#pairingService.getPairingSession(pairingSessionId);
+    const session =
+      await this.#pairingService.getPairingSession(pairingSessionId);
     if (session?.state !== "claimed" || session.deviceId === undefined) {
       throw completionUnavailable();
     }
@@ -123,9 +124,8 @@ export class PairingCredentialCompletionService {
     if (existing) return existing;
 
     const completion = (async () => {
-      const issued: IssuedDeviceCredential = await this.#credentialService.issue(
-        device.deviceId,
-      );
+      const issued: IssuedDeviceCredential =
+        await this.#credentialService.issue(device.deviceId);
       return Object.freeze({
         session,
         device,
@@ -138,7 +138,9 @@ export class PairingCredentialCompletionService {
     try {
       return await completion;
     } catch (error) {
-      if (this.#completionBySessionId.get(session.pairingSessionId) === completion) {
+      if (
+        this.#completionBySessionId.get(session.pairingSessionId) === completion
+      ) {
         this.#completionBySessionId.delete(session.pairingSessionId);
       }
       throw error;
