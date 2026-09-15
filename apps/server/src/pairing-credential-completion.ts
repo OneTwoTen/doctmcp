@@ -67,7 +67,8 @@ export class PairingCredentialCompletionService {
     this.#credentialService = options.credentialService;
     this.#deviceRepository = options.deviceRepository;
     this.#recoverExistingCredential =
-      options.recoverExistingCredential ?? ((deviceId) => this.#credentialService.rotate(deviceId));
+      options.recoverExistingCredential ??
+      ((deviceId) => this.#credentialService.rotate(deviceId));
   }
 
   /**
