@@ -13,17 +13,15 @@ import {
   type BridgeClientTransportError,
 } from "./bridge-client-transport";
 import {
-  createBridgeGateway,
   type BridgeGateway,
   type BridgeGatewaySession,
+  createBridgeGateway,
 } from "./gateway";
 
 class FakeGatewaySession implements BridgeGatewaySession {
   readonly id: string;
   onmessage: ((message: BridgeMessage) => void) | undefined;
-  onclose:
-    | ((reason: BridgeCloseCode | "REMOTE_CLOSE") => void)
-    | undefined;
+  onclose: ((reason: BridgeCloseCode | "REMOTE_CLOSE") => void) | undefined;
   readonly sent: BridgeMessage[] = [];
   private _state: BridgeGatewaySession["state"] = "ready";
 
@@ -84,11 +82,15 @@ describe("BridgeClientTransport", () => {
 
   afterEach(async () => {
     await Promise.allSettled(clients.splice(0).map((client) => client.close()));
-    await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.close()));
+    await Promise.allSettled(
+      runtimes.splice(0).map((runtime) => runtime.close()),
+    );
     await Promise.allSettled(
       localTransports.splice(0).map((transport) => transport.close()),
     );
-    await Promise.allSettled(gateways.splice(0).map((gateway) => gateway.stop()));
+    await Promise.allSettled(
+      gateways.splice(0).map((gateway) => gateway.stop()),
+    );
   });
 
   test("binds one ready session and round-trips opaque MCP messages", async () => {
