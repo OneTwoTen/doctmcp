@@ -135,13 +135,13 @@ Pairing, database, device identity/routing, public MCP endpoint và ChatGPT inte
 
 ## M3 — Device management và pairing
 
-**M3 đang triển khai — M3.1/#30 đã hoàn tất qua PR #37; task active là M3.2/#31.** Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
+**M3 đang triển khai — 2/7 work item đã hoàn tất.** M3.1/#30 hoàn tất qua PR #37, M3.2/#31 hoàn tất qua PR #38; task active hiện tại là M3.3/#32. Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
 
 Các work item M3:
 
 - ✅ M3.1 / #30 — Device identity/domain model + persistence contract qua PR #37.
-- ⏳ M3.2 / #31 — Pairing session/code lifecycle và atomic claim flow.
-- ⬜ M3.3 / #32 — Device credential lifecycle + authenticated bridge handshake.
+- ✅ M3.2 / #31 — Pairing session/code lifecycle và atomic claim flow qua PR #38.
+- ⏳ M3.3 / #32 — Device credential lifecycle + authenticated bridge handshake.
 - ⬜ M3.4 / #33 — Device session registry, heartbeat và online/offline state.
 - ⬜ M3.5 / #34 — Local reconnect/backoff + credential resume.
 - ⬜ M3.6 / #35 — Multi-device registry + routing theo `deviceId`.
@@ -158,11 +158,23 @@ M3.1 đã khóa:
 - defensive snapshot và atomic/monotonic update;
 - raw credential, live session và authoritative online state không nằm trong `Device` record.
 
+M3.2 đã khóa:
+
+- opaque UUID v4 `pairingSessionId`, tách khỏi `deviceId` và bridge session id;
+- pairing code human-readable 12 symbol / 60-bit entropy, CSPRNG, TTL mặc định 5 phút;
+- canonical normalization + SHA-256 digest lookup, không persist raw code;
+- state one-time `pending → claimed|expired|cancelled`;
+- atomic claim bao trọn expiry validation + `DeviceRepository.create()` + mark claimed;
+- authoritative claim time được đọc trong repository atomic boundary;
+- malformed/non-string/unknown/expired/reused/cancelled code cùng map `PAIRING_CODE_UNAVAILABLE`;
+- anti-bruteforce hook chỉ nhận digest/context, không nhận raw pairing code;
+- final CI #144: 184/184 test, M2 acceptance 6/6 và Windows regression xanh.
+
 Phạm vi còn lại của M3:
 
-- pairing session + pairing code ngắn hạn;
 - device credential dài hạn riêng;
 - revoke/rotate credential;
+- authenticated bridge handshake bind đúng owner/device;
 - heartbeat và online state;
 - reconnect/backoff;
 - nhiều thiết bị trên cùng user;
