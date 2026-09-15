@@ -460,7 +460,9 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
 
     if (this._state === "handshaking") {
       if (message.kind === "bridge.error") {
-        this.fail(new BridgeServerTransportError(message.code, message.message));
+        this.fail(
+          new BridgeServerTransportError(message.code, message.message),
+        );
         return;
       }
       if (message.kind === "bridge.close") {
