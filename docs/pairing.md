@@ -4,7 +4,7 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 
 ## Trạng thái hiện tại
 
-M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) triển khai pairing session/code lifecycle và atomic claim. Long-lived credential/authenticated bridge vẫn thuộc M3.3 (#32).
+M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) đã hoàn tất qua PR #38 với pairing session/code lifecycle và atomic claim. Task active hiện tại là M3.3 (#32): long-lived device credential + authenticated bridge handshake.
 
 ## Mục tiêu M3.2
 
@@ -94,7 +94,7 @@ mark claimed
 
 nếu không có transaction/lock/CAS bao quanh toàn bộ sequence.
 
-`InMemoryPairingSessionRepository` hiện serialize mọi mutation bằng async critical section và chạy `DeviceRepository.create()` bên trong claim boundary. Vì vậy hai request claim cùng code đồng thời chỉ một request có thể tạo device; request còn lại nhận generic `PAIRING_CODE_UNAVAILABLE`.
+`InMemoryPairingSessionRepository` hiện serialize mọi mutation bằng async critical section và chạy `DeviceRepository.create()` bên trong claim boundary. Authoritative claim time được đọc sau khi repository đã acquire boundary, vì vậy request không thể dùng timestamp stale để claim sau `expiresAt`. Hai request claim cùng code đồng thời chỉ một request có thể tạo device; request còn lại nhận generic `PAIRING_CODE_UNAVAILABLE`.
 
 In-memory adapter là test/reference adapter. Production persistence phải thay boundary này bằng database transaction, row lock, compare-and-swap hoặc cơ chế tương đương để pairing transition và device creation cùng nằm trong atomic unit-of-work. Không được tách chúng thành hai write độc lập chỉ vì chuyển sang database.
 
@@ -102,7 +102,7 @@ Nếu `DeviceRepository.create()` fail trước khi commit pairing state, sessio
 
 ## Error/oracle boundary
 
-Malformed, unknown, expired, reused và cancelled code đều map ra cùng public service error:
+Malformed, non-string, unknown, expired, reused và cancelled code đều map ra cùng public service error:
 
 ```text
 PAIRING_CODE_UNAVAILABLE
@@ -119,7 +119,7 @@ Validation của `ownerId`, `deviceName` và device metadata xảy ra trước m
 Hook nhận:
 
 - `ownerId`;
-- SHA-256 `codeDigest` hoặc `null` nếu format code invalid;
+- SHA-256 `codeDigest` hoặc `null` nếu format/type code invalid;
 - optional `remoteAddress`.
 
 Hook cố ý **không nhận raw pairing code** để giảm nguy cơ secret bị log bởi rate-limit/observability layer. M3.2 chưa triển khai full user auth/IP rate-limit infrastructure.
@@ -142,7 +142,7 @@ Raw credential, authoritative `online`, bridge/MCP session id không thuộc `De
 
 ## Credential sau pairing — M3.3
 
-M3.3 (#32) mới chịu trách nhiệm:
+M3.3 (#32) chịu trách nhiệm:
 
 - sinh long-lived credential riêng sau pairing;
 - lưu hash/secret material đúng boundary;
@@ -157,11 +157,13 @@ Pairing code tuyệt đối không được promote thành device token.
 - default generator không phụ thuộc `Math.random()`;
 - claim code hợp lệ tạo/bind đúng một device;
 - expiry boundary bị reject;
-- reused/cancelled/invalid code bị reject generic;
+- repository authoritative clock chặn stale caller timestamp;
+- reused/cancelled/invalid/non-string code bị reject generic;
 - concurrent claim chỉ một request thắng;
 - invalid device metadata bị reject trước mutation;
 - normalization case/dash/whitespace deterministic;
 - guard chỉ nhận digest, không nhận raw code;
 - structured error/session snapshot không chứa raw code;
 - explicit expire chuyển pending session sang `expired`;
-- device creation fail không consume pairing code.
+- device creation fail không consume pairing code;
+- final CI #144: 184/184 test, M2 acceptance 6/6 và Windows regression xanh.
