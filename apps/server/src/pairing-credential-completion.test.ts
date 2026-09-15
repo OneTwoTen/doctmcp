@@ -15,8 +15,9 @@ const PAIRING_SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const CREDENTIAL_ID = "11111111-1111-4111-8111-111111111111";
 const RAW_CREDENTIAL = "issued-only-once-secret";
 
-async function createFixture() {
+async function createFixture(options: { failFirstIssue?: boolean } = {}) {
   let now = new Date("2026-09-15T08:00:00.000Z");
+  let secretAttempts = 0;
   const devices = new InMemoryDeviceRepository({
     generateDeviceId: () => DEVICE_ID,
     now: () => now,
@@ -36,11 +37,18 @@ async function createFixture() {
     deviceRepository: devices,
     now: () => now,
     generateCredentialId: () => CREDENTIAL_ID,
-    generateSecret: () => RAW_CREDENTIAL,
+    generateSecret: () => {
+      secretAttempts += 1;
+      if (options.failFirstIssue && secretAttempts === 1) {
+        throw new Error("simulated credential generator failure");
+      }
+      return RAW_CREDENTIAL;
+    },
   });
   const completionService = new PairingCredentialCompletionService({
     pairingService,
     credentialService,
+    deviceRepository: devices,
   });
 
   const created = await pairingService.createPairingSession({
@@ -53,6 +61,7 @@ async function createFixture() {
     credentialRepository,
     credentialService,
     completionService,
+    pairingService,
   };
 }
 
@@ -101,6 +110,79 @@ describe("PairingCredentialCompletionService", () => {
       credentialId: CREDENTIAL_ID,
       credentialVersion: 1,
       credential: RAW_CREDENTIAL,
+    });
+  });
+
+  test("resume cùng claimed session trả đúng pending delivery, không issue generation thứ hai", async () => {
+    const { created, credentialRepository, completionService } =
+      await createFixture();
+    const completed = await completionService.claimAndIssue(created.pairingCode, {
+      ownerId: "owner-a",
+      deviceName: "DoCT Mac",
+      metadata: { platform: "darwin-arm64" },
+    });
+
+    const resumed = await completionService.resumeClaimedPairing(
+      PAIRING_SESSION_ID,
+      "owner-a",
+    );
+
+    expect(resumed).toBe(completed);
+    expect(resumed.secret).toBe(RAW_CREDENTIAL);
+    await expect(
+      credentialRepository.getActive(DEVICE_ID),
+    ).resolves.toMatchObject({
+      credentialId: CREDENTIAL_ID,
+      version: 1,
+    });
+  });
+
+  test("credential issue fail sau claim vẫn recover được bằng pairingSessionId", async () => {
+    const { created, credentialRepository, completionService, pairingService } =
+      await createFixture({ failFirstIssue: true });
+
+    await expect(
+      completionService.claimAndIssue(created.pairingCode, {
+        ownerId: "owner-a",
+        deviceName: "DoCT Mac",
+        metadata: { platform: "darwin-arm64" },
+      }),
+    ).rejects.toThrow("simulated credential generator failure");
+
+    await expect(pairingService.getPairingSession(PAIRING_SESSION_ID)).resolves.toMatchObject({
+      state: "claimed",
+      deviceId: DEVICE_ID,
+    });
+    await expect(credentialRepository.getActive(DEVICE_ID)).resolves.toBeNull();
+
+    const recovered = await completionService.resumeClaimedPairing(
+      PAIRING_SESSION_ID,
+      "owner-a",
+    );
+    expect(recovered.secret).toBe(RAW_CREDENTIAL);
+    expect(recovered.credential).toMatchObject({
+      credentialId: CREDENTIAL_ID,
+      version: 1,
+      deviceId: DEVICE_ID,
+    });
+  });
+
+  test("resume claimed session không tin owner do caller tự khai báo", async () => {
+    const { created, completionService } = await createFixture({
+      failFirstIssue: true,
+    });
+    await expect(
+      completionService.claimAndIssue(created.pairingCode, {
+        ownerId: "owner-a",
+        deviceName: "DoCT Mac",
+        metadata: { platform: "darwin-arm64" },
+      }),
+    ).rejects.toBeDefined();
+
+    await expect(
+      completionService.resumeClaimedPairing(PAIRING_SESSION_ID, "owner-b"),
+    ).rejects.toMatchObject({
+      code: "PAIRING_COMPLETION_UNAVAILABLE",
     });
   });
 
