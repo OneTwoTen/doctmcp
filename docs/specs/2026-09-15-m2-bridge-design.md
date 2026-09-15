@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Hoàn tất M2.1, M2.2 và M2.3.** Đây là contract cho các task #20–#23. WebSocket gateway tối thiểu của #20 và `BridgeServerTransport` phía local của #21 đã được triển khai; `BridgeClientTransport` phía public vẫn chưa được triển khai.
+**Hoàn tất implementation M2.1–M2.4.** Đây là contract cho các task #20–#23. Gateway WebSocket (#20), `BridgeServerTransport` phía local (#21) và `BridgeClientTransport` phía public (#22) đã được triển khai; #23 còn lại để khóa acceptance/integration toàn M2.
 
 ## Mục tiêu
 
@@ -49,6 +49,8 @@ Public Gateway trả:
 
 Trong M2, `Public Gateway` là owner của bridge session và cấp `sessionId` cho phiên runtime; `sessionId` chưa phải immutable `deviceId` hay credential. Gateway phải reject version không hỗ trợ bằng `UNSUPPORTED_VERSION`. `BridgeClientTransport` chỉ bind vào active session do Gateway quản lý, không sở hữu handshake.
 
+**Bridge session id không được ánh xạ máy móc vào MCP SDK `Transport.sessionId` ở phía client.** MCP SDK v2 coi transport đã có `sessionId` là reconnect vào một MCP session hiện hữu và có thể bỏ qua initialize. `BridgeClientTransport` vì vậy expose bridge identity riêng dưới `bridgeSessionId` và để MCP `Transport.sessionId` unset cho fresh MCP Client connection. Đây là ranh giới bắt buộc giữa doctmcp control-plane session và MCP session semantics.
+
 ### MCP data plane
 
 Sau handshake, MCP JSON-RPC message được truyền trong:
@@ -69,6 +71,7 @@ Sau handshake, MCP JSON-RPC message được truyền trong:
 - Frame vượt giới hạn bị reject, gửi `bridge.error` với code `MESSAGE_TOO_LARGE`, sau đó đóng session bằng `PROTOCOL_ERROR`. Không truncate hoặc retry tự động.
 - Mỗi transport giữ FIFO queue tối đa `256` message và `4,194,304` bytes đang chờ gửi. `send()` reject với `BACKPRESSURE` khi một trong hai giới hạn queue bị vượt.
 - Không drop hoặc reorder message. Caller chịu trách nhiệm retry/backoff; transport không buffer MCP message trước trạng thái `ready`.
+- Native WebSocket buffer thuộc socket/gateway boundary và vẫn phải có backpressure limit riêng; transport không retry frame đã được Bun enqueue khi `send()` trả `-1`.
 
 ### Lỗi và đóng phiên
 
@@ -98,11 +101,13 @@ Lifecycle rules:
 
 - `start()` chỉ hợp lệ ở `idle`, cài listener trước khi bind/kết nối, chuyển `connecting → handshaking → ready`; gọi lại hoặc gọi sau `closed` thì reject. `BridgeServerTransport` thực hiện handshake WebSocket với Gateway; `BridgeClientTransport` chỉ bind sau khi Gateway đã có active ready session.
 - Public `BridgeClientTransport` gắn với public MCP Client; local `BridgeServerTransport` gắn với local MCP Server.
+- Mỗi active gateway session chỉ được bind bởi một `BridgeClientTransport` trong M2.
 - Local `BridgeServerTransport` là bên chủ động tạo outbound WebSocket tới gateway. WebSocket client/server role không được dùng để suy ra MCP transport name.
 - `send()` ở `idle/connecting/handshaking` reject `HANDSHAKE_REQUIRED` và không buffer; ở `ready` giữ FIFO; ở `closing/closed/failed` reject `SESSION_CLOSED`.
-- `close()` idempotent, chuyển qua `closing`, dừng nhận/gửi, reject send pending, đóng socket và gọi `onclose` đúng một lần.
+- `close()` idempotent, chuyển qua `closing`, dừng nhận/gửi, reject send pending, đóng socket/session và gọi `onclose` đúng một lần.
 - Native WebSocket `error` gọi `onerror`; `close` gọi `onclose` và reject request pending qua MCP transport failure. `onerror` không thay thế `onclose`.
 - Transport dùng shared channel nên `hasPerRequestStream` để `undefined`; cancellation do MCP SDK xử lý qua message cancellation.
+- Public `BridgeClientTransport` không set MCP SDK `Transport.sessionId` bằng bridge session id; fresh `Client.connect()` phải chạy initialize bình thường.
 
 ## State/failure matrix
 
@@ -117,6 +122,7 @@ Lifecycle rules:
 | Queue đầy | Không drop frame | `BACKPRESSURE`, reject `send()` |
 | Native socket error | Báo lỗi, cleanup | `onerror`, sau đó close/pending reject |
 | Native socket close/timeout | Cleanup và giải phóng session | `onclose`, pending reject |
+| Gateway session remote close | Public transport cleanup | MCP request pending reject, `onclose` đúng một lần |
 | `close()` chủ động | Đóng sạch, idempotent | `bridge.close` nếu còn gửi được, `onclose` |
 
 ## Sequence chính
@@ -139,7 +145,6 @@ Public MCP Client     BridgeClientTransport     Public Gateway     BridgeServerT
        |                       |--- mcp.message ------>|                       |                       |
        |                       |                       |--- mcp.message ------>|--- tools/list ------>|
        |                       |                       |                       |<-- tools/list result-|
-       |                       |                       |<-- mcp.message -------|                       |
        |                       |<-- mcp.message -------|                       |                       |
        |<-- tools/list result-|                       |                       |                       |
        |--- tools/call ------>|                       |                       |                       |
@@ -160,7 +165,8 @@ Disconnect: socket close/error → stop queue → reject pending sends/requests 
 - Flow: MCP `initialize → tools/list → tools/call system/info → result` qua socket thật.
 - Failure: malformed frame, unsupported version, native error/close, timeout, pending request rejection.
 - Queue: FIFO, giới hạn 256 message/4 MiB, reject khi đầy, không drop/reorder.
-- Boundary: test server và local import contract từ `@doctmcp/protocol`, không import implementation của nhau.
+- Session semantics: bridge id không làm MCP Client skip initialize; duplicate public binding bị reject.
+- Boundary: production server/local không import implementation của nhau; cross-app import chỉ được dùng trong integration/acceptance test orchestration khi cần dựng vertical proof.
 
 ## Invariants cho transport
 
@@ -168,9 +174,10 @@ Disconnect: socket close/error → stop queue → reject pending sends/requests 
 - Không forward MCP message trước khi handshake hoàn tất.
 - Không tự tạo hoặc đổi MCP request id.
 - Giữ thứ tự message của một WebSocket session.
-- Một message malformed không được làm process crash; transport gửi `INVALID_MESSAGE` rồi đóng `PROTOCOL_ERROR`.
+- Một message malformed không được làm process crash; transport gửi/báo `INVALID_MESSAGE` rồi đóng `PROTOCOL_ERROR` theo boundary tương ứng.
 - Disconnect phải cleanup listener, reject request pending và giải phóng session.
 - Timeout là timeout của bridge/session hoặc request pending; không che timeout riêng của local tool.
+- Bridge session id, future device id và MCP SDK session id là các namespace/semantics khác nhau; không reuse chỉ vì cùng có tên “session”.
 
 ## Acceptance criteria cho M2.1
 
@@ -181,7 +188,7 @@ Disconnect: socket close/error → stop queue → reject pending sends/requests 
 - Schema phân biệt đúng role và reject unknown/malformed message.
 - MCP payload không bị biến thành RPC riêng.
 - Có test cho valid path, invalid path và cấm `command.request`.
-- Các task sau có thể import contract từ `@doctmcp/protocol` mà không import implementation của `apps/agent` hoặc `apps/server`.
+- Các task sau có thể import contract từ `@doctmcp/protocol` mà không import implementation của `apps/agent` hoặc `apps/server` trong production code.
 
 ## History
 
@@ -191,3 +198,4 @@ Disconnect: socket close/error → stop queue → reject pending sends/requests 
 | 2026-09-15 | Bổ sung size/backpressure, transport surface, state/failure matrix và test plan theo review PR #24 | Đảm bảo #20–#23 có contract deterministic trước khi implement | complete |
 | 2026-09-15 | Triển khai gateway WebSocket tối thiểu cho #20 | Cho local agent kết nối outbound, handshake và forwarding envelope qua session abstraction | complete |
 | 2026-09-15 | Triển khai `BridgeServerTransport` phía local cho #21 | Cho Local MCP Runtime handshake và chuyển MCP message qua WebSocket thật với queue/cleanup bounded | complete |
+| 2026-09-15 | Triển khai `BridgeClientTransport` phía public cho #22 | Bind MCP Client vào ready gateway session, chạy initialize/tools flow xuyên bridge và khóa bridge-session/MCP-session semantic boundary | complete |
