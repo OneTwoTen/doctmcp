@@ -84,9 +84,17 @@ Acceptance criteria đã được khóa bằng test:
 
 ## M2 — Public server gọi local MCP
 
-**Đang triển khai — M2.2/#20 hoàn tất.** Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
+**Đang triển khai — task active là M2.3/#21 (`BridgeServerTransport` phía local agent).** Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
 
-M2.1 đã khóa bridge protocol/transport contract, message-size/backpressure policy, lifecycle/error matrix và test plan trong [`specs/2026-09-15-m2-bridge-design.md`](specs/2026-09-15-m2-bridge-design.md). M2.2 đã có gateway WebSocket tối thiểu với session lifecycle, handshake validation, wire-size limit và timeout/cleanup. Hai MCP transport chưa được triển khai.
+M2.1/#19 đã khóa bridge protocol/transport contract, message-size/backpressure policy, lifecycle/error matrix và test plan trong [`specs/2026-09-15-m2-bridge-design.md`](specs/2026-09-15-m2-bridge-design.md). M2.2/#20 đã hoàn tất gateway WebSocket tối thiểu với session lifecycle, handshake validation, wire-size limit, backpressure semantics và timeout/cleanup. Bước tiếp theo là implement `BridgeServerTransport` phía local; sau đó mới tới `BridgeClientTransport` phía public server và acceptance suite M2.
+
+Các work item M2:
+
+- ✅ M2.1 / #19 — Thiết kế Bridge protocol và transport contract.
+- ✅ M2.2 / #20 — WebSocket gateway tối thiểu trên public server qua PR #25.
+- 🚧 M2.3 / #21 — `BridgeServerTransport` phía local agent.
+- ⬜ M2.4 / #22 — `BridgeClientTransport` phía public server.
+- ⬜ M2.5 / #23 — Acceptance/integration suite server ↔ local.
 
 Phạm vi:
 
