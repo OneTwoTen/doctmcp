@@ -6,7 +6,7 @@ Mục tiêu cuối cùng là để ChatGPT gọi các capability trên Windows, 
 
 ## Trạng thái hiện tại
 
-M1 — Local MCP đã có đầy đủ implementation cho **8/8 work item** và đủ **6/6 tool** đã chốt: `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec`. Issue #9 bổ sung acceptance suite dùng MCP client/server thật để khóa catalog, schema/annotations, vertical flow, permission/security boundary và shell limits trên temp workspace. M2.1/#19 và M2.2/#20 đã hoàn tất contract + WebSocket gateway tối thiểu với handshake, session lifecycle, validation, giới hạn wire-size, backpressure semantics và timeout/cleanup. **Task active hiện tại là M2.3/#21 — `BridgeServerTransport` phía local agent**; `BridgeClientTransport`, public MCP endpoint, pairing và ChatGPT integration chưa được triển khai.
+M1 — Local MCP đã có đầy đủ implementation cho **8/8 work item** và đủ **6/6 tool** đã chốt: `workspace`, `system`, `filesystem.read`, `filesystem.write`, `filesystem.delete`, `shell.exec`. Issue #9 bổ sung acceptance suite dùng MCP client/server thật để khóa catalog, schema/annotations, vertical flow, permission/security boundary và shell limits trên temp workspace. M2.1/#19, M2.2/#20 và M2.3/#21 đã hoàn tất contract, WebSocket gateway tối thiểu và `BridgeServerTransport` phía local với handshake, session lifecycle, validation, giới hạn wire-size/queue, backpressure semantics và timeout/cleanup; `BridgeClientTransport`, public MCP endpoint, pairing và ChatGPT integration chưa được triển khai.
 
 Thứ tự phát triển đã chốt:
 
