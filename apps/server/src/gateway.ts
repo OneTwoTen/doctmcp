@@ -7,7 +7,10 @@ import {
   type BridgeMessage,
   bridgeMessageSchema,
 } from "@doctmcp/protocol";
-import type { AuthenticatedDeviceIdentity } from "@doctmcp/schemas";
+import {
+  type AuthenticatedDeviceIdentity,
+  authenticatedDeviceIdentitySchema,
+} from "@doctmcp/schemas";
 
 const DEFAULT_BRIDGE_PATH = "/bridge";
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -365,17 +368,15 @@ export function createBridgeGateway(
     }
     if (!options.authenticateDevice) throw new Error("AUTH_FAILED");
 
-    const identity = await options.authenticateDevice(
+    const result = await options.authenticateDevice(
       message.auth.deviceId,
       message.auth.credential,
     );
-    if (identity.deviceId !== message.auth.deviceId) {
+    const identity = authenticatedDeviceIdentitySchema.safeParse(result);
+    if (!identity.success || identity.data.deviceId !== message.auth.deviceId) {
       throw new Error("AUTH_FAILED");
     }
-    return Object.freeze({
-      ownerId: identity.ownerId,
-      deviceId: identity.deviceId,
-    });
+    return Object.freeze(identity.data);
   };
 
   const handleMessage = async (
@@ -448,6 +449,15 @@ export function createBridgeGateway(
         return;
       }
       if (connection.finalized || connection.state !== "handshaking") return;
+      if (sessions.has(message.sessionId)) {
+        await failConnection(
+          connection,
+          "UNEXPECTED_MESSAGE",
+          "PROTOCOL_ERROR",
+          "Bridge session is already active",
+        );
+        return;
+      }
 
       const session = new GatewaySession(
         connection,
