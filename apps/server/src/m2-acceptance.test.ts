@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   BRIDGE_MAX_MESSAGE_BYTES,
   BRIDGE_PROTOCOL_VERSION,
 } from "@doctmcp/protocol";
 import { Client } from "@modelcontextprotocol/client";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { BridgeServerTransport } from "../../agent/src/bridge-server-transport";
 import { createLocalMcpRuntime } from "../../agent/src/local-mcp-runtime";
 import { WorkspaceRegistry } from "../../agent/src/workspace";
@@ -143,8 +143,12 @@ describe("M2 server-local WebSocket acceptance", () => {
     await Promise.allSettled(
       localTransports.splice(0).map((transport) => transport.close()),
     );
-    await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.close()));
-    await Promise.allSettled(gateways.splice(0).map((gateway) => gateway.stop()));
+    await Promise.allSettled(
+      runtimes.splice(0).map((runtime) => runtime.close()),
+    );
+    await Promise.allSettled(
+      gateways.splice(0).map((gateway) => gateway.stop()),
+    );
     await Promise.allSettled(
       roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
     );
@@ -202,14 +206,16 @@ describe("M2 server-local WebSocket acceptance", () => {
 
     const publicTransport = new BridgeClientTransport(session);
     publicTransports.push(publicTransport);
-    const client = new Client({ name: "doctmcp-m2-acceptance", version: "0.1.0" });
+    const client = new Client({
+      name: "doctmcp-m2-acceptance",
+      version: "0.1.0",
+    });
     clients.push(client);
     await client.connect(publicTransport);
 
     return {
       root,
       gateway,
-      runtime,
       localTransport,
       publicTransport,
       client,
@@ -241,7 +247,9 @@ describe("M2 server-local WebSocket acceptance", () => {
       arguments: { action: "info" },
     });
     expect(system.isError).toBeFalsy();
-    expect(system.structuredContent).toMatchObject({ runtime: { name: "bun" } });
+    expect(system.structuredContent).toMatchObject({
+      runtime: { name: "bun" },
+    });
 
     const write = await client.callTool({
       name: "filesystem.write",
@@ -316,9 +324,7 @@ describe("M2 server-local WebSocket acceptance", () => {
     const { gateway, localTransport, publicTransport } = await setupBridge();
 
     await Promise.all([publicTransport.close(), publicTransport.close()]);
-    await waitFor(() =>
-      localTransport.state === "closed" ? true : undefined,
-    );
+    await waitFor(() => (localTransport.state === "closed" ? true : undefined));
 
     expect(gateway.sessionCount).toBe(0);
     await expect(publicTransport.close()).resolves.toBeUndefined();
@@ -332,24 +338,32 @@ describe("M2 server-local WebSocket acceptance", () => {
     const socket = new WebSocket(gateway.url);
     sockets.push(socket);
     await waitForOpen(socket);
-    const closePromise = waitForClose(socket);
 
-    socket.send("not-json");
-    const error = await waitForMessage(
+    const errorPromise = waitForMessage(
       socket,
       (message) => message.kind === "bridge.error",
     );
-    const closeFrame = await waitForMessage(
+    const closeFramePromise = waitForMessage(
       socket,
       (message) => message.kind === "bridge.close",
     );
+    const closePromise = waitForClose(socket);
+    socket.send("not-json");
 
-    expect(error).toMatchObject({ kind: "bridge.error", code: "INVALID_MESSAGE" });
+    const [error, closeFrame, closeEvent] = await Promise.all([
+      errorPromise,
+      closeFramePromise,
+      closePromise,
+    ]);
+    expect(error).toMatchObject({
+      kind: "bridge.error",
+      code: "INVALID_MESSAGE",
+    });
     expect(closeFrame).toEqual({
       kind: "bridge.close",
       code: "PROTOCOL_ERROR",
     });
-    expect((await closePromise).code).toBe(1002);
+    expect(closeEvent.code).toBe(1002);
     expect(gateway.sessionCount).toBe(0);
   });
 
@@ -359,8 +373,12 @@ describe("M2 server-local WebSocket acceptance", () => {
     const socket = new WebSocket(gateway.url);
     sockets.push(socket);
     await waitForOpen(socket);
-    const closePromise = waitForClose(socket);
 
+    const errorPromise = waitForMessage(
+      socket,
+      (message) => message.kind === "bridge.error",
+    );
+    const closePromise = waitForClose(socket);
     socket.send(
       JSON.stringify({
         kind: "bridge.hello",
@@ -369,16 +387,13 @@ describe("M2 server-local WebSocket acceptance", () => {
         sessionId: "x".repeat(BRIDGE_MAX_MESSAGE_BYTES),
       }),
     );
-    const error = await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.error",
-    );
 
+    const [error, closeEvent] = await Promise.all([errorPromise, closePromise]);
     expect(error).toMatchObject({
       kind: "bridge.error",
       code: "MESSAGE_TOO_LARGE",
     });
-    expect((await closePromise).code).toBe(1002);
+    expect(closeEvent.code).toBe(1002);
     expect(gateway.sessionCount).toBe(0);
   });
 });
