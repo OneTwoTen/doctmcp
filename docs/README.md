@@ -11,13 +11,21 @@ Thư mục này là nguồn tài liệu chính của dự án. Tài liệu mặc
 
 ## M1 — Local MCP
 
+Tài liệu chi tiết cho milestone nền:
+
 - [spec M1 Local MCP](specs/2026-09-14-m1-local-mcp-design.md): catalog 6 tool, boundary, schema, error và acceptance criteria.
 - [tool catalog](tools/README.md): mục lục contract từng MCP tool.
+- [workspace](tools/workspace.md)
+- [system](tools/system.md)
+- [filesystem.read](tools/filesystem-read.md)
+- [filesystem.write](tools/filesystem-write.md)
+- [filesystem.delete](tools/filesystem-delete.md)
+- [shell.exec](tools/shell-exec.md)
 - [test strategy M1](testing/m1-local-mcp.md): schema/unit, integration và MCP contract test.
 
 ## M2 — Server gọi local
 
-- [spec M2 bridge](specs/2026-09-15-m2-bridge-design.md): contract handshake, MCP frame và lifecycle WebSocket bridge.
+- [spec M2 bridge](specs/2026-09-15-m2-bridge-design.md): contract handshake, MCP frame và lifecycle cho WebSocket bridge.
 - [test M2 server ↔ local](testing/m2-server-local.md): acceptance flow production boundary.
 
 ## M3 — Device management và pairing
