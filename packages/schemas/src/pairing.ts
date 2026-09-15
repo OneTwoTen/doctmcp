@@ -116,5 +116,7 @@ export type PairingState = z.infer<typeof pairingStateSchema>;
 export type CreatePairingSessionInput = Readonly<
   z.infer<typeof createPairingSessionInputSchema>
 >;
-export type ClaimPairingInput = Readonly<z.infer<typeof claimPairingInputSchema>>;
+export type ClaimPairingInput = Readonly<
+  z.infer<typeof claimPairingInputSchema>
+>;
 export type PairingSession = Readonly<z.infer<typeof pairingSessionSchema>>;
