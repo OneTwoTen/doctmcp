@@ -182,9 +182,7 @@ describe("DeviceCredentialService", () => {
       service.rotate(DEVICE_A),
       service.rotate(DEVICE_A),
     ]);
-    const fulfilled = results.filter(
-      (result) => result.status === "fulfilled",
-    );
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
     expect(fulfilled).toHaveLength(1);
     expect(
       results.filter((result) => result.status === "rejected"),
