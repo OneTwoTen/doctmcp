@@ -85,7 +85,7 @@ export class BridgeClientTransport implements BridgeClientTransportContract {
   readonly maxMessageBytes = BRIDGE_MAX_MESSAGE_BYTES;
   readonly maxQueuedMessages = BRIDGE_MAX_QUEUED_MESSAGES;
   readonly maxQueuedBytes = BRIDGE_MAX_QUEUED_BYTES;
-  readonly sessionId: string;
+  readonly bridgeSessionId: string;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -105,7 +105,7 @@ export class BridgeClientTransport implements BridgeClientTransportContract {
 
   constructor(session: BridgeGatewaySession) {
     this.session = session;
-    this.sessionId = session.id;
+    this.bridgeSessionId = session.id;
   }
 
   get state(): BridgeClientTransportContract["state"] {
