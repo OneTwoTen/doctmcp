@@ -44,13 +44,6 @@ export {
   DEFAULT_BRIDGE_PATH,
 } from "./gateway";
 export {
-  type CompletedPairingCredential,
-  type PairingCredentialCompletionOptions,
-  PairingCredentialCompletionService,
-  type PairingCredentialDelivery,
-  toPairingCredentialDelivery,
-} from "./pairing-credential-completion";
-export {
   type ClaimPairingRecordInput,
   type ClaimPairingResult,
   type CreatePairingRecordInput,
@@ -80,6 +73,13 @@ export {
   type PairingSessionIdGenerator,
   type PairingSessionRepository,
 } from "./pairing";
+export {
+  type CompletedPairingCredential,
+  type PairingCredentialCompletionOptions,
+  PairingCredentialCompletionService,
+  type PairingCredentialDelivery,
+  toPairingCredentialDelivery,
+} from "./pairing-credential-completion";
 
 if (import.meta.main) {
   const gateway = createBridgeGateway({
