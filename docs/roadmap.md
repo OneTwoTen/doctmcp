@@ -4,7 +4,7 @@ Roadmap này mô tả thứ tự triển khai đã chốt. Mục tiêu là giả
 
 ## M1 — Local MCP
 
-**M1 hoàn tất 8/8 work item.** Local runtime đã có đủ catalog 6 tool và acceptance suite MCP thật để khóa contract, permission/security boundary và vertical flow offline. M2 là milestone phát triển tiếp theo.
+**M1 hoàn tất 8/8 work item.** Local runtime đã có đủ catalog 6 tool và acceptance suite MCP thật để khóa contract, permission/security boundary và vertical flow offline. M2 cũng đã hoàn tất; M3 là milestone phát triển tiếp theo.
 
 Các work item M1:
 
@@ -84,54 +84,58 @@ Acceptance criteria đã được khóa bằng test:
 
 ## M2 — Public server gọi local MCP
 
-**Đang triển khai — M2.4/#22 hoàn tất trong PR #27; task tiếp theo là M2.5/#23.** Mục tiêu: chứng minh public server có thể dùng MCP client gọi một local runtime qua kết nối WebSocket do local chủ động tạo.
-
-M2.1/#19 đã khóa bridge protocol/transport contract. M2.2/#20 có gateway WebSocket tối thiểu; M2.3/#21 có `BridgeServerTransport` phía local; M2.4/#22 có `BridgeClientTransport` phía public bind vào active gateway session. Vertical test hiện đã chạy MCP Client thật xuyên gateway/WebSocket tới production Local MCP Runtime với `initialize → tools/list → tools/call system/info`. M2.5/#23 sẽ khóa toàn bộ milestone bằng acceptance/integration suite và các failure boundary cuối.
+**M2 hoàn tất 5/5 work item.** Public server đã dùng MCP Client chuẩn gọi production Local MCP Runtime qua WebSocket do local chủ động mở; acceptance suite #23 khóa cả success flow, MCP error semantics, disconnect/close và malformed/oversized boundary.
 
 Các work item M2:
 
-- ✅ M2.1 / #19 — Thiết kế Bridge protocol và transport contract.
+- ✅ M2.1 / #19 — Thiết kế Bridge protocol và transport contract qua PR #24.
 - ✅ M2.2 / #20 — WebSocket gateway tối thiểu trên public server qua PR #25.
 - ✅ M2.3 / #21 — `BridgeServerTransport` phía local agent qua PR #26.
 - ✅ M2.4 / #22 — `BridgeClientTransport` phía public server qua PR #27.
-- 🚧 M2.5 / #23 — Acceptance/integration suite server ↔ local.
+- ✅ M2.5 / #23 — Acceptance/integration suite server ↔ local qua PR #28.
 
-Phạm vi:
-
-- WebSocket gateway tối thiểu;
-- `BridgeClientTransport` phía public server;
-- `BridgeServerTransport` phía local;
-- MCP initialize qua transport này;
-- `tools/list` từ server xuống local;
-- `tools/call` từ server xuống local;
-- disconnect/timeout/error cơ bản;
-- integration test server ↔ local.
-
-Đã triển khai tới M2.4:
+Implementation đã khóa:
 
 - local chủ động mở WebSocket và hoàn tất bridge handshake;
 - gateway quản lý active bridge session và lifecycle/cleanup;
 - local `BridgeServerTransport` tương thích MCP server role;
 - public `BridgeClientTransport` tương thích MCP client role và bind độc quyền ready session;
+- MCP `initialize`, `tools/list`, `tools/call system/info` chạy xuyên bridge thật;
+- `filesystem.write` + `filesystem.read` round-trip trên temp workspace thật;
+- structured domain error và unknown tool giữ nguyên MCP semantics;
+- local disconnect khi request pending làm public MCP request reject rõ ràng;
+- public close propagate về local và cleanup idempotent;
+- malformed JSON và frame UTF-8 vượt 1 MiB bị production gateway reject deterministic;
 - wire-size 1 MiB, FIFO queue 256 message / 4 MiB và backpressure deterministic;
-- remote disconnect làm MCP request pending fail thay vì treo;
-- bridge session identity được tách khỏi MCP SDK `Transport.sessionId` để không làm `Client.connect()` bỏ qua initialize;
-- production local runtime được gọi qua MCP Client thật trên WebSocket thật.
+- bridge session identity được tách khỏi MCP SDK `Transport.sessionId` để fresh `Client.connect()` luôn initialize đúng.
 
-Acceptance criteria:
+Acceptance flow đã chứng minh:
 
 ```text
-server MCP client
+Public MCP Client
+    -> BridgeClientTransport
+    -> Public WebSocket Gateway
+    -> BridgeServerTransport
+    -> Local MCP Runtime
     -> tools/list
     -> tools/call system/info
-    -> nhận result từ local
+    -> filesystem round-trip
+    -> result quay về public client
 ```
 
-Không cần pairing, database hoặc ChatGPT để hoàn tất M2.
+Chạy riêng suite M2:
+
+```sh
+bun run test:m2
+```
+
+Chi tiết: [`testing/m2-server-local.md`](testing/m2-server-local.md).
+
+Pairing, database, device identity/routing, public MCP endpoint và ChatGPT integration không thuộc M2.
 
 ## M3 — Device management và pairing
 
-Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
+**Milestone active tiếp theo.** Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
 
 Phạm vi dự kiến:
 
