@@ -237,15 +237,16 @@ describe("PairingService", () => {
       codeDigest: digestB,
       ...validClaim("owner-b"),
     });
+    const queuedClaimExpectation = expect(queuedClaim).rejects.toMatchObject({
+      code: "PAIRING_CODE_UNAVAILABLE",
+    });
     nowMs = expiresAt.getTime();
     releaseFirstCreate();
 
     await expect(firstClaim).resolves.toMatchObject({
       session: { state: "claimed", deviceId: DEVICE_A },
     });
-    await expect(queuedClaim).rejects.toMatchObject({
-      code: "PAIRING_CODE_UNAVAILABLE",
-    });
+    await queuedClaimExpectation;
     expect((await pairingRepository.getById(SESSION_B))?.state).toBe("expired");
     expect(await backingDeviceRepository.listByOwnerId("owner-b")).toHaveLength(
       0,
