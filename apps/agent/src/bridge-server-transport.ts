@@ -430,16 +430,19 @@ export class BridgeServerTransport implements BridgeServerTransportContract {
 
   private readonly handleSocketClose = (): void => {
     if (this._state === "closed") return;
-    const unexpected = !this.intentionalClose && !this.remoteClose;
-    if (unexpected && this._state !== "closing") {
-      this.reportError(
-        new BridgeServerTransportError(
-          "SESSION_CLOSED",
-          "Bridge WebSocket closed unexpectedly",
-        ),
-      );
-    }
-    this.finalizeClose();
+    void this.incomingChain.finally(() => {
+      if (this._state === "closed") return;
+      const unexpected = !this.intentionalClose && !this.remoteClose;
+      if (unexpected && this._state !== "closing") {
+        this.reportError(
+          new BridgeServerTransportError(
+            "SESSION_CLOSED",
+            "Bridge WebSocket closed unexpectedly",
+          ),
+        );
+      }
+      this.finalizeClose();
+    });
   };
 
   private async handleIncomingFrame(data: unknown): Promise<void> {
