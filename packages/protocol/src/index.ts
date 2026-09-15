@@ -2,7 +2,9 @@
 
 export type {
   BridgeClose,
+  BridgeCloseCode,
   BridgeError,
+  BridgeErrorCode,
   BridgeHello,
   BridgeHelloAck,
   BridgeMcpMessage,

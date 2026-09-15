@@ -83,5 +83,7 @@ export type BridgeHello = z.infer<typeof bridgeHelloSchema>;
 export type BridgeHelloAck = z.infer<typeof bridgeHelloAckSchema>;
 export type BridgeMcpMessage = z.infer<typeof bridgeMcpMessageSchema>;
 export type BridgeError = z.infer<typeof bridgeErrorSchema>;
+export type BridgeErrorCode = z.infer<typeof bridgeErrorCodeSchema>;
 export type BridgeClose = z.infer<typeof bridgeCloseSchema>;
+export type BridgeCloseCode = z.infer<typeof bridgeCloseCodeSchema>;
 export type BridgeMessage = z.infer<typeof bridgeMessageSchema>;
