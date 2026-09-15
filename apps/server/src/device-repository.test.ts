@@ -89,7 +89,9 @@ describe("InMemoryDeviceRepository", () => {
     expect(updated?.ownerId).toBe(created.ownerId);
     expect(updated?.deviceName).toBe("Work Mac");
     expect(updated?.metadata.appVersion).toBe("0.2.0");
-    expect(updated?.createdAt.toISOString()).toBe(created.createdAt.toISOString());
+    expect(updated?.createdAt.toISOString()).toBe(
+      created.createdAt.toISOString(),
+    );
     expect(updated?.updatedAt.toISOString()).toBe("2026-09-15T04:01:00.000Z");
   });
 
@@ -122,7 +124,10 @@ describe("InMemoryDeviceRepository", () => {
     await repo.create({ ...baseInput(), deviceName: "Second" });
 
     const devices = await repo.listByOwnerId("owner-a");
-    expect(devices.map((device) => device.deviceId)).toEqual([DEVICE_A, DEVICE_B]);
+    expect(devices.map((device) => device.deviceId)).toEqual([
+      DEVICE_A,
+      DEVICE_B,
+    ]);
     expect(Object.isFrozen(devices)).toBe(true);
   });
 
