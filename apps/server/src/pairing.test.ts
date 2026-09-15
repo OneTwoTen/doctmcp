@@ -171,8 +171,8 @@ describe("PairingService", () => {
 
   test("claim queued trước expiry nhưng vào atomic boundary sau expiry vẫn bị reject", async () => {
     let nowMs = Date.parse("2026-09-15T06:00:00.000Z");
-    let releaseFirstCreate = () => undefined;
-    let markFirstCreateStarted = () => undefined;
+    let releaseFirstCreate: () => void = () => undefined;
+    let markFirstCreateStarted: () => void = () => undefined;
     const firstCreateStarted = new Promise<void>((resolve) => {
       markFirstCreateStarted = resolve;
     });
