@@ -122,7 +122,9 @@ describe("InMemoryDeviceRepository", () => {
     await repo.create(baseInput());
 
     await expect(
-      repo.updateForOwner("owner-a", DEVICE_A, { deviceName: "Must not commit" }),
+      repo.updateForOwner("owner-a", DEVICE_A, {
+        deviceName: "Must not commit",
+      }),
     ).rejects.toMatchObject({
       code: "INVALID_CLOCK",
     } satisfies Partial<DeviceRepositoryError>);
@@ -143,7 +145,9 @@ describe("InMemoryDeviceRepository", () => {
     await repo.create(baseInput());
 
     await expect(
-      repo.updateForOwner("owner-a", DEVICE_A, { deviceName: "Must not commit" }),
+      repo.updateForOwner("owner-a", DEVICE_A, {
+        deviceName: "Must not commit",
+      }),
     ).rejects.toMatchObject({
       code: "INVALID_CLOCK",
     } satisfies Partial<DeviceRepositoryError>);
