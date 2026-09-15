@@ -83,6 +83,18 @@ Trước khi coi tool này đủ an toàn cho remote use cần có ít nhất:
 
 Không dựa vào blacklist vài command nguy hiểm như lớp bảo vệ duy nhất.
 
+## Device identity và ownership
+
+M3.1 khóa các invariants sau:
+
+- `deviceId` là immutable routing identity; `deviceName` không phải authorization/routing key;
+- `ownerId` là opaque principal server-side và không được đổi qua device metadata update;
+- owner-scoped store API phải chặn lookup/update chéo owner;
+- caller phải coi UUID v4 `deviceId` là opaque, không dùng format hoặc thứ tự ID làm authorization;
+- `Device` không chứa authoritative `online` state, bridge session object hoặc MCP SDK session id.
+
+Identity đã authenticated ở server vẫn **không** bypass permission local của M1.
+
 ## Pairing và device credential
 
 Pairing code chỉ là credential ngắn hạn, dùng một lần. Nó không được tái sử dụng làm device token dài hạn.
@@ -94,6 +106,8 @@ Device credential phải:
 - rotate được;
 - không xuất hiện đầy đủ trong log;
 - không được gửi qua chat nếu không có lý do thật sự cần thiết.
+
+Raw long-lived credential không thuộc `Device` record. M3.3 phải dùng credential store/service riêng và lấy ownership từ server-side `Device`, không tin `ownerId` do local tự khai báo.
 
 ## Audit
 
@@ -121,4 +135,5 @@ Ví dụ:
 - revoked device credential;
 - shell timeout;
 - oversized output;
-- invalid bridge handshake.
+- invalid bridge handshake;
+- owner A lookup/update device của owner B.
