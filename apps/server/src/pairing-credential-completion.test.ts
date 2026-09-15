@@ -4,14 +4,11 @@ import {
   InMemoryDeviceCredentialRepository,
 } from "./device-credential";
 import { InMemoryDeviceRepository } from "./device-repository";
+import { InMemoryPairingSessionRepository, PairingService } from "./pairing";
 import {
   PairingCredentialCompletionService,
   toPairingCredentialDelivery,
 } from "./pairing-credential-completion";
-import {
-  InMemoryPairingSessionRepository,
-  PairingService,
-} from "./pairing";
 
 const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PAIRING_SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -61,11 +58,8 @@ async function createFixture() {
 
 describe("PairingCredentialCompletionService", () => {
   test("claim tạo đúng device rồi issue credential một lần cho đúng pairing channel", async () => {
-    const {
-      created,
-      credentialService,
-      completionService,
-    } = await createFixture();
+    const { created, credentialService, completionService } =
+      await createFixture();
 
     const completed = await completionService.claimAndIssue(
       created.pairingCode,
@@ -111,11 +105,8 @@ describe("PairingCredentialCompletionService", () => {
   });
 
   test("duplicate pairing claim dừng trước credential issue thứ hai", async () => {
-    const {
-      created,
-      credentialRepository,
-      completionService,
-    } = await createFixture();
+    const { created, credentialRepository, completionService } =
+      await createFixture();
     const input = {
       ownerId: "owner-a",
       deviceName: "DoCT Mac",
@@ -129,7 +120,9 @@ describe("PairingCredentialCompletionService", () => {
       code: "PAIRING_CODE_UNAVAILABLE",
     });
 
-    await expect(credentialRepository.getActive(DEVICE_ID)).resolves.toMatchObject({
+    await expect(
+      credentialRepository.getActive(DEVICE_ID),
+    ).resolves.toMatchObject({
       credentialId: CREDENTIAL_ID,
       version: 1,
       state: "active",
