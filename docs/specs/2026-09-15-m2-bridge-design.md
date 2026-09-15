@@ -6,7 +6,7 @@
 
 ## Mục tiêu
 
-Cho phép local agent chủ động mở một WebSocket tới public server, thực hiện handshake control-plane tối thiểu, sau đó chuyển MCP message hai chiều qua cùng session.
+Cho phép local agent chủ động mở một WebSocket tới public server. Public Gateway tạo và quản lý bridge session, hoàn tất handshake control-plane với local, sau đó các MCP transport bind vào session ready để chuyển MCP message hai chiều.
 
 ## Phạm vi
 
@@ -36,7 +36,7 @@ Local phải gửi trước:
 }
 ```
 
-Public server trả:
+Public Gateway trả:
 
 ```json
 {
@@ -47,7 +47,7 @@ Public server trả:
 }
 ```
 
-Trong M2, `sessionId` là metadata phiên test/runtime; nó chưa phải immutable `deviceId` hay credential. Hai phía phải reject version không hỗ trợ bằng `UNSUPPORTED_VERSION`.
+Trong M2, `Public Gateway` là owner của bridge session và cấp `sessionId` cho phiên runtime; `sessionId` chưa phải immutable `deviceId` hay credential. Gateway phải reject version không hỗ trợ bằng `UNSUPPORTED_VERSION`. `BridgeClientTransport` chỉ bind vào active session do Gateway quản lý, không sở hữu handshake.
 
 ### MCP data plane
 
@@ -96,7 +96,7 @@ Local MCP Server
 
 Lifecycle rules:
 
-- `start()` chỉ hợp lệ ở `idle`, cài listener trước khi kết nối, chuyển `connecting → handshaking → ready`; gọi lại hoặc gọi sau `closed` thì reject.
+- `start()` chỉ hợp lệ ở `idle`, cài listener trước khi bind/kết nối, chuyển `connecting → handshaking → ready`; gọi lại hoặc gọi sau `closed` thì reject. `BridgeServerTransport` thực hiện handshake WebSocket với Gateway; `BridgeClientTransport` chỉ bind sau khi Gateway đã có active ready session.
 - Public `BridgeClientTransport` gắn với public MCP Client; local `BridgeServerTransport` gắn với local MCP Server.
 - Local `BridgeServerTransport` là bên chủ động tạo outbound WebSocket tới gateway. WebSocket client/server role không được dùng để suy ra MCP transport name.
 - `send()` ở `idle/connecting/handshaking` reject `HANDSHAKE_REQUIRED` và không buffer; ở `ready` giữ FIFO; ở `closing/closed/failed` reject `SESSION_CLOSED`.
@@ -108,7 +108,7 @@ Lifecycle rules:
 
 | State/event | Behavior | MCP/bridge result |
 |---|---|---|
-| `idle → start` | Local server transport mở/kết nối socket và gửi hello; public client transport gắn vào gateway socket | `connecting → handshaking` |
+| `idle → start` | Local `BridgeServerTransport` mở/kết nối socket và gửi hello; Gateway tạo session, trả ack; public `BridgeClientTransport` bind session ready | `connecting → handshaking → ready` |
 | Nhận `hello.ack` đúng version/session | Cho phép MCP frame | `ready` |
 | Hello sai version | Không forward MCP | `UNSUPPORTED_VERSION`, `PROTOCOL_ERROR`, close |
 | MCP frame trước ready | Không forward | `HANDSHAKE_REQUIRED`, reject/close protocol |
@@ -126,9 +126,8 @@ Public MCP Client     BridgeClientTransport     Public Gateway     BridgeServerT
        |                       |                       |                       |                       |
        |                       |                       |<-- WebSocket connect --|                       |
        |                       |                       |<-- bridge.hello ------|                       |
-       |                       |<-- bridge.hello ------|                       |                       |
-       |                       |--- bridge.hello.ack ->|                       |                       |
        |                       |                       |--- bridge.hello.ack ->|                       |
+       |                       |<-- bind ready session-|                       |                       |
        |--- initialize ------>|                       |                       |                       |
        |                       |--- mcp.message ------>|                       |                       |
        |                       |                       |--- mcp.message ------>|--- initialize ------>|
