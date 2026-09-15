@@ -29,6 +29,16 @@ export type BridgeDeviceAuthenticator = (
   credential: string,
 ) => Promise<AuthenticatedDeviceIdentity>;
 
+/**
+ * Synchronous lease acquired after authentication but before a session can become ready.
+ * Throwing rejects the handshake before `bridge.hello.ack`. The returned release callback
+ * is held through the ready transition/ACK so credential mutation can wait for this commit.
+ */
+export type BridgeSessionReadyGuard = (
+  identity: AuthenticatedDeviceIdentity | null,
+  sessionId: string,
+) => (() => void) | void;
+
 export interface BridgeGatewaySession {
   readonly id: string;
   readonly state: GatewaySessionState;
@@ -47,6 +57,7 @@ export interface CreateBridgeGatewayOptions {
   idleTimeoutMs?: number;
   logger?: BridgeGatewayLogger;
   authenticateDevice?: BridgeDeviceAuthenticator;
+  beginSessionReady?: BridgeSessionReadyGuard;
   /** Chỉ dành cho M2 acceptance/test. Production mặc định yêu cầu device auth. */
   allowLegacyUnauthenticated?: boolean;
   onSession?: (session: BridgeGatewaySession) => void;
@@ -459,50 +470,79 @@ export function createBridgeGateway(
         return;
       }
 
-      const session = new GatewaySession(
-        connection,
-        sendFrame,
-        message.sessionId,
-        identity,
-      );
-      connection.session = session;
-      sessions.set(session.id, session);
-      clearConnectionTimeout(connection);
-      connection.state = "ready";
-      setTimeoutFor(connection, idleTimeoutMs, () => {
-        void failConnection(
-          connection,
-          "TIMEOUT",
-          "TIMEOUT",
-          "Bridge session timed out",
-        );
-      });
-
+      let releaseReadyGuard: (() => void) | undefined;
       try {
-        sendWebSocketFrameOnce(
-          () =>
-            connection.ws?.send(
-              serializeFrame({
-                kind: "bridge.hello.ack",
-                bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
-                role: "public-server",
-                sessionId: session.id,
-              }).text,
-            ) ?? 0,
-        );
-        options.onSession?.(session);
+        releaseReadyGuard =
+          options.beginSessionReady?.(identity, message.sessionId) ?? undefined;
       } catch {
-        sessions.delete(session.id);
         await failConnection(
           connection,
-          "SESSION_CLOSED",
+          "AUTH_FAILED",
           "PROTOCOL_ERROR",
-          "Bridge session binding failed",
+          "Device authentication failed",
         );
         return;
       }
-      log("bridge.session.ready", connection);
-      return;
+
+      try {
+        if (connection.finalized || connection.state !== "handshaking") return;
+        if (sessions.has(message.sessionId)) {
+          await failConnection(
+            connection,
+            "UNEXPECTED_MESSAGE",
+            "PROTOCOL_ERROR",
+            "Bridge session is already active",
+          );
+          return;
+        }
+
+        const session = new GatewaySession(
+          connection,
+          sendFrame,
+          message.sessionId,
+          identity,
+        );
+        connection.session = session;
+        sessions.set(session.id, session);
+        clearConnectionTimeout(connection);
+        connection.state = "ready";
+        setTimeoutFor(connection, idleTimeoutMs, () => {
+          void failConnection(
+            connection,
+            "TIMEOUT",
+            "TIMEOUT",
+            "Bridge session timed out",
+          );
+        });
+
+        try {
+          sendWebSocketFrameOnce(
+            () =>
+              connection.ws?.send(
+                serializeFrame({
+                  kind: "bridge.hello.ack",
+                  bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+                  role: "public-server",
+                  sessionId: session.id,
+                }).text,
+              ) ?? 0,
+          );
+          options.onSession?.(session);
+        } catch {
+          sessions.delete(session.id);
+          await failConnection(
+            connection,
+            "SESSION_CLOSED",
+            "PROTOCOL_ERROR",
+            "Bridge session binding failed",
+          );
+          return;
+        }
+        log("bridge.session.ready", connection);
+        return;
+      } finally {
+        releaseReadyGuard?.();
+      }
     }
 
     if (message.kind === "bridge.close") {
