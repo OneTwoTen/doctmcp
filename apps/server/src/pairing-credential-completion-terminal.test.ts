@@ -90,7 +90,9 @@ describe("Pairing credential terminal delivery", () => {
       }),
     ).rejects.toMatchObject({ code: "PAIRING_COMPLETION_UNAVAILABLE" });
 
-    await expect(completionRepository.get(PAIRING_SESSION_ID)).resolves.toMatchObject({
+    await expect(
+      completionRepository.get(PAIRING_SESSION_ID),
+    ).resolves.toMatchObject({
       state: "pending",
       credentialId: CREDENTIAL_ID,
       credentialVersion: 1,
@@ -117,7 +119,9 @@ describe("Pairing credential terminal delivery", () => {
       credentialVersion: completed.credential.version,
     });
 
-    await expect(completionRepository.get(PAIRING_SESSION_ID)).resolves.toMatchObject({
+    await expect(
+      completionRepository.get(PAIRING_SESSION_ID),
+    ).resolves.toMatchObject({
       state: "delivered",
       credentialId: CREDENTIAL_ID,
       credentialVersion: 1,
