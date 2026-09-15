@@ -53,8 +53,9 @@ export class PairingCredentialCompletionService {
       input,
       context,
     );
-    const issued: IssuedDeviceCredential =
-      await this.#credentialService.issue(claimed.device.deviceId);
+    const issued: IssuedDeviceCredential = await this.#credentialService.issue(
+      claimed.device.deviceId,
+    );
 
     return Object.freeze({
       session: claimed.session,
