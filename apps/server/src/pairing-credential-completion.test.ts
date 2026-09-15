@@ -116,11 +116,14 @@ describe("PairingCredentialCompletionService", () => {
   test("resume cùng claimed session trả đúng pending delivery, không issue generation thứ hai", async () => {
     const { created, credentialRepository, completionService } =
       await createFixture();
-    const completed = await completionService.claimAndIssue(created.pairingCode, {
-      ownerId: "owner-a",
-      deviceName: "DoCT Mac",
-      metadata: { platform: "darwin-arm64" },
-    });
+    const completed = await completionService.claimAndIssue(
+      created.pairingCode,
+      {
+        ownerId: "owner-a",
+        deviceName: "DoCT Mac",
+        metadata: { platform: "darwin-arm64" },
+      },
+    );
 
     const resumed = await completionService.resumeClaimedPairing(
       PAIRING_SESSION_ID,
@@ -149,7 +152,9 @@ describe("PairingCredentialCompletionService", () => {
       }),
     ).rejects.toThrow("simulated credential generator failure");
 
-    await expect(pairingService.getPairingSession(PAIRING_SESSION_ID)).resolves.toMatchObject({
+    await expect(
+      pairingService.getPairingSession(PAIRING_SESSION_ID),
+    ).resolves.toMatchObject({
       state: "claimed",
       deviceId: DEVICE_ID,
     });
