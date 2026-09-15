@@ -20,6 +20,7 @@ import {
 
 class FakeGatewaySession implements BridgeGatewaySession {
   readonly id: string;
+  readonly identity = null;
   onmessage: ((message: BridgeMessage) => void) | undefined;
   onclose: ((reason: BridgeCloseCode | "REMOTE_CLOSE") => void) | undefined;
   readonly sent: BridgeMessage[] = [];
@@ -248,6 +249,7 @@ describe("BridgeClientTransport", () => {
     const gateway = createBridgeGateway({
       port: 0,
       idleTimeoutMs: 0,
+      allowLegacyUnauthenticated: true,
       onSession: (session) => resolveSession?.(session),
     });
     gateways.push(gateway);
