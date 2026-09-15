@@ -1,4 +1,4 @@
-import { createBridgeGateway } from "./gateway";
+import { createDoctmcpServerRuntime } from "./server-runtime";
 
 export const SERVER_COMPONENT = "doctmcp-server";
 
@@ -75,15 +75,22 @@ export {
 } from "./pairing";
 export {
   type CompletedPairingCredential,
+  PairingCredentialCompletionError,
+  type PairingCredentialCompletionErrorCode,
   type PairingCredentialCompletionOptions,
   PairingCredentialCompletionService,
   type PairingCredentialDelivery,
   toPairingCredentialDelivery,
 } from "./pairing-credential-completion";
+export {
+  type CreateDoctmcpServerRuntimeOptions,
+  createDoctmcpServerRuntime,
+  type DoctmcpServerRuntime,
+} from "./server-runtime";
 
 if (import.meta.main) {
-  const gateway = createBridgeGateway({
+  const runtime = createDoctmcpServerRuntime({
     port: Number(process.env.PORT ?? 3000),
   });
-  console.log(`${SERVER_COMPONENT}: listening on ${gateway.url}`);
+  console.log(`${SERVER_COMPONENT}: listening on ${runtime.gateway.url}`);
 }
