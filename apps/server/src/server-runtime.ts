@@ -11,10 +11,7 @@ import {
   type CreateBridgeGatewayOptions,
   createBridgeGateway,
 } from "./gateway";
-import {
-  InMemoryPairingSessionRepository,
-  PairingService,
-} from "./pairing";
+import { InMemoryPairingSessionRepository, PairingService } from "./pairing";
 import { PairingCredentialCompletionService } from "./pairing-credential-completion";
 
 export interface CreateDoctmcpServerRuntimeOptions
@@ -54,7 +51,9 @@ export function createDoctmcpServerRuntime(
     repository: credentialRepository,
     deviceRepository,
   });
-  const pairingRepository = new InMemoryPairingSessionRepository(deviceRepository);
+  const pairingRepository = new InMemoryPairingSessionRepository(
+    deviceRepository,
+  );
   const pairingService = new PairingService({ repository: pairingRepository });
   const pairingCredentialCompletionService =
     new PairingCredentialCompletionService({
