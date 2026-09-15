@@ -34,6 +34,7 @@ export {
   type InMemoryDeviceRepositoryOptions,
 } from "./device-repository";
 export {
+  type BridgeDeviceAuthenticator,
   type BridgeGateway,
   BridgeGatewayError,
   type BridgeGatewayLogger,
