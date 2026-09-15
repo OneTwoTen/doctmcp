@@ -83,8 +83,12 @@ type ParsedDeviceMetadata = z.infer<typeof deviceMetadataSchema>;
 type ParsedDevice = z.infer<typeof deviceSchema>;
 
 export type DeviceMetadata = Readonly<ParsedDeviceMetadata>;
-export type CreateDeviceInput = Readonly<z.infer<typeof createDeviceInputSchema>>;
-export type UpdateDeviceInput = Readonly<z.infer<typeof updateDeviceInputSchema>>;
+export type CreateDeviceInput = Readonly<
+  z.infer<typeof createDeviceInputSchema>
+>;
+export type UpdateDeviceInput = Readonly<
+  z.infer<typeof updateDeviceInputSchema>
+>;
 export type Device = Readonly<
   Omit<ParsedDevice, "metadata"> & { metadata: DeviceMetadata }
 >;
