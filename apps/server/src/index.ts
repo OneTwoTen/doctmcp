@@ -8,6 +8,15 @@ export {
   type BridgeClientTransportErrorCode,
 } from "./bridge-client-transport";
 export {
+  type DeviceClock,
+  type DeviceIdGenerator,
+  type DeviceRepository,
+  DeviceRepositoryError,
+  type DeviceRepositoryErrorCode,
+  InMemoryDeviceRepository,
+  type InMemoryDeviceRepositoryOptions,
+} from "./device-repository";
+export {
   type BridgeGateway,
   BridgeGatewayError,
   type BridgeGatewayLogger,

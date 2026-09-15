@@ -11,7 +11,7 @@ Thư mục này là nguồn tài liệu chính của dự án. Tài liệu mặc
 
 ## M1 — Local MCP
 
-Tài liệu chi tiết cho milestone đang ưu tiên:
+Tài liệu chi tiết cho milestone nền:
 
 - [spec M1 Local MCP](specs/2026-09-14-m1-local-mcp-design.md): catalog 6 tool, boundary, schema, error và acceptance criteria.
 - [tool catalog](tools/README.md): mục lục contract từng MCP tool.
@@ -23,13 +23,22 @@ Tài liệu chi tiết cho milestone đang ưu tiên:
 - [shell.exec](tools/shell-exec.md)
 - [test strategy M1](testing/m1-local-mcp.md): schema/unit, integration và MCP contract test.
 
+## M2 — Server gọi local
+
+- [spec M2 bridge](specs/2026-09-15-m2-bridge-design.md): contract handshake, MCP frame và lifecycle cho WebSocket bridge.
+- [test M2 server ↔ local](testing/m2-server-local.md): acceptance flow production boundary.
+
+## M3 — Device management và pairing
+
+- [spec M3.1 Device identity](specs/2026-09-15-m3-device-identity-design.md): immutable `deviceId`, ownership và persistence contract.
+- [plan issue #30](plans/2026-09-15-issue-30-device-identity-store.md): task/verification của foundation M3.1.
+- [pairing.md](pairing.md): device identity đã khóa ở M3.1 và pairing/credential flow của các issue tiếp theo.
+
 ## Contract và vận hành
 
 - [protocol.md](protocol.md): ranh giới giữa MCP data plane và protocol control plane riêng của doctmcp.
-- [spec M2 bridge](specs/2026-09-15-m2-bridge-design.md): contract handshake, MCP frame và lifecycle cho WebSocket bridge; gateway tối thiểu và local `BridgeServerTransport` đã triển khai ở M2.2–M2.3.
 - [security.md](security.md): trust boundary và yêu cầu bảo mật.
 - [permissions.md](permissions.md): permission model được enforce tại local.
-- [pairing.md](pairing.md): thiết kế pairing thiết bị cho giai đoạn sau.
 
 ## Quyết định kiến trúc
 

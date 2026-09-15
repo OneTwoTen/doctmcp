@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./device";
+
 /** Phiên bản control-plane của bridge, độc lập với MCP protocol version. */
 export const BRIDGE_PROTOCOL_VERSION = "1" as const;
 export const BRIDGE_MAX_MESSAGE_BYTES = 1_048_576 as const;
