@@ -8,16 +8,6 @@ export {
   type BridgeClientTransportErrorCode,
 } from "./bridge-client-transport";
 export {
-  createDeviceCredentialInvalidationEvent,
-  type CreateDeviceCredentialInvalidationEventInput,
-  DEFAULT_CREDENTIAL_INVALIDATION_BOUND_MS,
-  type DeviceCredentialInvalidationBus,
-  type DeviceCredentialInvalidationEvent,
-  type DeviceCredentialInvalidationHandler,
-  type DeviceCredentialInvalidationKind,
-  InMemoryDeviceCredentialInvalidationBus,
-} from "./device-credential-invalidation";
-export {
   DEVICE_CREDENTIAL_ENTROPY_BITS,
   DEVICE_CREDENTIAL_SECRET_BYTES,
   type DeviceCredentialClock,
@@ -34,6 +24,16 @@ export {
   type IssuedDeviceCredential,
   type VerifiedDeviceCredential,
 } from "./device-credential";
+export {
+  type CreateDeviceCredentialInvalidationEventInput,
+  createDeviceCredentialInvalidationEvent,
+  DEFAULT_CREDENTIAL_INVALIDATION_BOUND_MS,
+  type DeviceCredentialInvalidationBus,
+  type DeviceCredentialInvalidationEvent,
+  type DeviceCredentialInvalidationHandler,
+  type DeviceCredentialInvalidationKind,
+  InMemoryDeviceCredentialInvalidationBus,
+} from "./device-credential-invalidation";
 export {
   type DeviceCredentialLifecycleCoordinator,
   InMemoryDeviceCredentialLifecycleCoordinator,
