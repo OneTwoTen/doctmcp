@@ -622,7 +622,9 @@ export class PairingCredentialCompletionService {
         // Linearization check: nếu revoke/rotate bên ngoài chen vào sau recovery
         // rotate nhưng trước completion finalize, tuyệt đối không trả raw secret
         // của generation đã mất hiệu lực cho local.
-        const activeAfterFinalize = await this.#getActiveOrNull(device.deviceId);
+        const activeAfterFinalize = await this.#getActiveOrNull(
+          device.deviceId,
+        );
         if (
           !activeAfterFinalize ||
           activeAfterFinalize.credentialId !== issued.credential.credentialId ||
