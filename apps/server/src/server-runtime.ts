@@ -1,10 +1,15 @@
 import type { DeviceCredential } from "@doctmcp/schemas";
 import {
   type DeviceCredentialRepository,
+  DeviceCredentialError,
   DeviceCredentialService,
   InMemoryDeviceCredentialRepository,
   type IssuedDeviceCredential,
 } from "./device-credential";
+import {
+  type DeviceCredentialLifecycleCoordinator,
+  InMemoryDeviceCredentialLifecycleCoordinator,
+} from "./device-credential-lifecycle";
 import {
   type DeviceRepository,
   InMemoryDeviceRepository,
@@ -21,7 +26,9 @@ import {
   type PairingSessionRepository,
 } from "./pairing";
 import {
+  type CompletedPairingCredential,
   InMemoryPairingCredentialCompletionRepository,
+  PairingCredentialCompletionError,
   type PairingCredentialCompletionRepository,
   PairingCredentialCompletionService,
 } from "./pairing-credential-completion";
@@ -40,13 +47,19 @@ export interface CreateDoctmcpServerRuntimeOptions
   readonly credentialRepository?: DeviceCredentialRepository;
   readonly pairingRepository?: PairingSessionRepository;
   readonly pairingCredentialCompletionRepository?: PairingCredentialCompletionRepository;
+  readonly credentialLifecycleCoordinator?: DeviceCredentialLifecycleCoordinator;
 }
+
+export type RuntimePairingCredentialCompletionService = Pick<
+  PairingCredentialCompletionService,
+  "claimAndIssue" | "resumeClaimedPairing" | "acknowledgeDelivery"
+>;
 
 export interface DoctmcpServerRuntime {
   readonly gateway: BridgeGateway;
   readonly deviceRepository: DeviceRepository;
   readonly pairingService: PairingService;
-  readonly pairingCredentialCompletionService: PairingCredentialCompletionService;
+  readonly pairingCredentialCompletionService: RuntimePairingCredentialCompletionService;
   revokeDeviceCredential(deviceId: string): Promise<DeviceCredential>;
   rotateDeviceCredential(deviceId: string): Promise<IssuedDeviceCredential>;
   stop(): Promise<void>;
@@ -61,6 +74,7 @@ export function createDoctmcpServerRuntime(
     pairingRepository: configuredPairingRepository,
     pairingCredentialCompletionRepository:
       configuredPairingCredentialCompletionRepository,
+    credentialLifecycleCoordinator: configuredCredentialLifecycleCoordinator,
     onSession,
     ...gatewayOptions
   } = options;
@@ -80,6 +94,9 @@ export function createDoctmcpServerRuntime(
   const pairingCredentialCompletionRepository =
     configuredPairingCredentialCompletionRepository ??
     new InMemoryPairingCredentialCompletionRepository();
+  const credentialLifecycleCoordinator =
+    configuredCredentialLifecycleCoordinator ??
+    new InMemoryDeviceCredentialLifecycleCoordinator();
 
   const trackedSessions = new Set<BridgeGatewaySession>();
   const credentialMutationCounts = new Map<string, number>();
@@ -208,57 +225,210 @@ export function createDoctmcpServerRuntime(
     await Promise.allSettled(closes);
   };
 
-  const runCredentialMutation = async <T>(
+  const runCredentialLifecycleOperation = <T>(
     deviceId: string,
     operation: () => Promise<T>,
-  ): Promise<T> => {
-    beginCredentialMutation(deviceId);
-    try {
-      await waitForSessionReadyDrain(deviceId);
-      if (stopping) throw new Error("Server runtime is stopping");
+  ): Promise<T> =>
+    credentialLifecycleCoordinator.runExclusive(deviceId, async () => {
+      beginCredentialMutation(deviceId);
+      try {
+        await waitForSessionReadyDrain(deviceId);
+        if (stopping) throw new Error("Server runtime is stopping");
+        return await operation();
+      } finally {
+        await waitForAuthenticationDrain(deviceId);
+        endCredentialMutation(deviceId);
+      }
+    });
 
-      const result = await operation();
-      await closeDeviceSessions(deviceId);
-      await waitForAuthenticationDrain(deviceId);
-      return result;
-    } finally {
-      endCredentialMutation(deviceId);
-    }
-  };
-
-  const revokeDeviceCredentialInternal = (
-    deviceId: string,
-  ): Promise<DeviceCredential> =>
-    runCredentialMutation(deviceId, () => credentialService.revoke(deviceId));
-
-  const rotateDeviceCredentialInternal = (
-    deviceId: string,
-  ): Promise<IssuedDeviceCredential> =>
-    runCredentialMutation(deviceId, () => credentialService.rotate(deviceId));
-
-  const recoverCredentialGenerationInternal = (
+  const recoverCredentialGenerationInsideLifecycle = async (
     deviceId: string,
     expectedCredentialId: string,
     expectedCredentialVersion: number,
     credentialId: string,
-  ): Promise<IssuedDeviceCredential> =>
-    runCredentialMutation(deviceId, () =>
-      credentialService.rotateExpectedWithCredentialId(
-        deviceId,
-        expectedCredentialId,
-        expectedCredentialVersion,
-        credentialId,
-      ),
+  ): Promise<IssuedDeviceCredential> => {
+    const issued = await credentialService.rotateExpectedWithCredentialId(
+      deviceId,
+      expectedCredentialId,
+      expectedCredentialVersion,
+      credentialId,
     );
+    await closeDeviceSessions(deviceId);
+    return issued;
+  };
 
-  const pairingCredentialCompletionService =
+  const rawPairingCredentialCompletionService =
     new PairingCredentialCompletionService({
       pairingService,
       credentialService,
       deviceRepository,
       completionRepository: pairingCredentialCompletionRepository,
-      recoverExistingCredential: recoverCredentialGenerationInternal,
+      recoverExistingCredential: recoverCredentialGenerationInsideLifecycle,
     });
+
+  const completionUnavailable = (): PairingCredentialCompletionError =>
+    new PairingCredentialCompletionError(
+      "PAIRING_COMPLETION_UNAVAILABLE",
+      "Pairing credential completion không khả dụng.",
+    );
+
+  const getActiveCredentialOrNull = async (
+    deviceId: string,
+  ): Promise<DeviceCredential | null> => {
+    try {
+      return await credentialService.getActive(deviceId);
+    } catch (error) {
+      if (
+        error instanceof DeviceCredentialError &&
+        error.code === "CREDENTIAL_UNAVAILABLE"
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  };
+
+  const requireCompletionStillActive = async (
+    completed: CompletedPairingCredential,
+  ): Promise<CompletedPairingCredential> => {
+    const active = await getActiveCredentialOrNull(completed.device.deviceId);
+    if (
+      !active ||
+      active.credentialId !== completed.credential.credentialId ||
+      active.version !== completed.credential.version
+    ) {
+      throw completionUnavailable();
+    }
+    return completed;
+  };
+
+  const getClaimedDeviceForOwner = async (
+    pairingSessionId: string,
+    ownerId: string,
+  ) => {
+    const session = await pairingService.getPairingSession(pairingSessionId);
+    if (session?.state !== "claimed" || session.deviceId === undefined) {
+      return null;
+    }
+    return deviceRepository.getForOwner(ownerId, session.deviceId);
+  };
+
+  const claimAndIssue: PairingCredentialCompletionService["claimAndIssue"] =
+    async (pairingCode, input, context = {}) => {
+      const claimed = await pairingService.claimPairingCode(
+        pairingCode,
+        input,
+        context,
+      );
+      return runCredentialLifecycleOperation(
+        claimed.device.deviceId,
+        async () => {
+          const completed =
+            await rawPairingCredentialCompletionService.resumeClaimedPairing(
+              claimed.session.pairingSessionId,
+              claimed.device.ownerId,
+            );
+          return requireCompletionStillActive(completed);
+        },
+      );
+    };
+
+  const resumeClaimedPairing: PairingCredentialCompletionService["resumeClaimedPairing"] =
+    async (pairingSessionId, ownerId) => {
+      const device = await getClaimedDeviceForOwner(pairingSessionId, ownerId);
+      if (!device) {
+        return rawPairingCredentialCompletionService.resumeClaimedPairing(
+          pairingSessionId,
+          ownerId,
+        );
+      }
+
+      return runCredentialLifecycleOperation(device.deviceId, async () => {
+        const completed =
+          await rawPairingCredentialCompletionService.resumeClaimedPairing(
+            pairingSessionId,
+            ownerId,
+          );
+        return requireCompletionStillActive(completed);
+      });
+    };
+
+  const acknowledgeDelivery: PairingCredentialCompletionService["acknowledgeDelivery"] =
+    async (input) => {
+      const device = await getClaimedDeviceForOwner(
+        input.pairingSessionId,
+        input.ownerId,
+      );
+      if (!device) {
+        return rawPairingCredentialCompletionService.acknowledgeDelivery(input);
+      }
+
+      return runCredentialLifecycleOperation(device.deviceId, async () => {
+        const persisted = await pairingCredentialCompletionRepository.get(
+          input.pairingSessionId,
+        );
+        if (
+          persisted?.state === "pending" &&
+          persisted.deviceId === device.deviceId &&
+          persisted.credentialId === input.credentialId &&
+          persisted.credentialVersion === input.credentialVersion
+        ) {
+          const active = await getActiveCredentialOrNull(device.deviceId);
+          if (
+            !active ||
+            active.credentialId !== input.credentialId ||
+            active.version !== input.credentialVersion
+          ) {
+            throw completionUnavailable();
+          }
+        }
+
+        await rawPairingCredentialCompletionService.acknowledgeDelivery(input);
+      });
+    };
+
+  const pairingCredentialCompletionService = Object.freeze({
+    claimAndIssue,
+    resumeClaimedPairing,
+    acknowledgeDelivery,
+  });
+
+  const revokeDeviceCredentialInternal = async (
+    deviceId: string,
+  ): Promise<DeviceCredential> => {
+    const current = await credentialService.getActive(deviceId);
+    return runCredentialLifecycleOperation(current.deviceId, async () => {
+      const revoked = await credentialRepository.revoke({
+        deviceId: current.deviceId,
+        expectedCredentialId: current.credentialId,
+        expectedVersion: current.version,
+        revokedAt: new Date(),
+      });
+      if (!revoked) {
+        throw new DeviceCredentialError(
+          "CREDENTIAL_UNAVAILABLE",
+          "Device credential không khả dụng.",
+        );
+      }
+      await closeDeviceSessions(current.deviceId);
+      return revoked;
+    });
+  };
+
+  const rotateDeviceCredentialInternal = async (
+    deviceId: string,
+  ): Promise<IssuedDeviceCredential> => {
+    const current = await credentialService.getActive(deviceId);
+    return runCredentialLifecycleOperation(current.deviceId, async () => {
+      const rotated = await credentialService.rotateExpected(
+        current.deviceId,
+        current.credentialId,
+        current.version,
+      );
+      await closeDeviceSessions(current.deviceId);
+      return rotated;
+    });
+  };
 
   const gateway = createBridgeGateway({
     ...gatewayOptions,
