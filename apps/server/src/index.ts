@@ -1,4 +1,4 @@
-import { createBridgeGateway } from "./gateway";
+import { createDoctmcpServerRuntime } from "./server-runtime";
 
 export const SERVER_COMPONENT = "doctmcp-server";
 
@@ -7,6 +7,27 @@ export {
   BridgeClientTransportError,
   type BridgeClientTransportErrorCode,
 } from "./bridge-client-transport";
+export {
+  DEVICE_CREDENTIAL_ENTROPY_BITS,
+  DEVICE_CREDENTIAL_SECRET_BYTES,
+  type DeviceCredentialClock,
+  DeviceCredentialError,
+  type DeviceCredentialErrorCode,
+  type DeviceCredentialIdGenerator,
+  type DeviceCredentialRepository,
+  type DeviceCredentialSecretGenerator,
+  DeviceCredentialService,
+  type DeviceCredentialServiceOptions,
+  digestDeviceCredentialSecret,
+  generateDeviceCredentialSecret,
+  InMemoryDeviceCredentialRepository,
+  type IssuedDeviceCredential,
+  type VerifiedDeviceCredential,
+} from "./device-credential";
+export {
+  type DeviceCredentialLifecycleCoordinator,
+  InMemoryDeviceCredentialLifecycleCoordinator,
+} from "./device-credential-lifecycle";
 export {
   type DeviceClock,
   type DeviceIdGenerator,
@@ -17,10 +38,13 @@ export {
   type InMemoryDeviceRepositoryOptions,
 } from "./device-repository";
 export {
+  type BridgeDeviceAuthenticator,
   type BridgeGateway,
   BridgeGatewayError,
   type BridgeGatewayLogger,
   type BridgeGatewaySession,
+  type BridgeSessionReadyGuard,
+  type BridgeSessionReadyValidator,
   type CreateBridgeGatewayOptions,
   createBridgeGateway,
   DEFAULT_BRIDGE_PATH,
@@ -55,10 +79,30 @@ export {
   type PairingSessionIdGenerator,
   type PairingSessionRepository,
 } from "./pairing";
+export {
+  type AcknowledgePairingCredentialDeliveryInput,
+  type CompletedPairingCredential,
+  InMemoryPairingCredentialCompletionRepository,
+  PairingCredentialCompletionError,
+  type PairingCredentialCompletionErrorCode,
+  type PairingCredentialCompletionOptions,
+  type PairingCredentialCompletionRecord,
+  type PairingCredentialCompletionRepository,
+  PairingCredentialCompletionService,
+  type PairingCredentialCompletionState,
+  type PairingCredentialDelivery,
+  toPairingCredentialDelivery,
+} from "./pairing-credential-completion";
+export {
+  type CreateDoctmcpServerRuntimeOptions,
+  createDoctmcpServerRuntime,
+  type DoctmcpServerRuntime,
+  type RuntimePairingCredentialCompletionService,
+} from "./server-runtime";
 
 if (import.meta.main) {
-  const gateway = createBridgeGateway({
+  const runtime = createDoctmcpServerRuntime({
     port: Number(process.env.PORT ?? 3000),
   });
-  console.log(`${SERVER_COMPONENT}: listening on ${gateway.url}`);
+  console.log(`${SERVER_COMPONENT}: listening on ${runtime.gateway.url}`);
 }

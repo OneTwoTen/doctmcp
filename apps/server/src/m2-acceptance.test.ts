@@ -180,6 +180,7 @@ describe("M2 server-local WebSocket acceptance", () => {
     const gateway = createBridgeGateway({
       port: 0,
       idleTimeoutMs: 0,
+      allowLegacyUnauthenticated: true,
       onSession: (session) => resolveSession?.(session),
     });
     gateways.push(gateway);

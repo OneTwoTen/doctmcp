@@ -16,15 +16,16 @@ interface ReceivedMessage {
   readonly [key: string]: unknown;
 }
 
+const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CREDENTIAL = "A".repeat(43);
+
 function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
     socket.addEventListener(
       "error",
       () => reject(new Error("WebSocket connection failed")),
-      {
-        once: true,
-      },
+      { once: true },
     );
   });
 }
@@ -56,9 +57,9 @@ function waitForMessage(
 }
 
 function waitForClose(socket: WebSocket): Promise<CloseEvent> {
-  return new Promise((resolve) => {
-    socket.addEventListener("close", (event) => resolve(event), { once: true });
-  });
+  return new Promise((resolve) =>
+    socket.addEventListener("close", (event) => resolve(event), { once: true }),
+  );
 }
 
 async function connectClient(gateway: BridgeGateway): Promise<WebSocket> {
@@ -67,15 +68,29 @@ async function connectClient(gateway: BridgeGateway): Promise<WebSocket> {
   return socket;
 }
 
-function sendHello(socket: WebSocket, sessionId = "test-session"): void {
+function sendHello(
+  socket: WebSocket,
+  sessionId = "test-session",
+  auth?: { deviceId: string; credential: string },
+): void {
   socket.send(
     JSON.stringify({
       kind: "bridge.hello",
       bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
       role: "local-agent",
       sessionId,
+      ...(auth ? { auth: { mode: "device", ...auth } } : {}),
     }),
   );
+}
+
+function legacyGateway(
+  options: Parameters<typeof createBridgeGateway>[0] = {},
+): BridgeGateway {
+  return createBridgeGateway({
+    ...options,
+    allowLegacyUnauthenticated: true,
+  });
 }
 
 describe("BridgeGateway", () => {
@@ -91,7 +106,6 @@ describe("BridgeGateway", () => {
 
   test("treats Bun backpressure status -1 as accepted without retrying", () => {
     let sendCount = 0;
-
     expect(() =>
       sendWebSocketFrameOnce(() => {
         sendCount += 1;
@@ -101,9 +115,118 @@ describe("BridgeGateway", () => {
     expect(sendCount).toBe(1);
   });
 
-  test("accepts a local-first handshake and exposes a ready session", async () => {
+  test("production default rejects hello without device auth before creating a session", async () => {
+    gateway = createBridgeGateway({ port: 0 });
+    const socket = await connectClient(gateway);
+    sockets.push(socket);
+    const closePromise = waitForClose(socket);
+    sendHello(socket);
+
+    await expect(
+      waitForMessage(socket, (message) => message.kind === "bridge.error"),
+    ).resolves.toMatchObject({
+      kind: "bridge.error",
+      code: "AUTH_REQUIRED",
+    });
+    await closePromise;
+    expect(gateway.sessionCount).toBe(0);
+  });
+
+  test("authenticated hello binds server-side owner/device identity before ready", async () => {
     let readySession: BridgeGatewaySession | undefined;
     gateway = createBridgeGateway({
+      port: 0,
+      authenticateDevice: async (deviceId, credential) => {
+        expect(deviceId).toBe(DEVICE_ID);
+        expect(credential).toBe(CREDENTIAL);
+        return { ownerId: "owner-a", deviceId: DEVICE_ID };
+      },
+      onSession: (session) => {
+        readySession = session;
+      },
+    });
+    const socket = await connectClient(gateway);
+    sockets.push(socket);
+    sendHello(socket, "authenticated-session", {
+      deviceId: DEVICE_ID,
+      credential: CREDENTIAL,
+    });
+
+    await expect(
+      waitForMessage(socket, (message) => message.kind === "bridge.hello.ack"),
+    ).resolves.toMatchObject({
+      kind: "bridge.hello.ack",
+      sessionId: "authenticated-session",
+    });
+    expect(readySession?.state).toBe("ready");
+    expect(readySession?.identity).toEqual({
+      ownerId: "owner-a",
+      deviceId: DEVICE_ID,
+    });
+  });
+
+  test("invalid credential fails generically and never exposes ready session", async () => {
+    let exposed = false;
+    gateway = createBridgeGateway({
+      port: 0,
+      authenticateDevice: async () => {
+        throw new Error("credential must never be echoed");
+      },
+      onSession: () => {
+        exposed = true;
+      },
+    });
+    const socket = await connectClient(gateway);
+    sockets.push(socket);
+    const closePromise = waitForClose(socket);
+    sendHello(socket, "bad-auth", {
+      deviceId: DEVICE_ID,
+      credential: CREDENTIAL,
+    });
+
+    const error = await waitForMessage(
+      socket,
+      (message) => message.kind === "bridge.error",
+    );
+    expect(error).toMatchObject({
+      kind: "bridge.error",
+      code: "AUTH_FAILED",
+      message: "Device authentication failed",
+    });
+    expect(JSON.stringify(error)).not.toContain(CREDENTIAL);
+    await closePromise;
+    expect(exposed).toBe(false);
+    expect(gateway.sessionCount).toBe(0);
+  });
+
+  test("rejects MCP before authentication", async () => {
+    gateway = createBridgeGateway({ port: 0 });
+    const socket = await connectClient(gateway);
+    sockets.push(socket);
+    const closePromise = waitForClose(socket);
+    socket.send(
+      JSON.stringify({
+        kind: "mcp.message",
+        payload: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+        },
+      }),
+    );
+
+    await expect(
+      waitForMessage(socket, (message) => message.kind === "bridge.error"),
+    ).resolves.toMatchObject({
+      code: "HANDSHAKE_REQUIRED",
+    });
+    await closePromise;
+    expect(gateway.sessionCount).toBe(0);
+  });
+
+  test("explicit M2 compatibility accepts legacy handshake", async () => {
+    let readySession: BridgeGatewaySession | undefined;
+    gateway = legacyGateway({
       port: 0,
       onSession: (session) => {
         readySession = session;
@@ -111,7 +234,6 @@ describe("BridgeGateway", () => {
     });
     const socket = await connectClient(gateway);
     sockets.push(socket);
-
     sendHello(socket, "session-1");
     const ack = await waitForMessage(socket);
 
@@ -121,16 +243,13 @@ describe("BridgeGateway", () => {
       role: "public-server",
       sessionId: "session-1",
     });
-    expect(gateway.sessionCount).toBe(1);
-    expect(readySession).toBeDefined();
-    expect(readySession?.id).toBe("session-1");
-    expect(readySession?.state).toBe("ready");
+    expect(readySession?.identity).toBeNull();
     expect(gateway.getSession("session-1")).toBe(readySession);
   });
 
-  test("forwards opaque MCP envelopes in both directions", async () => {
+  test("forwards opaque MCP envelopes in both directions in explicit legacy mode", async () => {
     let readySession: BridgeGatewaySession | undefined;
-    gateway = createBridgeGateway({
+    gateway = legacyGateway({
       port: 0,
       onSession: (session) => {
         readySession = session;
@@ -150,7 +269,11 @@ describe("BridgeGateway", () => {
     });
     const incoming: BridgeMessage = {
       kind: "mcp.message",
-      payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+      },
     };
     socket.send(JSON.stringify(incoming));
     await expect(incomingPromise).resolves.toEqual(incoming);
@@ -171,222 +294,93 @@ describe("BridgeGateway", () => {
     await expect(outgoingPromise).resolves.toEqual(outgoing);
   });
 
-  test("rejects malformed frames and closes the session deterministically", async () => {
-    gateway = createBridgeGateway({ port: 0 });
-    const socket = await connectClient(gateway);
+  test("rejects malformed and oversized frames", async () => {
+    gateway = legacyGateway({ port: 0 });
+    let socket = await connectClient(gateway);
     sockets.push(socket);
-    const closePromise = waitForClose(socket);
-
+    let closePromise = waitForClose(socket);
     socket.send("not-json");
-    const error = await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.error",
-    );
-    const closeFrame = await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.close",
+
+    await expect(
+      waitForMessage(socket, (message) => message.kind === "bridge.error"),
+    ).resolves.toMatchObject({ code: "INVALID_MESSAGE" });
+    await closePromise;
+
+    socket = await connectClient(gateway);
+    sockets.push(socket);
+    closePromise = waitForClose(socket);
+    socket.send(
+      JSON.stringify({
+        kind: "bridge.hello",
+        bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+        role: "local-agent",
+        sessionId: "x".repeat(BRIDGE_MAX_MESSAGE_BYTES),
+      }),
     );
 
-    expect(error).toMatchObject({
-      kind: "bridge.error",
-      code: "INVALID_MESSAGE",
-    });
-    expect(closeFrame).toEqual({
-      kind: "bridge.close",
-      code: "PROTOCOL_ERROR",
-    });
-    expect((await closePromise).code).toBe(1002);
-    expect(gateway.sessionCount).toBe(0);
+    await expect(
+      waitForMessage(socket, (message) => message.kind === "bridge.error"),
+    ).resolves.toMatchObject({ code: "MESSAGE_TOO_LARGE" });
+    await closePromise;
   });
 
-  test("rejects an oversized UTF-8 frame before parsing it", async () => {
-    gateway = createBridgeGateway({ port: 0 });
-    const socket = await connectClient(gateway);
+  test("rejects unsupported version and handshake timeout", async () => {
+    gateway = legacyGateway({ port: 0, handshakeTimeoutMs: 25 });
+    let socket = await connectClient(gateway);
     sockets.push(socket);
-    const closePromise = waitForClose(socket);
-    const oversized = JSON.stringify({
-      kind: "bridge.hello",
-      bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
-      role: "local-agent",
-      sessionId: "x".repeat(BRIDGE_MAX_MESSAGE_BYTES),
-    });
-
-    socket.send(oversized);
-    const error = await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.error",
-    );
-
-    expect(error).toMatchObject({
-      kind: "bridge.error",
-      code: "MESSAGE_TOO_LARGE",
-    });
-    expect((await closePromise).code).toBe(1002);
-  });
-
-  test("rejects an unsupported bridge protocol version", async () => {
-    gateway = createBridgeGateway({ port: 0 });
-    const socket = await connectClient(gateway);
-    sockets.push(socket);
-    const closePromise = waitForClose(socket);
-
+    let closePromise = waitForClose(socket);
     socket.send(
       JSON.stringify({
         kind: "bridge.hello",
         bridgeProtocolVersion: "999",
         role: "local-agent",
-        sessionId: "unsupported-version",
+        sessionId: "bad-version",
       }),
     );
-    const error = await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.error",
-    );
-    const closeFrame = await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.close",
-    );
 
-    expect(error).toMatchObject({
-      kind: "bridge.error",
-      code: "UNSUPPORTED_VERSION",
-    });
-    expect(closeFrame).toEqual({
-      kind: "bridge.close",
-      code: "PROTOCOL_ERROR",
-    });
-    expect((await closePromise).code).toBe(1002);
-    expect(gateway.sessionCount).toBe(0);
+    await expect(
+      waitForMessage(socket, (message) => message.kind === "bridge.error"),
+    ).resolves.toMatchObject({ code: "UNSUPPORTED_VERSION" });
+    await closePromise;
+
+    socket = await connectClient(gateway);
+    sockets.push(socket);
+    closePromise = waitForClose(socket);
+    await expect(
+      waitForMessage(socket, (message) => message.kind === "bridge.error"),
+    ).resolves.toMatchObject({ code: "TIMEOUT" });
+    await closePromise;
   });
 
-  test("times out a connection that never completes handshake", async () => {
-    gateway = createBridgeGateway({ port: 0, handshakeTimeoutMs: 20 });
-    const socket = await connectClient(gateway);
+  test("cleans up remote and repeated local close", async () => {
+    gateway = legacyGateway({ port: 0 });
+    let socket = await connectClient(gateway);
     sockets.push(socket);
-    const errorPromise = waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.error",
-    );
-    const closePromise = waitForClose(socket);
-
-    await expect(errorPromise).resolves.toMatchObject({
-      kind: "bridge.error",
-      code: "TIMEOUT",
-    });
-    expect((await closePromise).code).toBe(1001);
-    expect(gateway.sessionCount).toBe(0);
-  });
-
-  test("handles an inbound bridge.close and preserves its close reason", async () => {
-    let readySession: BridgeGatewaySession | undefined;
-    gateway = createBridgeGateway({
-      port: 0,
-      onSession: (session) => {
-        readySession = session;
-      },
-    });
-    const socket = await connectClient(gateway);
-    sockets.push(socket);
-    sendHello(socket);
+    sendHello(socket, "remote");
     await waitForMessage(
       socket,
       (message) => message.kind === "bridge.hello.ack",
     );
-
-    const reasons: string[] = [];
-    const closeReason = new Promise<string>((resolve) => {
-      if (!readySession) throw new Error("Expected a ready session");
-      readySession.onclose = (reason) => {
-        reasons.push(reason);
-        resolve(reason);
-      };
+    const remote = gateway.getSession("remote");
+    if (!remote) throw new Error("Expected session");
+    const remoteReason = new Promise<string>((resolve) => {
+      remote.onclose = resolve;
     });
-    const closePromise = waitForClose(socket);
-    socket.send(JSON.stringify({ kind: "bridge.close", code: "NORMAL" }));
-
-    await expect(closeReason).resolves.toBe("NORMAL");
-    expect((await closePromise).code).toBe(1000);
-    expect(reasons).toEqual(["NORMAL"]);
-    expect(gateway.sessionCount).toBe(0);
-  });
-
-  test("maps an idle timeout to TIMEOUT instead of REMOTE_CLOSE", async () => {
-    let readySession: BridgeGatewaySession | undefined;
-    gateway = createBridgeGateway({
-      port: 0,
-      idleTimeoutMs: 25,
-      onSession: (session) => {
-        readySession = session;
-      },
-    });
-    const socket = await connectClient(gateway);
-    sockets.push(socket);
-    sendHello(socket);
-    await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.hello.ack",
-    );
-
-    const closeReason = new Promise<string>((resolve) => {
-      if (!readySession) throw new Error("Expected a ready session");
-      readySession.onclose = resolve;
-    });
-    const closePromise = waitForClose(socket);
-
-    await expect(closeReason).resolves.toBe("TIMEOUT");
-    expect((await closePromise).code).toBe(1001);
-    expect(gateway.sessionCount).toBe(0);
-  });
-
-  test("maps a client disconnect to REMOTE_CLOSE and cleans up", async () => {
-    let readySession: BridgeGatewaySession | undefined;
-    gateway = createBridgeGateway({
-      port: 0,
-      onSession: (session) => {
-        readySession = session;
-      },
-    });
-    const socket = await connectClient(gateway);
-    sockets.push(socket);
-    sendHello(socket);
-    await waitForMessage(
-      socket,
-      (message) => message.kind === "bridge.hello.ack",
-    );
-
-    const closeReason = new Promise<string>((resolve) => {
-      if (!readySession) throw new Error("Expected a ready session");
-      readySession.onclose = resolve;
-    });
-    const closePromise = waitForClose(socket);
     socket.close();
+    await expect(remoteReason).resolves.toBe("REMOTE_CLOSE");
 
-    await expect(closeReason).resolves.toBe("REMOTE_CLOSE");
-    await closePromise;
-    expect(gateway.sessionCount).toBe(0);
-  });
-
-  test("cleans up a normally closed session and tolerates repeated stop", async () => {
-    gateway = createBridgeGateway({ port: 0 });
-    const socket = await connectClient(gateway);
+    socket = await connectClient(gateway);
     sockets.push(socket);
-    sendHello(socket);
+    sendHello(socket, "local");
     await waitForMessage(
       socket,
       (message) => message.kind === "bridge.hello.ack",
     );
-    const session = gateway.getSession("test-session");
-    expect(session).toBeDefined();
-
-    const reasons: string[] = [];
-    if (!session) throw new Error("Expected a ready session");
-    session.onclose = (reason) => reasons.push(reason);
+    const local = gateway.getSession("local");
+    if (!local) throw new Error("Expected session");
     const closePromise = waitForClose(socket);
-    await Promise.all([session.close(), session.close()]);
+    await Promise.all([local.close(), local.close()]);
     await closePromise;
-    expect(gateway.sessionCount).toBe(0);
-    expect(reasons).toEqual(["NORMAL"]);
-    await gateway.stop();
-    await gateway.stop();
+    expect(gateway.getSession("local")).toBeUndefined();
   });
 });

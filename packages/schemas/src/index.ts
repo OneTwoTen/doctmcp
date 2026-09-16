@@ -1,6 +1,9 @@
 import { z } from "zod";
+import { deviceIdSchema } from "./device";
+import { deviceCredentialSecretSchema } from "./device-credential";
 
 export * from "./device";
+export * from "./device-credential";
 export * from "./pairing";
 
 /** Phiên bản control-plane của bridge, độc lập với MCP protocol version. */
@@ -11,12 +14,21 @@ export const BRIDGE_MAX_QUEUED_BYTES = 4_194_304 as const;
 
 export const bridgeRoleSchema = z.enum(["local-agent", "public-server"]);
 
+export const bridgeDeviceAuthSchema = z
+  .object({
+    mode: z.literal("device"),
+    deviceId: deviceIdSchema,
+    credential: deviceCredentialSecretSchema,
+  })
+  .strict();
+
 export const bridgeHelloSchema = z
   .object({
     kind: z.literal("bridge.hello"),
     bridgeProtocolVersion: z.string().min(1),
     role: z.literal("local-agent"),
     sessionId: z.string().min(1),
+    auth: bridgeDeviceAuthSchema.optional(),
   })
   .strict();
 
@@ -49,6 +61,8 @@ export const bridgeErrorCodeSchema = z.enum([
   "SESSION_CLOSED",
   "TIMEOUT",
   "BACKPRESSURE",
+  "AUTH_REQUIRED",
+  "AUTH_FAILED",
 ]);
 
 export const bridgeErrorSchema = z
@@ -82,6 +96,7 @@ export const bridgeMessageSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type BridgeRole = z.infer<typeof bridgeRoleSchema>;
+export type BridgeDeviceAuth = z.infer<typeof bridgeDeviceAuthSchema>;
 export type BridgeHello = z.infer<typeof bridgeHelloSchema>;
 export type BridgeHelloAck = z.infer<typeof bridgeHelloAckSchema>;
 export type BridgeMcpMessage = z.infer<typeof bridgeMcpMessageSchema>;
