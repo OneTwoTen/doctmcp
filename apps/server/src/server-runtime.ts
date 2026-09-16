@@ -3,18 +3,18 @@ import type {
   DeviceCredential,
 } from "@doctmcp/schemas";
 import {
-  createDeviceCredentialInvalidationEvent,
-  type DeviceCredentialInvalidationBus,
-  type DeviceCredentialInvalidationKind,
-  InMemoryDeviceCredentialInvalidationBus,
-} from "./device-credential-invalidation";
-import {
   DeviceCredentialError,
   type DeviceCredentialRepository,
   DeviceCredentialService,
   InMemoryDeviceCredentialRepository,
   type IssuedDeviceCredential,
 } from "./device-credential";
+import {
+  createDeviceCredentialInvalidationEvent,
+  type DeviceCredentialInvalidationBus,
+  type DeviceCredentialInvalidationKind,
+  InMemoryDeviceCredentialInvalidationBus,
+} from "./device-credential-invalidation";
 import {
   type DeviceCredentialLifecycleCoordinator,
   InMemoryDeviceCredentialLifecycleCoordinator,
@@ -609,7 +609,9 @@ export function createDoctmcpServerRuntime(
       if (session.identity) {
         const generation = credentialGenerationByIdentity.get(session.identity);
         if (!generation) {
-          throw new Error("Authenticated session credential generation is missing");
+          throw new Error(
+            "Authenticated session credential generation is missing",
+          );
         }
         credentialGenerationByIdentity.delete(session.identity);
         const registered = deviceSessionRegistry.register(session, generation);
@@ -629,9 +631,7 @@ export function createDoctmcpServerRuntime(
       if (!registered || !session.identity) {
         throw new Error("Heartbeat session is not registered");
       }
-      const active = await credentialRepository.getActive(
-        registered.deviceId,
-      );
+      const active = await credentialRepository.getActive(registered.deviceId);
       if (
         !active ||
         active.credentialId !== registered.credentialGeneration.credentialId ||
@@ -645,7 +645,8 @@ export function createDoctmcpServerRuntime(
       }
     },
     onSessionClosed: (session) => {
-      if (session.identity) credentialGenerationByIdentity.delete(session.identity);
+      if (session.identity)
+        credentialGenerationByIdentity.delete(session.identity);
       deviceSessionRegistry.evictSession(session);
     },
   });
