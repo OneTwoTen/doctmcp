@@ -6,7 +6,7 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 
 M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) đã hoàn tất qua PR #38 với pairing session/code lifecycle và atomic claim. M3.3 (#32) đã hoàn tất implementation trên PR #39 với long-lived device credential + authenticated bridge handshake.
 
-Final head sau vòng review hiện tại đã pass **213/213 test**, 878 assertions trên 30 files ở CI #227.
+Implementation hiện tại đã pass **213/213 test**, 878 assertions trên 30 files; M2 acceptance 6/6 và Windows regression đều xanh.
 
 ## Mục tiêu M3.2
 
@@ -278,4 +278,4 @@ M3.2 + M3.3 hiện có regression cho:
 - shutdown drain waiter;
 - M2 compatibility flow.
 
-CI #227 trên final head trước metadata-only PR update: `check` ✅, `typecheck` ✅, **213/213 tests**, 878 assertions, 30 files; M2 acceptance 6/6 và Windows shell regression ✅.
+Implementation verification: `check` ✅, `typecheck` ✅, **213/213 tests**, 878 assertions, 30 files; M2 acceptance 6/6 và Windows shell regression ✅.
