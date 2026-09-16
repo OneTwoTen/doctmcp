@@ -135,14 +135,14 @@ Pairing, database, device identity/routing, public MCP endpoint và ChatGPT inte
 
 ## M3 — Device management và pairing
 
-**M3 đang triển khai — 2/7 work item đã hoàn tất.** M3.1/#30 hoàn tất qua PR #37, M3.2/#31 hoàn tất qua PR #38; task active hiện tại là M3.3/#32. Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
+**M3 đang triển khai — 3/7 work item đã hoàn tất.** M3.1/#30 hoàn tất qua PR #37, M3.2/#31 qua PR #38, M3.3/#32 qua PR #39 (`163fb899`); task active hiện tại là M3.4/#33. Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
 
 Các work item M3:
 
 - ✅ M3.1 / #30 — Device identity/domain model + persistence contract qua PR #37.
 - ✅ M3.2 / #31 — Pairing session/code lifecycle và atomic claim flow qua PR #38.
-- ⏳ M3.3 / #32 — Device credential lifecycle + authenticated bridge handshake.
-- ⬜ M3.4 / #33 — Device session registry, heartbeat và online/offline state.
+- ✅ M3.3 / #32 — Device credential lifecycle + authenticated bridge handshake qua PR #39 (`163fb899`).
+- ⏳ M3.4 / #33 — Device session registry, heartbeat và online/offline state.
 - ⬜ M3.5 / #34 — Local reconnect/backoff + credential resume.
 - ⬜ M3.6 / #35 — Multi-device registry + routing theo `deviceId`.
 - ⬜ M3.7 / #36 — Acceptance/security suite pairing → reconnect → routing.
@@ -167,22 +167,35 @@ M3.2 đã khóa:
 - atomic claim bao trọn expiry validation + `DeviceRepository.create()` + mark claimed;
 - authoritative claim time được đọc trong repository atomic boundary;
 - malformed/non-string/unknown/expired/reused/cancelled code cùng map `PAIRING_CODE_UNAVAILABLE`;
-- anti-bruteforce hook chỉ nhận digest/context, không nhận raw pairing code;
-- final CI #144: 184/184 test, M2 acceptance 6/6 và Windows regression xanh.
+- anti-bruteforce hook chỉ nhận digest/context, không nhận raw pairing code.
+
+M3.3 đã khóa:
+
+- long-lived raw credential 32 CSPRNG bytes / 256 bit, wire format 43-char unpadded base64url;
+- server chỉ persist digest có domain prefix, không persist/log raw credential;
+- `credentialId + version` làm generation/CAS boundary; credential id không reuse;
+- issue/verify/revoke/rotate deterministic, old generation mất hiệu lực sau rotate/revoke;
+- pairing credential completion có durable `pending/recovering/delivered` state và crash-safe recovery reservation;
+- per-device lifecycle coordinator serialize initial issue, recovery finalize và explicit rotate/revoke trong cùng runtime;
+- authenticated `bridge.hello` bind server-side `{ownerId, deviceId}` trước `ready`/MCP traffic;
+- strict auth schema reject malformed device id/credential trước verifier;
+- ready lease + final credential revalidation chặn auth-vs-mutation race;
+- successful rotate/revoke đóng same-process authenticated session và old secret không reconnect được;
+- CI #270: 223/223 tests, 914 assertions, 34 files, M2 acceptance và Windows regression xanh.
 
 Phạm vi còn lại của M3:
 
-- device credential dài hạn riêng;
-- revoke/rotate credential;
-- authenticated bridge handshake bind đúng owner/device;
-- heartbeat và online state;
-- reconnect/backoff;
-- nhiều thiết bị trên cùng user;
-- device routing.
+- M3.4: authoritative device session registry keyed/generation-aware theo `deviceId`;
+- duplicate session replacement policy;
+- heartbeat/liveness + online/offline derived state;
+- cross-instance revoke/rotate invalidation qua shared bus, bounded mặc định ≤ 5 giây và chống delayed/duplicate event;
+- M3.5: local credential persistence + reconnect/backoff;
+- M3.6: nhiều thiết bị trên cùng owner và routing theo `deviceId`;
+- M3.7: acceptance/security suite pairing → credential → reconnect → routing.
 
 `device.list/get/ping` nếu cần expose cho model/client thuộc public/control-plane surface ở milestone sau, không phải local M1 tool catalog.
 
-Security test phải bao gồm expired/reused pairing code và credential bị revoke. M2 regression phải tiếp tục xanh trong toàn M3.
+Security regression của M3 phải tiếp tục giữ pairing code one-time, credential revoke/rotate, auth race và session invalidation semantics. M2 regression phải tiếp tục xanh trong toàn M3.
 
 ## M4 — Public MCP endpoint
 
