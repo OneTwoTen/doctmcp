@@ -6,7 +6,7 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 
 M3.1 đã khóa **device identity + persistence contract**. M3.2 (#31) đã hoàn tất qua PR #38 với pairing session/code lifecycle và atomic claim. M3.3 (#32) đã hoàn tất implementation trên PR #39 với long-lived device credential + authenticated bridge handshake.
 
-Implementation hiện tại đã pass **213/213 test**, 878 assertions trên 30 files; M2 acceptance 6/6 và Windows regression đều xanh.
+Implementation hiện tại đã pass **218/218 test**, 895 assertions trên 32 files; M2 acceptance 6/6 và Windows regression đều xanh.
 
 ## Mục tiêu M3.2
 
@@ -71,9 +71,9 @@ Credential delivery là state machine riêng của M3.3:
 
 ```text
 pending(generation N)
-    -> recovering(generation N)
-    -> pending(generation N+1)
-    -> delivered(generation N+1)
+    -> recovering(source N, target credentialId T)
+    -> pending(generation N+1, credentialId T)
+    -> delivered(generation N+1, credentialId T)
 ```
 
 `delivered` là terminal. Một pairing session đã delivered không được resume để mint/rotate credential mới.
@@ -149,6 +149,7 @@ deviceId
 credentialId
 credentialVersion
 state: pending | recovering | delivered
+recoveryTargetCredentialId? // chỉ có khi recovering
 ```
 
 Các invariant:
@@ -161,36 +162,39 @@ Các invariant:
 
 ### Crash recovery reservation
 
-Nếu process restart sau khi credential digest đã persist nhưng raw secret chưa được delivery/ACK, secret cũ không thể khôi phục từ digest. Recovery dùng durable reservation:
+Nếu process restart sau khi credential digest đã persist nhưng raw secret chưa được delivery/ACK, secret cũ không thể khôi phục từ digest. Recovery dùng durable reservation và reserve **credential id đích** trước khi rotate:
 
 ```text
 pending(generation N)
-  -> beginRecovery(): recovering(generation N)
-  -> rotateExpected(N -> N+1)
-  -> finishRecovery(): pending(generation N+1)
-  -> deliver raw secret N+1
+  -> beginRecovery(): recovering(source N, target credentialId T)
+  -> rotateExpectedWithCredentialId(N -> T/N+1)
+  -> finishRecovery(): pending(T/N+1)
+  -> deliver raw secret của T/N+1
 ```
 
-Điểm quan trọng là `recovering` được persist **trước** credential mutation. Trong state này mọi ACK đều bị reject.
+Điểm quan trọng là `recovering` cùng `recoveryTargetCredentialId` được persist **trước** credential mutation. Trong state này mọi ACK đều bị reject.
 
 Nếu crash xảy ra sau rotate nhưng trước `finishRecovery()`:
 
 ```text
-completion = recovering(N)
-credential store = active(N+1)
-raw secret N+1 = lost
+completion = recovering(source N, target T)
+credential store = active(T/N+1)
+raw secret T/N+1 = lost
 ```
 
-Lần resume tiếp theo đọc active generation, CAS `advanceRecovery()` từ reservation N sang N+1, rồi rotate **đúng expected generation N+1** sang N+2. Raw secret chỉ được trả sau khi `finishRecovery()` đã commit `pending(N+2)`.
+Lần resume tiếp theo chỉ coi active generation là commit của recovery nếu nó khớp **đúng `recoveryTargetCredentialId = T` và version N+1**. Khi khớp, repository CAS `advanceRecovery()` sang source T/N+1, reserve target mới U, rồi rotate đúng expected generation T/N+1 sang U/N+2. Raw secret chỉ được trả sau khi `finishRecovery()` đã commit `pending(U/N+2)`.
+
+Nếu active credential bị mất vì explicit revoke, hoặc active generation đã đổi sang credential id khác vì explicit rotate, resume trả `PAIRING_COMPLETION_UNAVAILABLE` và **không** issue/rotate thêm. Recovery không được đảo ngược lifecycle mutation bên ngoài pairing hoặc làm mất hiệu lực secret vừa được explicit rotate trả cho caller.
 
 Nhờ đó:
 
 - stale ACK của N không thể đánh dấu delivered trong recovery window;
 - generation có secret bị mất không được coi là deliverable;
 - concurrent worker không thể vô tình rotate một generation mới hơn mà worker khác vừa tạo;
-- worker chỉ được trả raw secret nếu completion finalize cho chính generation đó thành công.
+- explicit revoke/rotate không bị nhận nhầm là recovery progress;
+- worker chỉ được trả raw secret nếu completion finalize cho chính reserved target generation đó thành công.
 
-Production adapter phải persist và CAS atomically các transition `beginRecovery`, `advanceRecovery`, `finishRecovery`, `acknowledge`. Raw secret tuyệt đối không được persist trong completion record.
+Production adapter phải persist và CAS atomically các transition `beginRecovery`, `advanceRecovery`, `finishRecovery`, `acknowledge`, bao gồm `recoveryTargetCredentialId`. Raw secret tuyệt đối không được persist trong completion record.
 
 ## ACK contract
 
@@ -223,7 +227,7 @@ Sau terminal ACK thành công, raw secret pending được xóa khỏi memory.
 - owner resolve từ server-side `DeviceRepository`;
 - verify lỗi trả generic `CREDENTIAL_UNAVAILABLE`;
 - revoke/rotate dùng CAS trên expected `credentialId + version`;
-- `rotateExpected()` là primitive nội bộ cho recovery và chỉ rotate đúng generation đã reserve.
+- recovery reserve target id trước mutation và dùng `rotateExpectedWithCredentialId()` để chỉ commit đúng source/target generation đã reserve.
 
 ## Authenticated reconnect
 
@@ -257,6 +261,8 @@ Server runtime enforce:
 - correctness không dựa vào event-loop delay hay post-ACK sweep;
 - shutdown resolve auth/ready drain waiter để mutation không treo.
 
+Gateway outbound send failure cũng đóng/cleanup session ngay; session id không được giữ ở trạng thái ready sau khi WebSocket báo frame bị drop/fail, kể cả khi idle timeout bị tắt.
+
 #33 vẫn xây authoritative device-session registry, duplicate-session policy, heartbeat và online/offline state.
 
 ## Test coverage
@@ -270,12 +276,16 @@ M3.2 + M3.3 hiện có regression cho:
 - issue fail sau claim và restart persist-before-delivery recovery;
 - crash **sau rotate nhưng trước completion finalize**;
 - `recovering` chặn stale ACK;
+- recovery không đảo ngược explicit revoke;
+- recovery không supersede explicit rotate;
+- external rotate sau recovery reservation không bị nhận nhầm là recovery commit;
 - exact duplicate delivered ACK idempotent;
 - delivered terminal qua restart/revoke;
 - authenticated bridge và pre-auth MCP rejection;
 - ready lease + final credential revalidation;
 - revoke/rotate active-session invalidation;
+- outbound gateway send failure cleanup;
 - shutdown drain waiter;
 - M2 compatibility flow.
 
-Implementation verification: `check` ✅, `typecheck` ✅, **213/213 tests**, 878 assertions, 30 files; M2 acceptance 6/6 và Windows shell regression ✅.
+Implementation verification: `check` ✅, `typecheck` ✅, **218/218 tests**, 895 assertions, 32 files; M2 acceptance 6/6 và Windows shell regression ✅.
