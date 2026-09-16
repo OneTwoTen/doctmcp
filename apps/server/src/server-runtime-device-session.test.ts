@@ -155,7 +155,7 @@ describe("M3.4 device session runtime", () => {
     ).toBeNull();
   });
 
-  test("cross-instance rotate closes stale generation and delayed old event cannot close new generation", async () => {
+  test("cross-instance rotate/revoke closes stale generation while duplicate delayed events cannot close new generation", async () => {
     const deviceRepository = new InMemoryDeviceRepository();
     const credentialRepository = new InMemoryDeviceCredentialRepository();
     const lifecycle = new InMemoryDeviceCredentialLifecycleCoordinator();
@@ -203,22 +203,28 @@ describe("M3.4 device session runtime", () => {
     });
     await current.start();
 
-    await invalidationBus.publish(
-      createDeviceCredentialInvalidationEvent({
-        eventId: "delayed-old-generation-event",
-        kind: "rotated",
-        deviceId: completed.device.deviceId,
-        credentialId: completed.credential.credentialId,
-        credentialVersion: completed.credential.version,
-        publishedAt: new Date("2026-09-16T00:00:00.000Z"),
-      }),
-    );
+    const delayedOldGenerationEvent = createDeviceCredentialInvalidationEvent({
+      eventId: "delayed-old-generation-event",
+      kind: "rotated",
+      deviceId: completed.device.deviceId,
+      credentialId: completed.credential.credentialId,
+      credentialVersion: completed.credential.version,
+      publishedAt: new Date("2026-09-16T00:00:00.000Z"),
+    });
+    await invalidationBus.publish(delayedOldGenerationEvent);
+    await invalidationBus.publish(delayedOldGenerationEvent);
 
     expect(current.state).toBe("ready");
     expect(
       runtimeB.deviceSessionRegistry.getActive(completed.device.deviceId)
         ?.session.id,
     ).toBe("cross-instance-current");
+
+    await runtimeA.revokeDeviceCredential(completed.device.deviceId);
+    await waitFor(() => (current.state === "closed" ? true : undefined));
+    expect(runtimeB.getDeviceStatus(completed.device.deviceId).status).toBe(
+      "offline",
+    );
   });
 
   test("heartbeat generation revalidation closes stale remote session when invalidation delivery is degraded", async () => {
