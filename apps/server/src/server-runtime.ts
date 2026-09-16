@@ -1,7 +1,7 @@
 import type { DeviceCredential } from "@doctmcp/schemas";
 import {
-  type DeviceCredentialRepository,
   DeviceCredentialError,
+  type DeviceCredentialRepository,
   DeviceCredentialService,
   InMemoryDeviceCredentialRepository,
   type IssuedDeviceCredential,
