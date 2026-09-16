@@ -360,7 +360,7 @@ export function createBridgeGateway(
     heartbeatIntervalMs < 0 ||
     !Number.isFinite(heartbeatTimeoutMs) ||
     heartbeatTimeoutMs < 0 ||
-    ((heartbeatIntervalMs === 0) !== (heartbeatTimeoutMs === 0)) ||
+    (heartbeatIntervalMs === 0) !== (heartbeatTimeoutMs === 0) ||
     (heartbeatIntervalMs > 0 && heartbeatTimeoutMs <= heartbeatIntervalMs)
   ) {
     throw new Error(
@@ -394,7 +394,7 @@ export function createBridgeGateway(
   const usesAuthenticatedHeartbeat = (connection: GatewayConnection): boolean =>
     heartbeatIntervalMs > 0 &&
     heartbeatTimeoutMs > 0 &&
-    connection.session?.identity !== null;
+    connection.session?.identity != null;
 
   const armReadyIdleTimeout = (connection: GatewayConnection): void => {
     if (usesAuthenticatedHeartbeat(connection)) {
@@ -738,15 +738,12 @@ export function createBridgeGateway(
     }
   };
 
-  const handlePong = (
-    connection: GatewayConnection,
-    payload: Buffer,
-  ): void => {
+  const handlePong = (connection: GatewayConnection, payload: Buffer): void => {
+    const session = connection.session;
     if (
       connection.finalized ||
       connection.state !== "ready" ||
-      !connection.session ||
-      !connection.session.identity ||
+      !session?.identity ||
       connection.heartbeatValidating
     ) {
       return;
@@ -756,12 +753,13 @@ export function createBridgeGateway(
 
     connection.heartbeatNonce = null;
     connection.heartbeatValidating = true;
-    Promise.resolve(options.onHeartbeat?.(connection.session))
+    Promise.resolve()
+      .then(() => options.onHeartbeat?.(session))
       .then(() => {
         if (
           connection.finalized ||
           connection.state !== "ready" ||
-          !connection.session
+          connection.session !== session
         ) {
           return;
         }
@@ -787,6 +785,7 @@ export function createBridgeGateway(
       maxPayloadLength: BRIDGE_MAX_MESSAGE_BYTES + 4_096,
       backpressureLimit: BRIDGE_MAX_QUEUED_BYTES,
       closeOnBackpressureLimit: false,
+      sendPings: false,
       open(ws) {
         const connection = connections.get(ws.data.connectionId);
         if (!connection) {
