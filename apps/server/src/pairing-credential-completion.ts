@@ -565,7 +565,13 @@ export class PairingCredentialCompletionService {
       ) {
         // Chỉ generation đúng target đã reserve trước rotate mới được coi là
         // commit của recovery bị crash. Generation khác thuộc mutation ngoài.
-        if (!isReservedRecoveryTarget(recovery, active.credentialId, active.version)) {
+        if (
+          !isReservedRecoveryTarget(
+            recovery,
+            active.credentialId,
+            active.version,
+          )
+        ) {
           throw completionUnavailable();
         }
 
