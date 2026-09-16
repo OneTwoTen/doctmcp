@@ -10,7 +10,7 @@ import {
 } from "./bridge-server-transport";
 
 const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const CREDENTIAL = "local-device-secret";
+const CREDENTIAL = "A".repeat(43);
 
 interface AuthPeer {
   readonly url: string;
