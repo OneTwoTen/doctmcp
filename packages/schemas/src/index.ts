@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { deviceCredentialSecretSchema } from "./device-credential";
 import { deviceIdSchema } from "./device";
+import { deviceCredentialSecretSchema } from "./device-credential";
 
 export * from "./device";
 export * from "./device-credential";
