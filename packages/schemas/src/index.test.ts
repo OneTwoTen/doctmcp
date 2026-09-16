@@ -4,9 +4,13 @@ import {
   BRIDGE_MAX_QUEUED_BYTES,
   BRIDGE_MAX_QUEUED_MESSAGES,
   BRIDGE_PROTOCOL_VERSION,
+  DEVICE_CREDENTIAL_SECRET_BASE64URL_LENGTH,
   type BridgeMessage,
   bridgeMessageSchema,
 } from "./index";
+
+const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const VALID_CREDENTIAL = "A".repeat(DEVICE_CREDENTIAL_SECRET_BASE64URL_LENGTH);
 
 describe("schemas", () => {
   test("exposes deterministic bridge size and queue limits", () => {
@@ -24,6 +28,41 @@ describe("schemas", () => {
         sessionId: "session-1",
       }),
     ).toMatchObject({ kind: "bridge.hello", role: "local-agent" });
+  });
+
+  test("locks authenticated hello to UUID v4 device id and 256-bit unpadded base64url credential", () => {
+    expect(
+      bridgeMessageSchema.parse({
+        kind: "bridge.hello",
+        bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+        role: "local-agent",
+        sessionId: "session-auth",
+        auth: {
+          mode: "device",
+          deviceId: DEVICE_ID.toUpperCase(),
+          credential: VALID_CREDENTIAL,
+        },
+      }),
+    ).toMatchObject({
+      auth: { deviceId: DEVICE_ID, credential: VALID_CREDENTIAL },
+    });
+
+    for (const credential of [
+      "short-secret",
+      `${"A".repeat(42)}=`,
+      `${"A".repeat(42)}+`,
+      "A".repeat(44),
+    ]) {
+      expect(() =>
+        bridgeMessageSchema.parse({
+          kind: "bridge.hello",
+          bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+          role: "local-agent",
+          sessionId: "session-auth",
+          auth: { mode: "device", deviceId: DEVICE_ID, credential },
+        }),
+      ).toThrow();
+    }
   });
 
   test("preserves MCP messages as opaque JSON-RPC objects", () => {
