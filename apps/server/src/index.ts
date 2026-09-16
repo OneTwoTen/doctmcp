@@ -25,6 +25,10 @@ export {
   type VerifiedDeviceCredential,
 } from "./device-credential";
 export {
+  type DeviceCredentialLifecycleCoordinator,
+  InMemoryDeviceCredentialLifecycleCoordinator,
+} from "./device-credential-lifecycle";
+export {
   type DeviceClock,
   type DeviceIdGenerator,
   type DeviceRepository,
@@ -93,6 +97,7 @@ export {
   type CreateDoctmcpServerRuntimeOptions,
   createDoctmcpServerRuntime,
   type DoctmcpServerRuntime,
+  type RuntimePairingCredentialCompletionService,
 } from "./server-runtime";
 
 if (import.meta.main) {
