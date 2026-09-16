@@ -19,9 +19,15 @@ const CREDENTIAL_IDS = [
   "22222222-2222-4222-8222-222222222222",
   "33333333-3333-4333-8333-333333333333",
 ] as const;
-const SECRETS = ["secret-generation-1", "secret-generation-2", "secret-generation-3"] as const;
+const SECRETS = [
+  "secret-generation-1",
+  "secret-generation-2",
+  "secret-generation-3",
+] as const;
 
-class FailFirstFinishRepository implements PairingCredentialCompletionRepository {
+class FailFirstFinishRepository
+  implements PairingCredentialCompletionRepository
+{
   #failNextFinish = true;
 
   constructor(
@@ -32,24 +38,32 @@ class FailFirstFinishRepository implements PairingCredentialCompletionRepository
     return this.delegate.get(pairingSessionId);
   }
 
-  setPending(input: Parameters<PairingCredentialCompletionRepository["setPending"]>[0]) {
+  setPending(
+    input: Parameters<PairingCredentialCompletionRepository["setPending"]>[0],
+  ) {
     return this.delegate.setPending(input);
   }
 
   beginRecovery(
-    input: Parameters<PairingCredentialCompletionRepository["beginRecovery"]>[0],
+    input: Parameters<
+      PairingCredentialCompletionRepository["beginRecovery"]
+    >[0],
   ) {
     return this.delegate.beginRecovery(input);
   }
 
   advanceRecovery(
-    input: Parameters<PairingCredentialCompletionRepository["advanceRecovery"]>[0],
+    input: Parameters<
+      PairingCredentialCompletionRepository["advanceRecovery"]
+    >[0],
   ) {
     return this.delegate.advanceRecovery(input);
   }
 
   async finishRecovery(
-    input: Parameters<PairingCredentialCompletionRepository["finishRecovery"]>[0],
+    input: Parameters<
+      PairingCredentialCompletionRepository["finishRecovery"]
+    >[0],
   ): Promise<PairingCredentialCompletionRecord | null> {
     if (this.#failNextFinish) {
       this.#failNextFinish = false;
@@ -88,7 +102,8 @@ async function createFixture() {
     repository: credentialRepository,
     deviceRepository,
     now,
-    generateCredentialId: () => CREDENTIAL_IDS[credentialIdIndex++] ?? crypto.randomUUID(),
+    generateCredentialId: () =>
+      CREDENTIAL_IDS[credentialIdIndex++] ?? crypto.randomUUID(),
     generateSecret: () => SECRETS[secretIndex++] ?? `secret-${secretIndex}`,
   });
   const completionRepository =
@@ -137,7 +152,9 @@ describe("Pairing credential recovery reservation", () => {
       crashingService.resumeClaimedPairing(PAIRING_SESSION_ID, "owner-a"),
     ).rejects.toThrow("simulated crash after credential rotation");
 
-    await expect(completionRepository.get(PAIRING_SESSION_ID)).resolves.toMatchObject({
+    await expect(
+      completionRepository.get(PAIRING_SESSION_ID),
+    ).resolves.toMatchObject({
       state: "recovering",
       credentialId: initial.credential.credentialId,
       credentialVersion: 1,
@@ -179,7 +196,9 @@ describe("Pairing credential recovery reservation", () => {
     await expect(
       credentialService.verify(DEVICE_ID, recovered.secret),
     ).resolves.toMatchObject({ credential: recovered.credential });
-    await expect(completionRepository.get(PAIRING_SESSION_ID)).resolves.toMatchObject({
+    await expect(
+      completionRepository.get(PAIRING_SESSION_ID),
+    ).resolves.toMatchObject({
       state: "pending",
       credentialId: CREDENTIAL_IDS[2],
       credentialVersion: 3,
@@ -193,7 +212,9 @@ describe("Pairing credential recovery reservation", () => {
     } as const;
     await expect(restarted.acknowledgeDelivery(ack)).resolves.toBeUndefined();
     await expect(restarted.acknowledgeDelivery(ack)).resolves.toBeUndefined();
-    await expect(completionRepository.get(PAIRING_SESSION_ID)).resolves.toMatchObject({
+    await expect(
+      completionRepository.get(PAIRING_SESSION_ID),
+    ).resolves.toMatchObject({
       state: "delivered",
       credentialId: CREDENTIAL_IDS[2],
       credentialVersion: 3,
