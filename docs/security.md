@@ -6,158 +6,121 @@
 
 Các ranh giới chính:
 
-- MCP client/ChatGPT → public server.
-- Public server → authenticated device/session.
-- Custom transport → local MCP runtime.
-- Local MCP runtime → permission engine.
-- Local tool → filesystem/process/network/resource của hệ điều hành.
+- MCP client/ChatGPT → public server;
+- public server → authenticated device/session;
+- custom transport → local MCP runtime;
+- local MCP runtime → permission engine;
+- local tool → filesystem/process/network/resource của hệ điều hành.
 
-Mỗi boundary phải validate dữ liệu ở mức phù hợp. Không dựa vào việc lớp phía trước đã validate để bỏ kiểm tra ở lớp sau khi hậu quả có thể ảnh hưởng máy local.
+Mỗi boundary phải validate dữ liệu ở mức phù hợp. Không dựa vào việc lớp trước đã validate để bỏ kiểm tra ở lớp sau nếu hậu quả có thể ảnh hưởng máy local.
 
 ## Nguyên tắc nền
 
 - Không expose local MCP runtime trực tiếp ra Internet chỉ để public server kết nối vào.
 - Local chủ động mở outbound connection tới public server.
 - Ngoài local development, dùng TLS/WSS cho kết nối remote.
-- Không ghi log token, pairing code thực, private key hoặc credential đầy đủ.
+- Không ghi log token, raw pairing code, private key hoặc credential đầy đủ.
 - Permission quan trọng phải được enforce tại local runtime.
 - Path filesystem phải normalize/canonicalize trước khi áp allow/deny policy.
 - Tool có side effect phải có timeout/cancellation hoặc giới hạn tương ứng khi khả thi.
-- Credential thiết bị phải có khả năng revoke/rotate trước khi dùng production.
+- Device credential phải hỗ trợ revoke/rotate trước khi production use.
 
 ## MCP không thay thế permission
 
-MCP mô tả capability và tool call, nhưng việc một tool tồn tại trong `tools/list` không đồng nghĩa mọi request đều được phép thực thi.
-
-Local runtime phải kiểm tra permission trước khi gọi implementation thật.
-
-Ví dụ:
+MCP mô tả capability/tool call, nhưng tool xuất hiện trong `tools/list` không đồng nghĩa mọi request đều được phép thực thi.
 
 ```text
 tools/call filesystem.read
-        │
-        ▼
-validate input
-        │
-        ▼
-canonicalize path
-        │
-        ▼
-permission check
-        │
-        ├─ deny -> structured tool error
-        │
-        └─ allow -> read file
+        -> validate input
+        -> canonicalize path
+        -> permission check
+             deny  -> structured error
+             allow -> implementation thật
 ```
 
-## Giả định public server có thể bị compromise
+Public server không được coi là boundary duy nhất bảo vệ hệ điều hành local. Nếu public server bị compromise, permission local vẫn phải giới hạn capability theo policy đã cấu hình.
 
-Public server không được coi là boundary duy nhất bảo vệ hệ điều hành local.
+## Filesystem và shell
 
-Nếu public server bị compromise, permission local vẫn phải hạn chế được capability theo policy đã cấu hình. Đây là lý do permission không được chỉ đặt ở server.
-
-## Filesystem
-
-Yêu cầu tối thiểu:
+Filesystem cần tối thiểu:
 
 - canonical path check;
 - deny ưu tiên hơn allow;
-- chống path traversal;
-- kiểm tra symlink/canonical target khi policy phụ thuộc path;
-- giới hạn kích thước đọc/ghi khi cần;
-- không expose thư mục secret theo mặc định.
+- chống traversal;
+- symlink/canonical-target validation;
+- read/write size limits khi cần;
+- không expose secret directory mặc định.
 
-## Shell
+`shell.exec` cần tối thiểu:
 
-`shell.exec` là capability nhạy cảm nhất trong M1.
-
-Trước khi coi tool này đủ an toàn cho remote use cần có ít nhất:
-
-- timeout;
+- timeout/cancellation;
 - output size limit;
 - cwd policy;
 - environment filtering;
 - permission/approval policy;
 - structured exit status;
-- không tự động log toàn bộ command output nếu có thể chứa secret.
+- không mặc định log toàn bộ command output.
 
 Không dựa vào blacklist vài command nguy hiểm như lớp bảo vệ duy nhất.
 
-## Device identity và ownership
+## Device identity và ownership — M3.1
 
-M3.1 khóa các invariants sau:
+Các invariant:
 
-- `deviceId` là immutable routing identity; `deviceName` không phải authorization/routing key;
-- `ownerId` là opaque principal server-side và không được đổi qua device metadata update;
-- owner-scoped store API phải chặn lookup/update chéo owner;
-- caller phải coi UUID v4 `deviceId` là opaque, không dùng format hoặc thứ tự ID làm authorization;
-- `Device` không chứa authoritative `online` state, bridge session object hoặc MCP SDK session id.
+- `deviceId` là immutable routing identity; `deviceName` không phải authorization key;
+- `ownerId` là opaque principal server-side và không đổi qua metadata update;
+- owner-scoped APIs phải chặn cross-owner lookup/update;
+- UUID `deviceId` được coi là opaque;
+- `Device` không chứa raw credential, authoritative online state, bridge session object hoặc MCP session id.
 
-Identity đã authenticated ở server vẫn **không** bypass permission local của M1.
+Authenticated identity ở server vẫn không bypass local permission engine.
 
 ## Pairing security — M3.2
 
-Pairing code là credential ngắn hạn, dùng một lần. Nó không được tái sử dụng làm device token dài hạn.
-
-Contract hiện tại:
+Pairing code là credential ngắn hạn, dùng một lần:
 
 - TTL mặc định 5 phút;
-- 12 symbol trên alphabet 32 ký tự dễ đọc = 60 bit entropy;
-- generator dùng `crypto.getRandomValues()`, không dùng `Math.random()`;
-- raw pairing code chỉ trả về lúc create session;
-- store lookup bằng SHA-256 digest của canonical code với domain prefix;
-- claim tại `expiresAt` hoặc muộn hơn bị coi là expired;
-- claim thành công invalidate code ngay lập tức;
-- cancelled/expired/reused/unknown/malformed code đều map ra generic `PAIRING_CODE_UNAVAILABLE` ở service boundary;
-- production log/structured error không được chứa raw code.
-
-Code normalization cho phép case-insensitive và bỏ whitespace/dash. Đây chỉ là UX normalization, không làm thay đổi entropy của code được sinh.
+- 12 symbols trên alphabet 32 = 60 bit entropy;
+- generator dùng `crypto.getRandomValues()`;
+- store chỉ persist SHA-256 digest có domain prefix, không raw code;
+- claim tại `expiresAt` hoặc muộn hơn bị reject;
+- claim thành công invalidate code ngay;
+- cancelled/expired/reused/unknown/malformed đều map generic `PAIRING_CODE_UNAVAILABLE`;
+- production log/error không chứa raw code.
 
 ### Atomic claim
 
-Pairing claim và device creation không được tách thành chuỗi write độc lập kiểu:
+Pairing claim và device creation phải nằm trong transaction/lock/CAS boundary tương đương. Không triển khai production theo kiểu:
 
 ```text
 check pending -> await create device -> mark claimed
 ```
 
-nếu không có transaction/lock/CAS bao quanh toàn bộ sequence.
+với ba write/check rời rạc.
 
-`InMemoryPairingSessionRepository` dùng async critical section và gọi `DeviceRepository.create()` bên trong atomic claim boundary. Hai claim đồng thời cùng một code chỉ một request được phép tạo device.
-
-Production persistence phải dùng database transaction, row lock, compare-and-swap hoặc cơ chế tương đương. Nếu database adapter không thể đặt pairing transition + device creation trong cùng atomic unit-of-work thì adapter đó chưa đáp ứng M3.2 security contract.
+`InMemoryPairingSessionRepository` là reference adapter và serialize toàn bộ mutation bằng critical section. Production adapter phải giữ atomic invariant tương đương.
 
 ### Anti-bruteforce boundary
 
-`PairingClaimAttemptGuard` là abstraction để HTTP/auth layer sau này áp rate limit theo trusted owner/user và network context mà không sửa domain flow.
-
-Guard chỉ nhận:
-
-- `ownerId`;
-- code digest hoặc `null` nếu malformed;
-- optional remote address.
-
-Raw pairing code không được truyền vào guard để tránh bị observability/rate-limit layer log ngoài ý muốn.
-
-M3.2 chưa triển khai full user auth/IP rate-limit infrastructure. Endpoint production sau này vẫn bắt buộc có rate limit phù hợp vì pairing code là human-readable credential.
+`PairingClaimAttemptGuard` chỉ nhận trusted `ownerId`, code digest hoặc `null`, và optional remote address. Raw pairing code không được truyền vào observability/rate-limit hook.
 
 ## Device credential và bridge authentication — M3.3
 
-M3.3 tách long-lived device credential khỏi `Device` record và khóa các boundary sau:
+Long-lived credential tách khỏi `Device` record:
 
-- raw credential được sinh từ 32 random bytes bằng `crypto.getRandomValues()` = 256 bit entropy;
-- server persist SHA-256 digest của domain-prefixed secret, không persist raw credential;
-- raw credential chỉ được trả ở thời điểm issue/rotate để giao một lần cho local runtime;
-- `credentialId` là UUID v4 riêng, không được reuse giữa device hoặc generation;
-- mỗi device có tối đa một credential active;
-- ownership luôn lấy từ `DeviceRepository`, không tin `ownerId` do local gửi;
-- verify failure dùng generic `CREDENTIAL_UNAVAILABLE`, không echo secret;
-- manual digest compare dùng constant-time loop;
-- pairing code tuyệt đối không được promote thành long-lived credential.
+- raw secret = 32 CSPRNG bytes, 256 bit entropy;
+- server persist SHA-256 digest của domain-prefixed secret;
+- raw secret chỉ xuất hiện lúc issue/rotate/delivery;
+- `credentialId` riêng, không reuse giữa device/generation;
+- mỗi device tối đa một credential active;
+- owner luôn resolve từ `DeviceRepository`;
+- verify failure generic `CREDENTIAL_UNAVAILABLE`;
+- manual digest compare constant-time;
+- pairing code không được promote thành long-lived credential.
 
-### Pairing → credential completion
+## Pairing → credential completion
 
-Sau atomic pairing claim, `PairingCredentialCompletionService` issue credential cho đúng `deviceId` vừa được tạo và tạo pending-delivery payload gồm:
+Delivery payload gồm:
 
 ```text
 pairingSessionId
@@ -168,38 +131,72 @@ credentialVersion
 raw credential
 ```
 
-Payload không chứa pairing code. Duplicate/replay pairing claim dừng trước credential issue thứ hai.
-
-Raw credential chỉ được giữ transient trong memory. Authoritative completion state nằm trong `PairingCredentialCompletionRepository` và **không chứa raw secret**:
+Raw secret chỉ tồn tại transient. Authoritative completion record tuyệt đối không chứa secret:
 
 ```text
 pairingSessionId
 deviceId
 credentialId
 credentialVersion
-state: pending | delivered
+state: pending | recovering | delivered
 ```
 
-`resumeClaimedPairing(pairingSessionId, ownerId)` luôn resolve claimed session và kiểm tra ownership từ server-side `DeviceRepository` **trước** khi đọc transient cache. `pairingSessionId` vì vậy không trở thành bearer secret; wrong owner luôn nhận generic `PAIRING_COMPLETION_UNAVAILABLE` kể cả raw credential đang còn trong memory.
+Owner được verify server-side trước khi đọc pending-secret cache, vì vậy `pairingSessionId` không phải bearer credential.
 
-Nếu process restart sau khi credential digest đã persist nhưng trước delivery/ack, raw secret cũ không thể khôi phục từ digest. Recovery path phát hiện credential active đã tồn tại, rotate sang generation mới và trả raw secret mới cho đúng owner. Generation thất lạc cũ bị vô hiệu ngay; server không cần persist raw credential để đạt crash recovery.
+### Crash-safe recovery reservation
 
-ACK không còn là thao tác “xóa cache” đơn thuần. `acknowledgeDelivery()` yêu cầu `pairingSessionId + ownerId + credentialId + credentialVersion`, owner được verify server-side và repository CAS đúng generation `pending -> delivered`.
+Persist-before-delivery recovery không được làm theo thứ tự nguy hiểm:
+
+```text
+rotate credential
+-> sau đó mới update completion generation
+```
+
+vì crash/race giữa hai write có thể làm mất raw secret mới và để completion trỏ generation cũ.
+
+Contract hiện tại dùng durable reservation:
+
+```text
+pending(N)
+  -> recovering(N)          // persist/CAS trước mutation
+  -> rotateExpected(N,N+1) // exact generation CAS
+  -> pending(N+1)           // finalize
+  -> delivered(N+1)
+```
 
 Security invariant:
 
-- wrong owner hoặc stale generation ACK không consume pending delivery;
-- chỉ ACK đúng generation mới xóa raw secret transient;
-- `delivered` là terminal và phải persist qua restart;
-- pairing session đã delivered không được resume để issue/rotate credential mới, kể cả credential hiện tại sau đó bị revoke.
+- ACK bị reject trong `recovering`;
+- stale generation không thể trở thành `delivered` trong recovery window;
+- nếu crash sau rotate nhưng trước finalize, next resume nhận thấy active generation đã advance, CAS reservation sang generation active rồi rotate lại từ **đúng expected generation**;
+- raw secret chỉ được trả sau khi `finishRecovery()` đã commit `pending` cho generation đó;
+- concurrent worker mất CAS không được trả raw secret;
+- completion repository không persist raw secret.
 
-`InMemoryPairingCredentialCompletionRepository` chỉ là reference adapter. Production persistence phải implement cùng contract và persist terminal state. Runtime cho phép inject `pairingCredentialCompletionRepository` riêng mà không expose raw secret.
+Production adapter phải implement atomic CAS semantics cho:
 
-Với production persistence dùng chung database, pairing transition + device creation + credential persistence/completion state vẫn nên nằm trong transaction/unit-of-work phù hợp. Recovery-by-rotation là safety net cho cửa sổ persist-before-delivery, không thay thế transaction durability.
+- `beginRecovery`;
+- `advanceRecovery`;
+- `finishRecovery`;
+- `acknowledge`.
 
-### Authenticated bridge handshake
+Nếu các store cùng database, transaction/unit-of-work vẫn được khuyến nghị để giảm recovery work, nhưng correctness của rotate/finalize crash window dựa trên durable reservation + generation CAS, không dựa vào timing hoặc raw-secret persistence.
 
-Credential được gửi trong `bridge.hello` WebSocket control frame:
+### ACK security contract
+
+`acknowledgeDelivery()` yêu cầu `pairingSessionId + ownerId + credentialId + credentialVersion`.
+
+- pending + exact owner/generation → delivered;
+- delivered + exact owner/generation → success/no-op, hỗ trợ retry sau lost response;
+- wrong owner → reject;
+- stale/wrong generation → reject;
+- recovering → reject;
+- failed ACK không xóa transient pending secret;
+- delivered là terminal qua restart và cả khi credential hiện tại sau đó bị revoke.
+
+## Authenticated bridge handshake
+
+Credential chỉ đi trong `bridge.hello` control frame:
 
 ```text
 bridge.hello
@@ -210,15 +207,11 @@ bridge.hello
     credential
 ```
 
-Không đưa credential vào URL/query string.
+Không đưa credential vào URL/query.
 
-Production gateway mặc định yêu cầu auth. `createDoctmcpServerRuntime()` luôn wire gateway với `DeviceCredentialService.verify()` dùng cùng repository instance với credential lifecycle. Legacy unauthenticated handshake không được expose từ production composition root.
+Production runtime luôn wire `DeviceCredentialService.verify()` vào gateway. Legacy unauthenticated mode không được expose từ `createDoctmcpServerRuntime()`; chỉ direct test/M2 compatibility path có thể bật `allowLegacyUnauthenticated: true`.
 
-Credential service/repository mutation không được expose trên `DoctmcpServerRuntime`; caller chỉ có thể revoke/rotate qua lifecycle API có session invalidation. Repository adapters có thể được inject lúc tạo runtime để production thay in-memory persistence mà không phá security boundary này.
-
-Legacy mode chỉ được bật rõ ràng bằng `allowLegacyUnauthenticated: true` khi tạo gateway trực tiếp cho M2 compatibility/test; auth failure không được fallback sang legacy mode.
-
-Gateway chỉ tạo/expose `BridgeGatewaySession` sau khi authenticated ready boundary hoàn tất. Authenticated session giữ:
+Session authenticated giữ riêng:
 
 ```text
 bridge sessionId
@@ -226,74 +219,67 @@ bridge sessionId
 identity { ownerId, deviceId }
 ```
 
-hai namespace này độc lập. Authenticator output được runtime-validate trước khi bind session. Duplicate `sessionId` được kiểm tra lại sau async authentication để hai handshake đồng thời không cùng tạo ready session.
-
-Trước khi auth hoàn tất:
+Trước auth complete:
 
 - `mcp.message` bị reject;
 - invalid/unknown/revoked/mismatched credential không tạo ready session;
-- error trả `AUTH_REQUIRED`/`AUTH_FAILED` generic và không echo credential.
+- error generic, không echo credential.
 
-Local `BridgeServerTransport` giữ credential trong auth config và chỉ đưa secret vào `bridge.hello`. Khi gateway trả auth error rồi đóng socket ngay, transport xử lý queued control frame trước native-close cleanup để giữ đúng generic auth error thay vì ghi đè thành `SESSION_CLOSED`.
+## Ready boundary và revoke/rotate race
 
-### Revoke và rotate
+Initial verify một mình chưa đủ vì credential có thể thay đổi trước ACK. Production runtime dùng ready lease:
 
-`revoke`/`rotate` dùng expected `credentialId + version` làm CAS generation boundary. Hai mutation concurrent trên cùng generation chỉ một mutation được commit.
+```text
+initial authenticate
+  -> acquire ready lease
+  -> reverify credential
+  -> ready
+  -> bridge.hello.ack
+  -> onSession
+  -> release lease
+```
 
-Server composition root cung cấp lifecycle API có active-session propagation:
+Revoke/rotate:
 
-- `revokeDeviceCredential(deviceId)` revoke generation hiện tại, đóng authenticated session đang active của đúng device và làm credential cũ fail khi reconnect;
-- `rotateDeviceCredential(deviceId)` atomically tạo generation mới, đóng active session cũ, làm secret cũ fail và chỉ secret mới reconnect được;
-- auth đã bắt đầu trước mutation phải drain xong; nếu verify trả snapshot cũ trong lúc mutation đang active thì authenticator reject generic thay vì bind session;
-- sau initial auth, gateway acquire synchronous **ready lease** trước khi session có thể chuyển `ready`;
-- dưới ready lease, gateway reverify credential ngay trước ready/`bridge.hello.ack`;
-- revoke/rotate đến sau ready lease chờ lease drain rồi mới mutate, vì vậy handshake được linearize: hoặc commit khi credential còn valid, hoặc bị reject trước ACK;
-- không dùng event-loop delay, post-ACK `onSession` guard hay final sweep làm correctness primitive;
-- shutdown resolve drain waiter trước khi stop gateway để revoke/rotate đang chờ auth/ready lease không treo vô hạn;
-- failure CAS không làm mất generation đang active;
-- concurrent rotate/rotate và rotate/revoke đều có regression test.
+- đánh dấu credential mutation boundary theo device;
+- chặn auth mới trong mutation window;
+- drain auth in-flight;
+- chờ ready lease đã acquire hoàn tất trước mutation;
+- close active authenticated session sau mutation;
+- old secret reconnect fail;
+- recovery rotation cũng đi qua cùng mutation/session-invalidation boundary.
 
-M3.3 chỉ giữ tracking active session tối thiểu để security property revoke/rotate không bị mơ hồ. #33 vẫn là nơi xây authoritative device-session registry, duplicate connection policy, heartbeat/liveness và online/offline state; không tồn tại hai source of truth lâu dài.
+Correctness không dựa vào event-loop delay, `setTimeout(0)`, post-ACK guard hay final sweep.
+
+`stop()` resolve auth/ready drain waiters trước gateway shutdown để mutation đang chờ không treo vô hạn.
+
+#33 vẫn chịu trách nhiệm authoritative device-session registry, duplicate connection policy, heartbeat/liveness và online/offline state.
 
 ## Audit
 
-Khi thêm audit, mặc định chỉ nên lưu metadata cần thiết:
+Audit mặc định chỉ nên lưu metadata cần thiết như user/session/device/tool/timestamp/duration/result/error code. Không mặc định lưu file content, command output hoặc argument có thể chứa secret.
 
-- user/session;
-- device;
-- tool;
-- thời điểm;
-- duration;
-- success/failure;
-- error code không nhạy cảm.
+## Security regression coverage
 
-Không mặc định lưu toàn bộ nội dung file, command output hoặc argument có thể chứa secret.
+Các boundary security-sensitive hiện có test cho:
 
-## Security testing
-
-Feature security-sensitive phải có denied-path test.
-
-Ví dụ:
-
-- path ngoài allow root;
-- path nằm trong deny root;
-- expired/reused/cancelled pairing code;
-- concurrent pairing claim;
-- malformed pairing input không mutate state;
-- raw pairing code không xuất hiện trong structured error/snapshot;
+- traversal/symlink/deny/root delete;
+- pairing expiry/reuse/cancel/concurrent claim;
+- malformed pairing input và no-secret error;
 - wrong/mismatched/revoked device credential;
-- concurrent credential rotate/revoke;
-- cached pairing completion vẫn owner-check trước khi trả raw secret;
-- process-restart recovery sau persist-before-delivery rotate credential thất lạc;
-- wrong/stale pairing delivery ACK không consume pending secret;
-- delivered completion không resume được qua restart hoặc sau credential revoke;
+- concurrent rotate/revoke và rotate/rotate;
+- cached pairing completion vẫn owner-check;
+- restart persist-before-delivery recovery;
+- **crash sau rotate trước completion finalize**;
+- `recovering` chặn ACK generation cũ;
+- wrong/stale ACK không consume pending delivery;
+- exact duplicate delivered ACK idempotent;
+- delivered terminal qua restart/revoke;
 - raw credential không xuất hiện trong URL/error/log snapshot;
-- MCP frame trước authenticated handshake;
+- MCP trước authenticated handshake;
 - credential thay đổi giữa auth và ready revalidation bị reject trước ACK/session;
-- revoke/rotate đóng active authenticated session đúng device;
-- shutdown không để credential mutation drain waiter treo vô hạn;
-- runtime không expose credential mutation service/repository;
-- shell timeout;
-- oversized output;
-- invalid bridge handshake;
-- owner A lookup/update device của owner B.
+- revoke/rotate đóng active authenticated session;
+- shutdown không để mutation drain waiter treo;
+- runtime không expose credential mutation service/repository.
+
+CI #224 trên implementation head `aa47545b`: Biome ✅, typecheck ✅, **213/213 tests**, 878 assertions, 30 files; M2 acceptance 6/6 và Windows regression ✅.
