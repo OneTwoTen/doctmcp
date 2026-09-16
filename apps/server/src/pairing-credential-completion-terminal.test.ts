@@ -118,8 +118,12 @@ describe("Pairing credential terminal delivery", () => {
       credentialVersion: completed.credential.version,
     } as const;
 
-    await expect(completionService.acknowledgeDelivery(ack)).resolves.toBeUndefined();
-    await expect(completionService.acknowledgeDelivery(ack)).resolves.toBeUndefined();
+    await expect(
+      completionService.acknowledgeDelivery(ack),
+    ).resolves.toBeUndefined();
+    await expect(
+      completionService.acknowledgeDelivery(ack),
+    ).resolves.toBeUndefined();
 
     await expect(
       completionRepository.get(PAIRING_SESSION_ID),
