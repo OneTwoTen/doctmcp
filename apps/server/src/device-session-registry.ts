@@ -306,7 +306,8 @@ export class DeviceSessionRegistry {
 
   #readNowMs(): number {
     const now = this.#now().getTime();
-    if (!Number.isFinite(now)) throw new Error("Device session clock không hợp lệ.");
+    if (!Number.isFinite(now))
+      throw new Error("Device session clock không hợp lệ.");
     return now;
   }
 }
