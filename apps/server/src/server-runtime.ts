@@ -240,12 +240,14 @@ export function createDoctmcpServerRuntime(
     deviceId: string,
     expectedCredentialId: string,
     expectedCredentialVersion: number,
+    credentialId: string,
   ): Promise<IssuedDeviceCredential> =>
     runCredentialMutation(deviceId, () =>
-      credentialService.rotateExpected(
+      credentialService.rotateExpectedWithCredentialId(
         deviceId,
         expectedCredentialId,
         expectedCredentialVersion,
+        credentialId,
       ),
     );
 
