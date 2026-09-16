@@ -100,9 +100,9 @@ describe("Pairing recovery vs explicit credential mutation", () => {
     await expect(
       fixture.credentialService.verify(DEVICE_ID, fixture.completed.secret),
     ).rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
-    await expect(fixture.credentialService.getActive(DEVICE_ID)).rejects.toMatchObject(
-      { code: "CREDENTIAL_UNAVAILABLE" },
-    );
+    await expect(
+      fixture.credentialService.getActive(DEVICE_ID),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
   });
 
   test("explicit rotate pending credential giữ nguyên generation vừa trả cho caller", async () => {
@@ -117,9 +117,9 @@ describe("Pairing recovery vs explicit credential mutation", () => {
     await expect(
       fixture.credentialService.verify(DEVICE_ID, rotated.secret),
     ).resolves.toMatchObject({ credential: rotated.credential });
-    await expect(fixture.credentialService.getActive(DEVICE_ID)).resolves.toEqual(
-      rotated.credential,
-    );
+    await expect(
+      fixture.credentialService.getActive(DEVICE_ID),
+    ).resolves.toEqual(rotated.credential);
   });
 
   test("external rotate sau recovery reservation không bị nhận nhầm là recovery commit", async () => {
@@ -147,8 +147,8 @@ describe("Pairing recovery vs explicit credential mutation", () => {
     await expect(
       fixture.credentialService.verify(DEVICE_ID, rotated.secret),
     ).resolves.toMatchObject({ credential: rotated.credential });
-    await expect(fixture.credentialService.getActive(DEVICE_ID)).resolves.toEqual(
-      rotated.credential,
-    );
+    await expect(
+      fixture.credentialService.getActive(DEVICE_ID),
+    ).resolves.toEqual(rotated.credential);
   });
 });
