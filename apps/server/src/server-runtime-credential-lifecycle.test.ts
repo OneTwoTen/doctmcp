@@ -121,7 +121,9 @@ class BlockingCompletionRepository
   }
 }
 
-async function expectPromiseStillPending(promise: Promise<unknown>): Promise<void> {
+async function expectPromiseStillPending(
+  promise: Promise<unknown>,
+): Promise<void> {
   const state = await Promise.race([
     promise.then(
       () => "settled" as const,
