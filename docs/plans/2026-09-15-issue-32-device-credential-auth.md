@@ -17,10 +17,13 @@ Hoàn tất M3.3 trên foundation #30/#31: sau khi pairing đã tạo/bind `Devi
 - [x] `credentialId` unique giữa device/generation trong reference repository.
 - [x] Pairing completion helper cấp credential đúng device đã claim và giữ `pairingSessionId`/`localCorrelationId` cho delivery channel.
 - [x] Pairing completion owner-check trước cache lookup; `pairingSessionId` không phải bearer secret.
-- [x] Completion repository tách raw secret khỏi durable state và khóa lifecycle `pending -> delivered`.
-- [x] ACK owner/generation-aware; wrong/stale ACK không consume pending delivery; `delivered` là terminal qua restart/revoke.
+- [x] Completion repository tách raw secret khỏi durable state và khóa lifecycle `pending -> recovering -> pending(new generation) -> delivered`.
+- [x] Recovery reservation persist trước rotate, chặn stale ACK trong cửa sổ rotate/finalize và cho phép resume an toàn sau crash.
+- [x] Recovery rotation bound vào exact expected `credentialId + version`; process khác không thể rotate nhầm generation vừa được recovery tạo.
+- [x] ACK owner/generation-aware; wrong/stale ACK không consume pending delivery; exact duplicate ACK của cùng delivered generation là success/no-op.
+- [x] `delivered` là terminal qua restart/revoke.
 - [x] Same-process pending-delivery retry idempotent, không issue generation thứ hai.
-- [x] Crash-style recovery sau persist-before-delivery: nếu active credential đã tồn tại nhưng raw secret mất, rotate sang generation mới và trả secret mới.
+- [x] Crash-style recovery sau persist-before-delivery và sau rotate-before-finalize đều trả lại một generation deliverable mới mà không persist raw secret.
 - [x] Authenticated bridge hello gửi `deviceId` + credential trong frame, không dùng URL/query string.
 - [x] Gateway verify credential trước khi session chuyển `ready`/được expose qua `onSession`.
 - [x] Gateway acquire ready lease và reverify credential lần cuối trước `bridge.hello.ack`.
@@ -33,7 +36,7 @@ Hoàn tất M3.3 trên foundation #30/#31: sau khi pairing đã tạo/bind `Devi
 - [x] `revoke`/`rotate` qua server runtime đóng active authenticated session của đúng device và chặn reconnect bằng generation cũ.
 - [x] M2 legacy/test handshake explicit qua `allowLegacyUnauthenticated: true`, không là production fallback.
 - [x] Authenticated MCP end-to-end và security regression tests.
-- [x] Verification implementation CI #212: `check`, `typecheck`, full test xanh; 212/212 test, M2 acceptance 6/6, Windows regression xanh.
+- [x] Verification implementation CI #224: `check`, `typecheck`, full test xanh; 213/213 test, 878 assertions, 30 files; M2 acceptance 6/6; Windows regression xanh.
 
 ## Quyết định kỹ thuật
 
@@ -46,6 +49,7 @@ Hoàn tất M3.3 trên foundation #30/#31: sau khi pairing đã tạo/bind `Devi
 - default không expiry ở M3.3; lifecycle dựa vào explicit revoke/rotate;
 - mỗi device có tối đa một credential active;
 - `rotate`/`revoke` dùng expected `credentialId + version` làm CAS generation boundary;
+- `rotateExpected(deviceId, credentialId, version)` là primitive nội bộ cho crash recovery, chỉ rotate đúng generation đã reserve;
 - concurrent rotate/rotate hoặc rotate/revoke chỉ một mutation của cùng generation được commit;
 - credential id đã dùng không được reuse cho device/generation khác.
 
@@ -73,7 +77,7 @@ pairingSessionId
 deviceId
 credentialId
 credentialVersion
-state: pending | delivered
+state: pending | recovering | delivered
 ```
 
 Reference runtime giữ completion thành công **transient trong memory** cho tới khi local acknowledge đã lưu credential. Retry cùng `pairingSessionId` trong cùng process trả đúng completion/raw secret cũ, không issue generation mới.
@@ -82,19 +86,31 @@ Reference runtime giữ completion thành công **transient trong memory** cho t
 
 Nếu pairing claim đã commit nhưng credential issue fail, resume retry issue trên đúng device mà không pair lại.
 
-Nếu process restart sau khi credential digest đã persist nhưng trước delivery/ack, raw secret cũ không thể phục hồi từ hash. Resume phát hiện active credential đã tồn tại và dùng recovery hook để rotate generation đó, trả secret mới cho local; generation thất lạc cũ bị vô hiệu. Production runtime nối recovery hook vào cùng credential-mutation/session-invalidation boundary với explicit rotate.
+Crash recovery dùng durable reservation thay vì rotate rồi mới ghi state:
 
-ACK yêu cầu `pairingSessionId + ownerId + credentialId + credentialVersion`. Owner được resolve server-side và completion repository CAS đúng generation `pending -> delivered`:
+```text
+pending(generation N)
+  -> recovering(generation N)       // CAS reservation trước mutation
+  -> rotateExpected(N -> N+1)
+  -> pending(generation N+1)        // finalize
+  -> delivered(generation N+1)
+```
 
-- wrong owner bị reject;
-- stale credential id/version bị reject;
+Trong state `recovering`, ACK bị reject. Nếu process crash sau rotate nhưng trước finalize, completion record vẫn giữ source generation cũ còn credential store đã ở generation mới. Lần resume sau đọc generation active, CAS advance reservation sang generation active, rotate đúng generation đó và chỉ trả raw secret sau khi `finishRecovery()` commit `pending` thành công. Vì vậy secret của một generation chưa finalize không bao giờ được coi là delivered.
+
+Nếu nhiều worker cùng recovery, rotation luôn bound vào expected generation. Worker mất CAS/rotation không được trả raw secret; worker thắng chỉ trả secret sau khi completion repository finalize đúng generation.
+
+ACK yêu cầu `pairingSessionId + ownerId + credentialId + credentialVersion`. Owner được resolve server-side và completion repository xử lý:
+
+- `pending` + exact generation → CAS sang `delivered`;
+- `delivered` + exact generation → success/no-op để retry ACK an toàn khi response trước bị mất;
+- wrong owner, stale generation hoặc state `recovering` → reject;
 - failed ACK không xóa transient pending secret;
-- correct ACK xóa raw secret transient sau khi terminal state đã persist;
 - sau `delivered`, resume fail deterministic qua restart và kể cả sau khi credential active bị revoke.
 
-Production persistence phải implement `PairingCredentialCompletionRepository` bằng durable store để terminal state sống qua restart; raw credential tuyệt đối không được persist trong completion record. Runtime hỗ trợ inject adapter này qua `pairingCredentialCompletionRepository`.
+Production persistence phải implement `PairingCredentialCompletionRepository` bằng durable store với atomic CAS cho `beginRecovery`, `advanceRecovery`, `finishRecovery` và `acknowledge`. Raw credential tuyệt đối không được persist trong completion record. Runtime hỗ trợ inject adapter này qua `pairingCredentialCompletionRepository`.
 
-Production persistence dùng chung database vẫn nên đặt pairing claim + device creation + credential persistence/completion state trong cùng transaction/unit-of-work phù hợp. Recovery-by-rotation chỉ là safety net cho cửa sổ persist-before-delivery.
+Nếu pairing/device/credential/completion cùng database, transaction/unit-of-work vẫn được khuyến nghị để giảm recovery work. Tuy nhiên correctness của delivery recovery không còn phụ thuộc vào một transaction bao trùm rotate + completion finalize: durable `recovering` reservation + expected-generation CAS cho phép resume an toàn qua crash giữa hai write.
 
 ### Authenticated bridge
 
@@ -175,7 +191,9 @@ M2 compatibility không fallback tự động khi auth fail. Legacy hello chỉ 
 - cached pending delivery vẫn owner-check trước raw secret;
 - issue fail sau claimed pairing recover được bằng `pairingSessionId`;
 - restart sau persist-before-delivery rotate credential thất lạc và trả secret mới;
+- crash sau rotate nhưng trước completion finalize giữ `recovering`, chặn ACK cũ và resume sang generation deliverable mới;
 - wrong/stale ACK không consume pending delivery;
+- exact duplicate ACK cùng delivered generation là idempotent success;
 - correct ACK làm `delivered` terminal qua restart và sau revoke;
 - recovery không tin owner do caller tự khai báo;
 - shutdown resolve credential mutation drain waiter;
@@ -183,18 +201,18 @@ M2 compatibility không fallback tự động khi auth fail. Legacy hello chỉ 
 
 ## Verification cuối
 
-CI #212 trên implementation head `95edf138`:
+CI #224 trên implementation head `aa47545b`:
 
 - `bun run check`: pass;
 - `bun run typecheck`: pass;
-- `bun test`: **212 pass / 0 fail**, 863 expects, 29 files;
+- `bun test`: **213 pass / 0 fail**, 878 expects, 30 files;
 - M2 acceptance: **6/6 pass**;
 - M3 authenticated acceptance: pass;
-- server runtime auth/invalidation + boundary regressions: **7/7 pass**;
-- pairing completion/recovery + terminal delivery regressions: **9/9 pass**;
+- recovery reservation crash-window regression: pass;
+- exact duplicate terminal ACK regression: pass;
 - Windows `shell.exec` regression step: pass.
 
-Script `bun run test:m2` trỏ trực tiếp tới `apps/server/src/m2-acceptance.test.ts`; cùng file này đã chạy 6/6 trong full test của CI #212.
+Script `bun run test:m2` trỏ trực tiếp tới `apps/server/src/m2-acceptance.test.ts`; cùng file này đã chạy 6/6 trong full test của CI #224.
 
 ## Out of scope
 
