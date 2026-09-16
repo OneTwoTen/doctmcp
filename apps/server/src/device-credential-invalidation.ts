@@ -85,7 +85,9 @@ export class InMemoryDeviceCredentialInvalidationBus
       publishedAt: new Date(event.publishedAt),
     });
     const results = await Promise.allSettled(
-      [...this.#handlers].map((handler) => Promise.resolve(handler(snapshot))),
+      [...this.#handlers].map(async (handler) => {
+        await handler(snapshot);
+      }),
     );
     if (results.some((result) => result.status === "rejected")) {
       throw new Error("Credential invalidation subscriber xử lý thất bại.");
