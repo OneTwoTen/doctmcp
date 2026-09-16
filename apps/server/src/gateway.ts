@@ -282,6 +282,18 @@ export function sendWebSocketFrameOnce(send: () => number): void {
   }
 }
 
+export async function sendWebSocketFrameOrCleanup(
+  send: () => number,
+  cleanup: () => Promise<void>,
+): Promise<void> {
+  try {
+    sendWebSocketFrameOnce(send);
+  } catch {
+    await cleanup();
+    throw new BridgeGatewayError("SESSION_CLOSED", "Bridge socket is closed");
+  }
+}
+
 export function createBridgeGateway(
   options: CreateBridgeGatewayOptions = {},
 ): BridgeGateway {
@@ -364,8 +376,12 @@ export function createBridgeGateway(
       );
     }
 
-    sendWebSocketFrameOnce(
+    await sendWebSocketFrameOrCleanup(
       () => connection.ws?.send(serializeFrame(message).text) ?? 0,
+      async () => {
+        if (connection.session) sessions.delete(connection.session.id);
+        await closeConnection(connection, "NORMAL");
+      },
     );
     setTimeoutFor(connection, idleTimeoutMs, () => {
       void failConnection(
