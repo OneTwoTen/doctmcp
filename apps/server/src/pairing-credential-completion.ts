@@ -12,10 +12,6 @@ import {
 import type { DeviceRepository } from "./device-repository";
 import type { PairingClaimContext, PairingService } from "./pairing";
 
-/**
- * Payload một lần để control-plane giao lại cho đúng local pairing channel.
- * `secret` là raw credential và không được persist/log ở server.
- */
 export interface CompletedPairingCredential {
   readonly session: PairingSession;
   readonly device: Device;
@@ -60,7 +56,9 @@ export interface PairingCredentialCompletionRepository {
   get(
     pairingSessionId: string,
   ): Promise<PairingCredentialCompletionRecord | null>;
-  setPending(input: CompletionGenerationInput): Promise<PairingCredentialCompletionRecord | null>;
+  setPending(
+    input: CompletionGenerationInput,
+  ): Promise<PairingCredentialCompletionRecord | null>;
   beginRecovery(
     input: CompletionGenerationInput,
   ): Promise<PairingCredentialCompletionRecord | null>;
@@ -105,11 +103,6 @@ function sameGeneration(
   );
 }
 
-/**
- * Reference adapter. Production adapter phải persist state này cùng persistence boundary
- * của pairing/device credential. `recovering` là durable reservation chặn ACK stale trong
- * cửa sổ rotate -> finalize. Repository tuyệt đối không chứa raw credential.
- */
 export class InMemoryPairingCredentialCompletionRepository
   implements PairingCredentialCompletionRepository
 {
@@ -296,10 +289,6 @@ export interface PairingCredentialCompletionOptions {
   readonly credentialService: DeviceCredentialService;
   readonly deviceRepository: DeviceRepository;
   readonly completionRepository?: PairingCredentialCompletionRepository;
-  /**
-   * Runtime hook cho crash recovery. Rotation bắt buộc bound vào expected generation để
-   * concurrent recovery không thể rotate một generation mới vừa được process khác tạo.
-   */
   readonly recoverExistingCredential?: (
     deviceId: string,
     expectedCredentialId: string,
@@ -386,10 +375,6 @@ export class PairingCredentialCompletionService {
     return this.#complete(session, device, true);
   }
 
-  /**
-   * Exact duplicate ACK của cùng delivered generation là success/no-op. Wrong/stale ACK
-   * vẫn fail và `recovering` không thể được ACK thành delivered.
-   */
   async acknowledgeDelivery(
     input: AcknowledgePairingCredentialDeliveryInput,
   ): Promise<void> {
@@ -480,31 +465,35 @@ export class PairingCredentialCompletionService {
     device: Device,
     persisted: PairingCredentialCompletionRecord | null,
   ): Promise<IssuedDeviceCredential> {
-    let source = persisted;
-    if (!source) {
-      source = await this.#getActiveOrNull(device.deviceId);
-      if (!source) throw completionUnavailable();
+    let sourceCredentialId: string;
+    let sourceCredentialVersion: number;
+    if (persisted) {
+      sourceCredentialId = persisted.credentialId;
+      sourceCredentialVersion = persisted.credentialVersion;
+    } else {
+      const active = await this.#getActiveOrNull(device.deviceId);
+      if (!active) throw completionUnavailable();
+      sourceCredentialId = active.credentialId;
+      sourceCredentialVersion = active.version;
     }
 
     const reserved = await this.#completionRepository.beginRecovery({
       pairingSessionId: session.pairingSessionId,
       deviceId: device.deviceId,
-      credentialId: source.credentialId,
-      credentialVersion: source.version,
+      credentialId: sourceCredentialId,
+      credentialVersion: sourceCredentialVersion,
     });
     if (!reserved || reserved.state !== "recovering") {
       throw completionUnavailable();
     }
 
-    let recovery = reserved;
     for (let step = 0; step < MAX_RECOVERY_STEPS; step += 1) {
-      const stored = await this.#completionRepository.get(
+      const recovery = await this.#completionRepository.get(
         session.pairingSessionId,
       );
-      if (!stored || stored.state !== "recovering") {
+      if (!recovery || recovery.state !== "recovering") {
         throw completionUnavailable();
       }
-      recovery = stored;
 
       const active = await this.#getActiveOrNull(device.deviceId);
       if (!active) {
@@ -529,7 +518,7 @@ export class PairingCredentialCompletionService {
         active.credentialId !== recovery.credentialId ||
         active.version !== recovery.credentialVersion
       ) {
-        const advanced = await this.#completionRepository.advanceRecovery({
+        await this.#completionRepository.advanceRecovery({
           pairingSessionId: session.pairingSessionId,
           deviceId: device.deviceId,
           expectedCredentialId: recovery.credentialId,
@@ -537,7 +526,6 @@ export class PairingCredentialCompletionService {
           credentialId: active.credentialId,
           credentialVersion: active.version,
         });
-        if (advanced) recovery = advanced;
         continue;
       }
 
