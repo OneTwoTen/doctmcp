@@ -52,14 +52,6 @@ export interface DoctmcpServerRuntime {
   stop(): Promise<void>;
 }
 
-/**
- * Reference server composition root cho M3.
- *
- * Gateway production path luôn được wire với DeviceCredentialService.verify(); legacy
- * unauthenticated mode không được expose từ composition root này. Repository adapters có
- * thể được inject để production thay in-memory bằng persistence thật mà không expose
- * credential mutation service ra ngoài runtime security boundary.
- */
 export function createDoctmcpServerRuntime(
   options: CreateDoctmcpServerRuntimeOptions = {},
 ): DoctmcpServerRuntime {
@@ -222,16 +214,11 @@ export function createDoctmcpServerRuntime(
   ): Promise<T> => {
     beginCredentialMutation(deviceId);
     try {
-      // Một handshake đã acquire ready lease được phép commit trong khi credential còn
-      // hợp lệ. Mutation chỉ bắt đầu sau khi toàn bộ ready commit của device drain xong.
       await waitForSessionReadyDrain(deviceId);
       if (stopping) throw new Error("Server runtime is stopping");
 
       const result = await operation();
       await closeDeviceSessions(deviceId);
-
-      // Auth bắt đầu trước mutation có thể đã đọc snapshot cũ. Giữ mutation boundary
-      // active tới khi auth đó kết thúc để post-verify check reject deterministic.
       await waitForAuthenticationDrain(deviceId);
       return result;
     } finally {
@@ -249,13 +236,26 @@ export function createDoctmcpServerRuntime(
   ): Promise<IssuedDeviceCredential> =>
     runCredentialMutation(deviceId, () => credentialService.rotate(deviceId));
 
+  const recoverCredentialGenerationInternal = (
+    deviceId: string,
+    expectedCredentialId: string,
+    expectedCredentialVersion: number,
+  ): Promise<IssuedDeviceCredential> =>
+    runCredentialMutation(deviceId, () =>
+      credentialService.rotateExpected(
+        deviceId,
+        expectedCredentialId,
+        expectedCredentialVersion,
+      ),
+    );
+
   const pairingCredentialCompletionService =
     new PairingCredentialCompletionService({
       pairingService,
       credentialService,
       deviceRepository,
       completionRepository: pairingCredentialCompletionRepository,
-      recoverExistingCredential: rotateDeviceCredentialInternal,
+      recoverExistingCredential: recoverCredentialGenerationInternal,
     });
 
   const gateway = createBridgeGateway({
@@ -309,11 +309,8 @@ export function createDoctmcpServerRuntime(
     async stop() {
       if (stopping) return;
       stopping = true;
-
-      // Không clear waiter im lặng: mọi revoke/rotate đang drain phải settle khi shutdown.
       resolveDrainWaiters(authenticationDrainWaiters);
       resolveDrainWaiters(sessionReadyDrainWaiters);
-
       await gateway.stop();
       trackedSessions.clear();
       authenticationCounts.clear();
