@@ -36,7 +36,10 @@ export class PairingCredentialCompletionError extends Error {
   }
 }
 
-export type PairingCredentialCompletionState = "pending" | "delivered";
+export type PairingCredentialCompletionState =
+  | "pending"
+  | "recovering"
+  | "delivered";
 
 export interface PairingCredentialCompletionRecord {
   readonly pairingSessionId: string;
@@ -46,13 +49,34 @@ export interface PairingCredentialCompletionRecord {
   readonly state: PairingCredentialCompletionState;
 }
 
+interface CompletionGenerationInput {
+  readonly pairingSessionId: string;
+  readonly deviceId: string;
+  readonly credentialId: string;
+  readonly credentialVersion: number;
+}
+
 export interface PairingCredentialCompletionRepository {
   get(
     pairingSessionId: string,
   ): Promise<PairingCredentialCompletionRecord | null>;
-  setPending(input: {
+  setPending(input: CompletionGenerationInput): Promise<PairingCredentialCompletionRecord | null>;
+  beginRecovery(
+    input: CompletionGenerationInput,
+  ): Promise<PairingCredentialCompletionRecord | null>;
+  advanceRecovery(input: {
     readonly pairingSessionId: string;
     readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedCredentialVersion: number;
+    readonly credentialId: string;
+    readonly credentialVersion: number;
+  }): Promise<PairingCredentialCompletionRecord | null>;
+  finishRecovery(input: {
+    readonly pairingSessionId: string;
+    readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedCredentialVersion: number;
     readonly credentialId: string;
     readonly credentialVersion: number;
   }): Promise<PairingCredentialCompletionRecord | null>;
@@ -70,10 +94,21 @@ function completionSnapshot(
   return Object.freeze({ ...record });
 }
 
+function sameGeneration(
+  record: PairingCredentialCompletionRecord,
+  credentialId: string,
+  credentialVersion: number,
+): boolean {
+  return (
+    record.credentialId === credentialId &&
+    record.credentialVersion === credentialVersion
+  );
+}
+
 /**
  * Reference adapter. Production adapter phải persist state này cùng persistence boundary
- * của pairing/device credential để `delivered` vẫn terminal sau process restart.
- * Repository tuyệt đối không chứa raw credential.
+ * của pairing/device credential. `recovering` là durable reservation chặn ACK stale trong
+ * cửa sổ rotate -> finalize. Repository tuyệt đối không chứa raw credential.
  */
 export class InMemoryPairingCredentialCompletionRepository
   implements PairingCredentialCompletionRepository
@@ -88,25 +123,122 @@ export class InMemoryPairingCredentialCompletionRepository
     return record ? completionSnapshot(record) : null;
   }
 
-  async setPending(input: {
+  async setPending(
+    input: CompletionGenerationInput,
+  ): Promise<PairingCredentialCompletionRecord | null> {
+    return this.#exclusive(async () => {
+      const existing = this.#records.get(input.pairingSessionId);
+      if (existing) {
+        if (
+          existing.state === "pending" &&
+          existing.deviceId === input.deviceId &&
+          sameGeneration(existing, input.credentialId, input.credentialVersion)
+        ) {
+          return completionSnapshot(existing);
+        }
+        return null;
+      }
+
+      const record = Object.freeze({
+        ...input,
+        state: "pending" as const,
+      });
+      this.#records.set(input.pairingSessionId, record);
+      return completionSnapshot(record);
+    });
+  }
+
+  async beginRecovery(
+    input: CompletionGenerationInput,
+  ): Promise<PairingCredentialCompletionRecord | null> {
+    return this.#exclusive(async () => {
+      const existing = this.#records.get(input.pairingSessionId);
+      if (existing?.state === "delivered") return null;
+      if (existing?.deviceId !== undefined && existing.deviceId !== input.deviceId) {
+        return null;
+      }
+      if (existing?.state === "recovering") {
+        return completionSnapshot(existing);
+      }
+
+      const source = existing?.state === "pending" ? existing : input;
+      const recovering = Object.freeze({
+        pairingSessionId: input.pairingSessionId,
+        deviceId: input.deviceId,
+        credentialId: source.credentialId,
+        credentialVersion: source.credentialVersion,
+        state: "recovering" as const,
+      });
+      this.#records.set(input.pairingSessionId, recovering);
+      return completionSnapshot(recovering);
+    });
+  }
+
+  async advanceRecovery(input: {
     readonly pairingSessionId: string;
     readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedCredentialVersion: number;
     readonly credentialId: string;
     readonly credentialVersion: number;
   }): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
       const existing = this.#records.get(input.pairingSessionId);
-      if (existing?.state === "delivered") return null;
+      if (
+        existing?.state !== "recovering" ||
+        existing.deviceId !== input.deviceId ||
+        !sameGeneration(
+          existing,
+          input.expectedCredentialId,
+          input.expectedCredentialVersion,
+        )
+      ) {
+        return null;
+      }
 
-      const record = Object.freeze({
+      const advanced = Object.freeze({
+        pairingSessionId: input.pairingSessionId,
+        deviceId: input.deviceId,
+        credentialId: input.credentialId,
+        credentialVersion: input.credentialVersion,
+        state: "recovering" as const,
+      });
+      this.#records.set(input.pairingSessionId, advanced);
+      return completionSnapshot(advanced);
+    });
+  }
+
+  async finishRecovery(input: {
+    readonly pairingSessionId: string;
+    readonly deviceId: string;
+    readonly expectedCredentialId: string;
+    readonly expectedCredentialVersion: number;
+    readonly credentialId: string;
+    readonly credentialVersion: number;
+  }): Promise<PairingCredentialCompletionRecord | null> {
+    return this.#exclusive(async () => {
+      const existing = this.#records.get(input.pairingSessionId);
+      if (
+        existing?.state !== "recovering" ||
+        existing.deviceId !== input.deviceId ||
+        !sameGeneration(
+          existing,
+          input.expectedCredentialId,
+          input.expectedCredentialVersion,
+        )
+      ) {
+        return null;
+      }
+
+      const pending = Object.freeze({
         pairingSessionId: input.pairingSessionId,
         deviceId: input.deviceId,
         credentialId: input.credentialId,
         credentialVersion: input.credentialVersion,
         state: "pending" as const,
       });
-      this.#records.set(input.pairingSessionId, record);
-      return completionSnapshot(record);
+      this.#records.set(input.pairingSessionId, pending);
+      return completionSnapshot(pending);
     });
   }
 
@@ -119,13 +251,21 @@ export class InMemoryPairingCredentialCompletionRepository
     return this.#exclusive(async () => {
       const existing = this.#records.get(input.pairingSessionId);
       if (
-        existing?.state !== "pending" ||
+        !existing ||
         existing.deviceId !== input.deviceId ||
-        existing.credentialId !== input.expectedCredentialId ||
-        existing.credentialVersion !== input.expectedCredentialVersion
+        !sameGeneration(
+          existing,
+          input.expectedCredentialId,
+          input.expectedCredentialVersion,
+        )
       ) {
         return null;
       }
+
+      if (existing.state === "delivered") {
+        return completionSnapshot(existing);
+      }
+      if (existing.state !== "pending") return null;
 
       const delivered = Object.freeze({
         ...existing,
@@ -157,12 +297,13 @@ export interface PairingCredentialCompletionOptions {
   readonly deviceRepository: DeviceRepository;
   readonly completionRepository?: PairingCredentialCompletionRepository;
   /**
-   * Runtime hook cho crash recovery khi credential đã persist nhưng raw secret cũ đã mất.
-   * Production composition root dùng hook này để rotate qua cùng active-session
-   * invalidation boundary như explicit credential rotation.
+   * Runtime hook cho crash recovery. Rotation bắt buộc bound vào expected generation để
+   * concurrent recovery không thể rotate một generation mới vừa được process khác tạo.
    */
   readonly recoverExistingCredential?: (
     deviceId: string,
+    expectedCredentialId: string,
+    expectedCredentialVersion: number,
   ) => Promise<IssuedDeviceCredential>;
 }
 
@@ -173,6 +314,8 @@ export interface AcknowledgePairingCredentialDeliveryInput {
   readonly credentialVersion: number;
 }
 
+const MAX_RECOVERY_STEPS = 16;
+
 export class PairingCredentialCompletionService {
   readonly #pairingService: PairingService;
   readonly #credentialService: DeviceCredentialService;
@@ -180,6 +323,8 @@ export class PairingCredentialCompletionService {
   readonly #completionRepository: PairingCredentialCompletionRepository;
   readonly #recoverExistingCredential: (
     deviceId: string,
+    expectedCredentialId: string,
+    expectedCredentialVersion: number,
   ) => Promise<IssuedDeviceCredential>;
   readonly #completionBySessionId = new Map<
     string,
@@ -195,13 +340,14 @@ export class PairingCredentialCompletionService {
       new InMemoryPairingCredentialCompletionRepository();
     this.#recoverExistingCredential =
       options.recoverExistingCredential ??
-      ((deviceId) => this.#credentialService.rotate(deviceId));
+      ((deviceId, expectedCredentialId, expectedCredentialVersion) =>
+        this.#credentialService.rotateExpected(
+          deviceId,
+          expectedCredentialId,
+          expectedCredentialVersion,
+        ));
   }
 
-  /**
-   * Claim code đúng một lần, sau đó issue credential cho device vừa được claim.
-   * Raw secret chỉ được cache transient; durable completion state chỉ lưu generation id.
-   */
   async claimAndIssue(
     pairingCode: unknown,
     input: ClaimPairingInput,
@@ -215,10 +361,6 @@ export class PairingCredentialCompletionService {
     return this.#complete(claimed.session, claimed.device, false);
   }
 
-  /**
-   * Recovery path sau khi pairing đã claim nhưng credential issue/delivery chưa hoàn tất.
-   * `delivered` là terminal: pairingSessionId cũ không thể mint/rotate credential lại.
-   */
   async resumeClaimedPairing(
     pairingSessionId: string,
     ownerId: string,
@@ -245,8 +387,8 @@ export class PairingCredentialCompletionService {
   }
 
   /**
-   * Chỉ ACK đúng generation đã giao. Owner được resolve server-side trước mutation và
-   * repository CAS `pending -> delivered`, vì vậy stale/wrong ACK không xóa pending secret.
+   * Exact duplicate ACK của cùng delivered generation là success/no-op. Wrong/stale ACK
+   * vẫn fail và `recovering` không thể được ACK thành delivered.
    */
   async acknowledgeDelivery(
     input: AcknowledgePairingCredentialDeliveryInput,
@@ -289,6 +431,11 @@ export class PairingCredentialCompletionService {
       );
       if (persisted?.state === "delivered") throw completionUnavailable();
 
+      if (recoverExisting && persisted) {
+        const issued = await this.#recover(session, device, persisted);
+        return completedSnapshot(session, device, issued);
+      }
+
       let issued: IssuedDeviceCredential;
       try {
         issued = await this.#credentialService.issue(device.deviceId);
@@ -300,7 +447,8 @@ export class PairingCredentialCompletionService {
         ) {
           throw error;
         }
-        issued = await this.#recoverExistingCredential(device.deviceId);
+        const recovered = await this.#recover(session, device, null);
+        return completedSnapshot(session, device, recovered);
       }
 
       const pending = await this.#completionRepository.setPending({
@@ -311,12 +459,7 @@ export class PairingCredentialCompletionService {
       });
       if (!pending) throw completionUnavailable();
 
-      return Object.freeze({
-        session,
-        device,
-        credential: issued.credential,
-        secret: issued.secret,
-      });
+      return completedSnapshot(session, device, issued);
     })();
 
     this.#completionBySessionId.set(session.pairingSessionId, completion);
@@ -331,6 +474,138 @@ export class PairingCredentialCompletionService {
       throw error;
     }
   }
+
+  async #recover(
+    session: PairingSession,
+    device: Device,
+    persisted: PairingCredentialCompletionRecord | null,
+  ): Promise<IssuedDeviceCredential> {
+    let source = persisted;
+    if (!source) {
+      source = await this.#getActiveOrNull(device.deviceId);
+      if (!source) throw completionUnavailable();
+    }
+
+    const reserved = await this.#completionRepository.beginRecovery({
+      pairingSessionId: session.pairingSessionId,
+      deviceId: device.deviceId,
+      credentialId: source.credentialId,
+      credentialVersion: source.version,
+    });
+    if (!reserved || reserved.state !== "recovering") {
+      throw completionUnavailable();
+    }
+
+    let recovery = reserved;
+    for (let step = 0; step < MAX_RECOVERY_STEPS; step += 1) {
+      const stored = await this.#completionRepository.get(
+        session.pairingSessionId,
+      );
+      if (!stored || stored.state !== "recovering") {
+        throw completionUnavailable();
+      }
+      recovery = stored;
+
+      const active = await this.#getActiveOrNull(device.deviceId);
+      if (!active) {
+        let issued: IssuedDeviceCredential;
+        try {
+          issued = await this.#credentialService.issue(device.deviceId);
+        } catch (error) {
+          if (
+            error instanceof DeviceCredentialError &&
+            error.code === "CREDENTIAL_ALREADY_EXISTS"
+          ) {
+            continue;
+          }
+          throw error;
+        }
+        const finalized = await this.#finishRecovery(recovery, issued);
+        if (finalized) return issued;
+        continue;
+      }
+
+      if (
+        active.credentialId !== recovery.credentialId ||
+        active.version !== recovery.credentialVersion
+      ) {
+        const advanced = await this.#completionRepository.advanceRecovery({
+          pairingSessionId: session.pairingSessionId,
+          deviceId: device.deviceId,
+          expectedCredentialId: recovery.credentialId,
+          expectedCredentialVersion: recovery.credentialVersion,
+          credentialId: active.credentialId,
+          credentialVersion: active.version,
+        });
+        if (advanced) recovery = advanced;
+        continue;
+      }
+
+      let issued: IssuedDeviceCredential;
+      try {
+        issued = await this.#recoverExistingCredential(
+          device.deviceId,
+          recovery.credentialId,
+          recovery.credentialVersion,
+        );
+      } catch (error) {
+        if (
+          error instanceof DeviceCredentialError &&
+          error.code === "CREDENTIAL_UNAVAILABLE"
+        ) {
+          continue;
+        }
+        throw error;
+      }
+
+      const finalized = await this.#finishRecovery(recovery, issued);
+      if (finalized) return issued;
+    }
+
+    throw completionUnavailable();
+  }
+
+  async #finishRecovery(
+    recovery: PairingCredentialCompletionRecord,
+    issued: IssuedDeviceCredential,
+  ): Promise<boolean> {
+    const pending = await this.#completionRepository.finishRecovery({
+      pairingSessionId: recovery.pairingSessionId,
+      deviceId: recovery.deviceId,
+      expectedCredentialId: recovery.credentialId,
+      expectedCredentialVersion: recovery.credentialVersion,
+      credentialId: issued.credential.credentialId,
+      credentialVersion: issued.credential.version,
+    });
+    return pending?.state === "pending";
+  }
+
+  async #getActiveOrNull(deviceId: string): Promise<DeviceCredential | null> {
+    try {
+      return await this.#credentialService.getActive(deviceId);
+    } catch (error) {
+      if (
+        error instanceof DeviceCredentialError &&
+        error.code === "CREDENTIAL_UNAVAILABLE"
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+}
+
+function completedSnapshot(
+  session: PairingSession,
+  device: Device,
+  issued: IssuedDeviceCredential,
+): CompletedPairingCredential {
+  return Object.freeze({
+    session,
+    device,
+    credential: issued.credential,
+    secret: issued.secret,
+  });
 }
 
 export interface PairingCredentialDelivery {
@@ -342,10 +617,6 @@ export interface PairingCredentialDelivery {
   readonly credential: string;
 }
 
-/**
- * Shape dành cho transport/channel delivery: không mang pairing code và không mang owner
- * do local cung cấp. `credential` ở đây là raw secret được giao một lần.
- */
 export function toPairingCredentialDelivery(
   completed: CompletedPairingCredential,
 ): PairingCredentialDelivery {
