@@ -43,6 +43,11 @@ export interface PairingCredentialCompletionRecord {
   readonly credentialId: string;
   readonly credentialVersion: number;
   readonly state: PairingCredentialCompletionState;
+  /**
+   * Chỉ có ở state `recovering`. Target được persist trước rotate để lần resume
+   * phân biệt credential do recovery tạo với revoke/rotate bên ngoài pairing.
+   */
+  readonly recoveryTargetCredentialId?: string;
 }
 
 interface CompletionGenerationInput {
@@ -50,6 +55,10 @@ interface CompletionGenerationInput {
   readonly deviceId: string;
   readonly credentialId: string;
   readonly credentialVersion: number;
+}
+
+interface BeginRecoveryInput extends CompletionGenerationInput {
+  readonly recoveryTargetCredentialId: string;
 }
 
 export interface PairingCredentialCompletionRepository {
@@ -60,7 +69,7 @@ export interface PairingCredentialCompletionRepository {
     input: CompletionGenerationInput,
   ): Promise<PairingCredentialCompletionRecord | null>;
   beginRecovery(
-    input: CompletionGenerationInput,
+    input: BeginRecoveryInput,
   ): Promise<PairingCredentialCompletionRecord | null>;
   advanceRecovery(input: {
     readonly pairingSessionId: string;
@@ -69,6 +78,7 @@ export interface PairingCredentialCompletionRepository {
     readonly expectedCredentialVersion: number;
     readonly credentialId: string;
     readonly credentialVersion: number;
+    readonly recoveryTargetCredentialId: string;
   }): Promise<PairingCredentialCompletionRecord | null>;
   finishRecovery(input: {
     readonly pairingSessionId: string;
@@ -100,6 +110,18 @@ function sameGeneration(
   return (
     record.credentialId === credentialId &&
     record.credentialVersion === credentialVersion
+  );
+}
+
+function isReservedRecoveryTarget(
+  record: PairingCredentialCompletionRecord,
+  credentialId: string,
+  credentialVersion: number,
+): boolean {
+  return (
+    record.state === "recovering" &&
+    record.recoveryTargetCredentialId === credentialId &&
+    credentialVersion === record.credentialVersion + 1
   );
 }
 
@@ -142,7 +164,7 @@ export class InMemoryPairingCredentialCompletionRepository
   }
 
   async beginRecovery(
-    input: CompletionGenerationInput,
+    input: BeginRecoveryInput,
   ): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
       const existing = this.#records.get(input.pairingSessionId);
@@ -163,6 +185,7 @@ export class InMemoryPairingCredentialCompletionRepository
         deviceId: input.deviceId,
         credentialId: source.credentialId,
         credentialVersion: source.credentialVersion,
+        recoveryTargetCredentialId: input.recoveryTargetCredentialId,
         state: "recovering" as const,
       });
       this.#records.set(input.pairingSessionId, recovering);
@@ -177,6 +200,7 @@ export class InMemoryPairingCredentialCompletionRepository
     readonly expectedCredentialVersion: number;
     readonly credentialId: string;
     readonly credentialVersion: number;
+    readonly recoveryTargetCredentialId: string;
   }): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
       const existing = this.#records.get(input.pairingSessionId);
@@ -187,6 +211,11 @@ export class InMemoryPairingCredentialCompletionRepository
           existing,
           input.expectedCredentialId,
           input.expectedCredentialVersion,
+        ) ||
+        !isReservedRecoveryTarget(
+          existing,
+          input.credentialId,
+          input.credentialVersion,
         )
       ) {
         return null;
@@ -197,6 +226,7 @@ export class InMemoryPairingCredentialCompletionRepository
         deviceId: input.deviceId,
         credentialId: input.credentialId,
         credentialVersion: input.credentialVersion,
+        recoveryTargetCredentialId: input.recoveryTargetCredentialId,
         state: "recovering" as const,
       });
       this.#records.set(input.pairingSessionId, advanced);
@@ -221,6 +251,11 @@ export class InMemoryPairingCredentialCompletionRepository
           existing,
           input.expectedCredentialId,
           input.expectedCredentialVersion,
+        ) ||
+        !isReservedRecoveryTarget(
+          existing,
+          input.credentialId,
+          input.credentialVersion,
         )
       ) {
         return null;
@@ -296,6 +331,7 @@ export interface PairingCredentialCompletionOptions {
     deviceId: string,
     expectedCredentialId: string,
     expectedCredentialVersion: number,
+    credentialId: string,
   ) => Promise<IssuedDeviceCredential>;
 }
 
@@ -317,6 +353,7 @@ export class PairingCredentialCompletionService {
     deviceId: string,
     expectedCredentialId: string,
     expectedCredentialVersion: number,
+    credentialId: string,
   ) => Promise<IssuedDeviceCredential>;
   readonly #completionBySessionId = new Map<
     string,
@@ -332,11 +369,17 @@ export class PairingCredentialCompletionService {
       new InMemoryPairingCredentialCompletionRepository();
     this.#recoverExistingCredential =
       options.recoverExistingCredential ??
-      ((deviceId, expectedCredentialId, expectedCredentialVersion) =>
-        this.#credentialService.rotateExpected(
+      ((
+        deviceId,
+        expectedCredentialId,
+        expectedCredentialVersion,
+        credentialId,
+      ) =>
+        this.#credentialService.rotateExpectedWithCredentialId(
           deviceId,
           expectedCredentialId,
           expectedCredentialVersion,
+          credentialId,
         ));
   }
 
@@ -480,13 +523,21 @@ export class PairingCredentialCompletionService {
       sourceCredentialVersion = active.version;
     }
 
-    const reserved = await this.#completionRepository.beginRecovery({
-      pairingSessionId: session.pairingSessionId,
-      deviceId: device.deviceId,
-      credentialId: sourceCredentialId,
-      credentialVersion: sourceCredentialVersion,
-    });
-    if (reserved?.state !== "recovering") {
+    const reserved =
+      persisted?.state === "recovering"
+        ? persisted
+        : await this.#completionRepository.beginRecovery({
+            pairingSessionId: session.pairingSessionId,
+            deviceId: device.deviceId,
+            credentialId: sourceCredentialId,
+            credentialVersion: sourceCredentialVersion,
+            recoveryTargetCredentialId:
+              this.#credentialService.createCredentialId(),
+          });
+    if (
+      reserved?.state !== "recovering" ||
+      !reserved.recoveryTargetCredentialId
+    ) {
       throw completionUnavailable();
     }
 
@@ -494,41 +545,41 @@ export class PairingCredentialCompletionService {
       const recovery = await this.#completionRepository.get(
         session.pairingSessionId,
       );
-      if (recovery?.state !== "recovering") {
+      if (
+        recovery?.state !== "recovering" ||
+        !recovery.recoveryTargetCredentialId
+      ) {
         throw completionUnavailable();
       }
 
       const active = await this.#getActiveOrNull(device.deviceId);
       if (!active) {
-        let issued: IssuedDeviceCredential;
-        try {
-          issued = await this.#credentialService.issue(device.deviceId);
-        } catch (error) {
-          if (
-            error instanceof DeviceCredentialError &&
-            error.code === "CREDENTIAL_ALREADY_EXISTS"
-          ) {
-            continue;
-          }
-          throw error;
-        }
-        const finalized = await this.#finishRecovery(recovery, issued);
-        if (finalized) return issued;
-        continue;
+        // Recovery không bao giờ chủ động revoke. Active biến mất nghĩa là một
+        // lifecycle mutation bên ngoài đã thắng; tuyệt đối không issue lại.
+        throw completionUnavailable();
       }
 
       if (
         active.credentialId !== recovery.credentialId ||
         active.version !== recovery.credentialVersion
       ) {
-        await this.#completionRepository.advanceRecovery({
+        // Chỉ generation đúng target đã reserve trước rotate mới được coi là
+        // commit của recovery bị crash. Generation khác thuộc mutation ngoài.
+        if (!isReservedRecoveryTarget(recovery, active.credentialId, active.version)) {
+          throw completionUnavailable();
+        }
+
+        const advanced = await this.#completionRepository.advanceRecovery({
           pairingSessionId: session.pairingSessionId,
           deviceId: device.deviceId,
           expectedCredentialId: recovery.credentialId,
           expectedCredentialVersion: recovery.credentialVersion,
           credentialId: active.credentialId,
           credentialVersion: active.version,
+          recoveryTargetCredentialId:
+            this.#credentialService.createCredentialId(),
         });
+        if (!advanced) continue;
         continue;
       }
 
@@ -538,6 +589,7 @@ export class PairingCredentialCompletionService {
           device.deviceId,
           recovery.credentialId,
           recovery.credentialVersion,
+          recovery.recoveryTargetCredentialId,
         );
       } catch (error) {
         if (
@@ -547,6 +599,16 @@ export class PairingCredentialCompletionService {
           continue;
         }
         throw error;
+      }
+
+      if (
+        !isReservedRecoveryTarget(
+          recovery,
+          issued.credential.credentialId,
+          issued.credential.version,
+        )
+      ) {
+        throw completionUnavailable();
       }
 
       const finalized = await this.#finishRecovery(recovery, issued);
