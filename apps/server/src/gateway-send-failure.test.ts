@@ -96,7 +96,7 @@ describe("BridgeGateway outbound send failure cleanup", () => {
     expect(cleaned).toBe(true);
   });
 
-  test("serialize/send failure xoá session ngay cả khi idle timeout bị tắt", async () => {
+  test("outbound validation error không bị nhận nhầm là socket failure", async () => {
     gateway = createBridgeGateway({
       port: 0,
       idleTimeoutMs: 0,
@@ -115,8 +115,8 @@ describe("BridgeGateway outbound send failure cleanup", () => {
       code: "SESSION_CLOSED",
     });
 
-    expect(gateway.getSession("send-failure-session")).toBeUndefined();
-    expect(gateway.sessionCount).toBe(0);
-    expect(session.state).not.toBe("ready");
+    expect(gateway.getSession("send-failure-session")).toBe(session);
+    expect(gateway.sessionCount).toBe(1);
+    expect(session.state).toBe("ready");
   });
 });
