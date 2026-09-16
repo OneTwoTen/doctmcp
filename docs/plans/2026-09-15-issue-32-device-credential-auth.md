@@ -6,7 +6,9 @@ Hoàn tất M3.3: sau pairing, server cấp credential dài hạn gắn với `d
 
 ## Trạng thái
 
-Implementation nằm trên branch `codex/m3-3-device-credential-auth`, PR #39 và đang chờ final verification/merge. Các finding review về recovery race, active-session invalidation, gateway send cleanup, lifecycle linearization và credential wire validation đã được xử lý bằng code + regression tests.
+✅ Hoàn tất và đã squash-merge vào `main` qua PR #39, commit `163fb899`. Final verification trước merge: CI #270 xanh với 223/223 tests, 914 assertions, 34 files, M2 acceptance và Windows regression đều pass.
+
+Các finding review về recovery race, active-session invalidation, gateway send cleanup, lifecycle linearization và credential wire validation đã được xử lý bằng code + deterministic regression tests.
 
 ## Scope đã hoàn tất
 
@@ -100,7 +102,7 @@ Regression suite có coverage cho:
 - outbound send-failure cleanup;
 - Windows shell regression.
 
-Final head/CI/test count được cập nhật ở PR #39 thay vì hard-code trong plan.
+Final merge: PR #39 → `main` at `163fb899`.
 
 ## Out of scope
 
