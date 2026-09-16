@@ -1,4 +1,13 @@
-import type { DeviceCredential } from "@doctmcp/schemas";
+import type {
+  AuthenticatedDeviceIdentity,
+  DeviceCredential,
+} from "@doctmcp/schemas";
+import {
+  createDeviceCredentialInvalidationEvent,
+  type DeviceCredentialInvalidationBus,
+  type DeviceCredentialInvalidationKind,
+  InMemoryDeviceCredentialInvalidationBus,
+} from "./device-credential-invalidation";
 import {
   DeviceCredentialError,
   type DeviceCredentialRepository,
@@ -14,6 +23,13 @@ import {
   type DeviceRepository,
   InMemoryDeviceRepository,
 } from "./device-repository";
+import {
+  DEFAULT_DEVICE_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_DEVICE_HEARTBEAT_TIMEOUT_MS,
+  type DeviceSessionCredentialGeneration,
+  DeviceSessionRegistry,
+  type DeviceSessionStatusSnapshot,
+} from "./device-session-registry";
 import {
   type BridgeGateway,
   type BridgeGatewaySession,
@@ -41,6 +57,8 @@ export interface CreateDoctmcpServerRuntimeOptions
     | "beginSessionReady"
     | "validateSessionReady"
     | "onSession"
+    | "onHeartbeat"
+    | "onSessionClosed"
   > {
   readonly onSession?: (session: BridgeGatewaySession) => void;
   readonly deviceRepository?: DeviceRepository;
@@ -48,6 +66,8 @@ export interface CreateDoctmcpServerRuntimeOptions
   readonly pairingRepository?: PairingSessionRepository;
   readonly pairingCredentialCompletionRepository?: PairingCredentialCompletionRepository;
   readonly credentialLifecycleCoordinator?: DeviceCredentialLifecycleCoordinator;
+  readonly deviceSessionRegistry?: DeviceSessionRegistry;
+  readonly credentialInvalidationBus?: DeviceCredentialInvalidationBus;
 }
 
 export type RuntimePairingCredentialCompletionService = Pick<
@@ -58,11 +78,22 @@ export type RuntimePairingCredentialCompletionService = Pick<
 export interface DoctmcpServerRuntime {
   readonly gateway: BridgeGateway;
   readonly deviceRepository: DeviceRepository;
+  readonly deviceSessionRegistry: DeviceSessionRegistry;
   readonly pairingService: PairingService;
   readonly pairingCredentialCompletionService: RuntimePairingCredentialCompletionService;
+  getDeviceStatus(deviceId: string): DeviceSessionStatusSnapshot;
   revokeDeviceCredential(deviceId: string): Promise<DeviceCredential>;
   rotateDeviceCredential(deviceId: string): Promise<IssuedDeviceCredential>;
   stop(): Promise<void>;
+}
+
+function generationFromCredential(
+  credential: Pick<DeviceCredential, "credentialId" | "version">,
+): DeviceSessionCredentialGeneration {
+  return Object.freeze({
+    credentialId: credential.credentialId,
+    credentialVersion: credential.version,
+  });
 }
 
 export function createDoctmcpServerRuntime(
@@ -75,9 +106,29 @@ export function createDoctmcpServerRuntime(
     pairingCredentialCompletionRepository:
       configuredPairingCredentialCompletionRepository,
     credentialLifecycleCoordinator: configuredCredentialLifecycleCoordinator,
+    deviceSessionRegistry: configuredDeviceSessionRegistry,
+    credentialInvalidationBus: configuredCredentialInvalidationBus,
+    heartbeatIntervalMs: configuredHeartbeatIntervalMs,
+    heartbeatTimeoutMs: configuredHeartbeatTimeoutMs,
+    logger,
     onSession,
     ...gatewayOptions
   } = options;
+
+  const heartbeatTimeoutMs =
+    configuredHeartbeatTimeoutMs ??
+    configuredDeviceSessionRegistry?.heartbeatTimeoutMs ??
+    DEFAULT_DEVICE_HEARTBEAT_TIMEOUT_MS;
+  const heartbeatIntervalMs =
+    configuredHeartbeatIntervalMs ?? DEFAULT_DEVICE_HEARTBEAT_INTERVAL_MS;
+  if (
+    configuredDeviceSessionRegistry &&
+    configuredDeviceSessionRegistry.heartbeatTimeoutMs !== heartbeatTimeoutMs
+  ) {
+    throw new Error(
+      "Configured DeviceSessionRegistry heartbeat timeout must match runtime heartbeatTimeoutMs.",
+    );
+  }
 
   const deviceRepository =
     configuredDeviceRepository ?? new InMemoryDeviceRepository();
@@ -97,8 +148,17 @@ export function createDoctmcpServerRuntime(
   const credentialLifecycleCoordinator =
     configuredCredentialLifecycleCoordinator ??
     new InMemoryDeviceCredentialLifecycleCoordinator();
+  const deviceSessionRegistry =
+    configuredDeviceSessionRegistry ??
+    new DeviceSessionRegistry({ heartbeatTimeoutMs });
+  const credentialInvalidationBus =
+    configuredCredentialInvalidationBus ??
+    new InMemoryDeviceCredentialInvalidationBus();
 
-  const trackedSessions = new Set<BridgeGatewaySession>();
+  const credentialGenerationByIdentity = new WeakMap<
+    AuthenticatedDeviceIdentity,
+    DeviceSessionCredentialGeneration
+  >();
   const credentialMutationCounts = new Map<string, number>();
   const authenticationCounts = new Map<string, number>();
   const authenticationDrainWaiters = new Map<string, Set<() => void>>();
@@ -106,11 +166,10 @@ export function createDoctmcpServerRuntime(
   const sessionReadyDrainWaiters = new Map<string, Set<() => void>>();
   let stopping = false;
 
-  const pruneClosedSessions = (): void => {
-    for (const session of trackedSessions) {
-      if (session.state === "closed") trackedSessions.delete(session);
-    }
-  };
+  const log = (
+    event: string,
+    details?: Readonly<Record<string, string>>,
+  ): void => logger?.(event, details);
 
   const isCredentialMutationActive = (deviceId: string): boolean =>
     (credentialMutationCounts.get(deviceId) ?? 0) > 0;
@@ -210,20 +269,69 @@ export function createDoctmcpServerRuntime(
     });
   };
 
-  const closeDeviceSessions = async (deviceId: string): Promise<void> => {
-    const closes: Promise<void>[] = [];
-    for (const session of trackedSessions) {
-      if (session.state === "closed") {
-        trackedSessions.delete(session);
-        continue;
-      }
-      if (session.identity?.deviceId === deviceId) {
-        trackedSessions.delete(session);
-        closes.push(session.close("NORMAL"));
-      }
-    }
-    await Promise.allSettled(closes);
+  const evictCredentialGeneration = async (
+    deviceId: string,
+    generation: DeviceSessionCredentialGeneration,
+    nativeReason: "CREDENTIAL_INVALIDATED" | "SESSION_REPLACED",
+  ): Promise<void> => {
+    const evicted = deviceSessionRegistry.evictGeneration(deviceId, generation);
+    if (!evicted) return;
+    log("device.session.evicted", {
+      deviceId,
+      sessionId: evicted.session.id,
+      reason: nativeReason,
+    });
+    await evicted.session.close("NORMAL", nativeReason);
   };
+
+  const publishCredentialInvalidation = async (
+    deviceId: string,
+    generation: DeviceSessionCredentialGeneration,
+    kind: DeviceCredentialInvalidationKind,
+  ): Promise<void> => {
+    const event = createDeviceCredentialInvalidationEvent({
+      kind,
+      deviceId,
+      credentialId: generation.credentialId,
+      credentialVersion: generation.credentialVersion,
+    });
+    try {
+      await credentialInvalidationBus.publish(event);
+    } catch {
+      log("device.credential.invalidation.degraded", {
+        deviceId,
+        eventId: event.eventId,
+        kind,
+      });
+    }
+  };
+
+  const invalidateCredentialGeneration = async (
+    deviceId: string,
+    generation: DeviceSessionCredentialGeneration,
+    kind: DeviceCredentialInvalidationKind,
+  ): Promise<void> => {
+    await evictCredentialGeneration(
+      deviceId,
+      generation,
+      "CREDENTIAL_INVALIDATED",
+    );
+    await publishCredentialInvalidation(deviceId, generation, kind);
+  };
+
+  const unsubscribeCredentialInvalidation = credentialInvalidationBus.subscribe(
+    async (event) => {
+      if (stopping) return;
+      await evictCredentialGeneration(
+        event.deviceId,
+        {
+          credentialId: event.credentialId,
+          credentialVersion: event.credentialVersion,
+        },
+        "CREDENTIAL_INVALIDATED",
+      );
+    },
+  );
 
   const runCredentialLifecycleOperation = async <T>(
     deviceId: string,
@@ -260,7 +368,14 @@ export function createDoctmcpServerRuntime(
       expectedCredentialVersion,
       credentialId,
     );
-    await closeDeviceSessions(deviceId);
+    await invalidateCredentialGeneration(
+      deviceId,
+      {
+        credentialId: expectedCredentialId,
+        credentialVersion: expectedCredentialVersion,
+      },
+      "rotated",
+    );
     return issued;
   };
 
@@ -419,7 +534,11 @@ export function createDoctmcpServerRuntime(
           "Device credential không khả dụng.",
         );
       }
-      await closeDeviceSessions(current.deviceId);
+      await invalidateCredentialGeneration(
+        current.deviceId,
+        generationFromCredential(current),
+        "revoked",
+      );
       return revoked;
     });
   };
@@ -436,13 +555,20 @@ export function createDoctmcpServerRuntime(
         current.credentialId,
         current.version,
       );
-      await closeDeviceSessions(current.deviceId);
+      await invalidateCredentialGeneration(
+        current.deviceId,
+        generationFromCredential(current),
+        "rotated",
+      );
       return rotated;
     });
   };
 
   const gateway = createBridgeGateway({
     ...gatewayOptions,
+    logger,
+    heartbeatIntervalMs,
+    heartbeatTimeoutMs,
     authenticateDevice: async (deviceId, credential) => {
       if (stopping || isCredentialMutationActive(deviceId)) {
         throw new Error("Device credential mutation is in progress");
@@ -474,28 +600,75 @@ export function createDoctmcpServerRuntime(
       ) {
         throw new Error("Device credential changed before session readiness");
       }
+      credentialGenerationByIdentity.set(
+        identity,
+        generationFromCredential(verified.credential),
+      );
     },
     onSession: (session) => {
-      pruneClosedSessions();
-      trackedSessions.add(session);
+      if (session.identity) {
+        const generation = credentialGenerationByIdentity.get(session.identity);
+        if (!generation) {
+          throw new Error("Authenticated session credential generation is missing");
+        }
+        credentialGenerationByIdentity.delete(session.identity);
+        const registered = deviceSessionRegistry.register(session, generation);
+        if (registered.replaced) {
+          log("device.session.replaced", {
+            deviceId: registered.current.deviceId,
+            oldSessionId: registered.replaced.session.id,
+            newSessionId: registered.current.session.id,
+          });
+          void registered.replaced.session.close("NORMAL", "SESSION_REPLACED");
+        }
+      }
       onSession?.(session);
+    },
+    onHeartbeat: async (session) => {
+      const registered = deviceSessionRegistry.getBySession(session);
+      if (!registered || !session.identity) {
+        throw new Error("Heartbeat session is not registered");
+      }
+      const active = await credentialRepository.getActive(
+        registered.deviceId,
+      );
+      if (
+        !active ||
+        active.credentialId !== registered.credentialGeneration.credentialId ||
+        active.version !== registered.credentialGeneration.credentialVersion
+      ) {
+        deviceSessionRegistry.evictSession(session);
+        throw new Error("Heartbeat credential generation is no longer active");
+      }
+      if (!deviceSessionRegistry.markHeartbeat(session)) {
+        throw new Error("Heartbeat session was replaced during validation");
+      }
+    },
+    onSessionClosed: (session) => {
+      if (session.identity) credentialGenerationByIdentity.delete(session.identity);
+      deviceSessionRegistry.evictSession(session);
     },
   });
 
   return Object.freeze({
     gateway,
     deviceRepository,
+    deviceSessionRegistry,
     pairingService,
     pairingCredentialCompletionService,
+    getDeviceStatus(deviceId: string) {
+      return deviceSessionRegistry.getStatus(deviceId);
+    },
     revokeDeviceCredential: revokeDeviceCredentialInternal,
     rotateDeviceCredential: rotateDeviceCredentialInternal,
     async stop() {
       if (stopping) return;
       stopping = true;
+      unsubscribeCredentialInvalidation();
       resolveDrainWaiters(authenticationDrainWaiters);
       resolveDrainWaiters(sessionReadyDrainWaiters);
       await gateway.stop();
-      trackedSessions.clear();
+      deviceSessionRegistry.clear();
       authenticationCounts.clear();
       sessionReadyCounts.clear();
       credentialMutationCounts.clear();
