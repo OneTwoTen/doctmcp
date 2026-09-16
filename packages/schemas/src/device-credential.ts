@@ -3,6 +3,18 @@ import { deviceIdSchema, ownerIdSchema } from "./device";
 
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/** 32 random bytes encoded as unpadded base64url always occupy 43 characters. */
+export const DEVICE_CREDENTIAL_SECRET_BASE64URL_LENGTH = 43 as const;
+
+export const deviceCredentialSecretSchema = z
+  .string()
+  .length(
+    DEVICE_CREDENTIAL_SECRET_BASE64URL_LENGTH,
+    `credential phải dài đúng ${DEVICE_CREDENTIAL_SECRET_BASE64URL_LENGTH} ký tự base64url`,
+  )
+  .regex(BASE64URL_PATTERN, "credential phải là unpadded base64url hợp lệ");
 
 export const deviceCredentialIdSchema = z
   .string()
@@ -52,6 +64,7 @@ export const authenticatedDeviceIdentitySchema = z
   })
   .strict();
 
+export type DeviceCredentialSecret = z.infer<typeof deviceCredentialSecretSchema>;
 export type DeviceCredentialId = z.infer<typeof deviceCredentialIdSchema>;
 export type DeviceCredentialState = z.infer<typeof deviceCredentialStateSchema>;
 export type DeviceCredential = Readonly<z.infer<typeof deviceCredentialSchema>>;
