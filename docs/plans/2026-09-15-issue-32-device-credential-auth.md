@@ -6,12 +6,14 @@ Hoàn tất M3.3: sau pairing, server cấp credential dài hạn gắn với `d
 
 ## Trạng thái
 
-Implementation nằm trên branch `codex/m3-3-device-credential-auth`, PR #39 và đang chờ final verification/merge. Các finding review về recovery race, active-session invalidation, gateway send cleanup và lifecycle linearization đã được xử lý bằng code + regression tests.
+Implementation nằm trên branch `codex/m3-3-device-credential-auth`, PR #39 và đang chờ final verification/merge. Các finding review về recovery race, active-session invalidation, gateway send cleanup, lifecycle linearization và credential wire validation đã được xử lý bằng code + regression tests.
 
 ## Scope đã hoàn tất
 
 - Credential store/service tách khỏi `Device`.
 - Raw credential dùng CSPRNG 256-bit; server chỉ persist digest có domain prefix.
+- Wire credential khóa đúng unpadded base64url của 32 bytes: **43 ký tự**, không nhận padding/ký tự ngoài base64url.
+- `bridge.hello.auth.deviceId` dùng cùng shared UUID-v4 schema của `Device`.
 - `credentialId + version` làm generation/CAS boundary; credential id không reuse.
 - Pairing completion không persist raw secret.
 - Durable state: `pending -> recovering -> pending(new generation) -> delivered`.
@@ -24,7 +26,7 @@ Implementation nằm trên branch `codex/m3-3-device-credential-auth`, PR #39 v�
 - Pending ACK của generation đã bị revoke/rotate bị reject.
 - Authenticated `bridge.hello` gửi credential trong frame, không trong URL/query.
 - Ready lease + final credential revalidation trước `bridge.hello.ack`.
-- Revoke/rotate/recovery rotation đóng active authenticated session.
+- Revoke/rotate/recovery rotation đóng active authenticated session trong cùng runtime process.
 - Legacy unauthenticated mode chỉ bật explicit trong test/M2 compatibility path.
 - Native outbound WebSocket send failure cleanup session; validation error không tear down healthy socket.
 
@@ -70,6 +72,8 @@ Coordinator không thay thế persistence CAS:
 - coordinator serialize high-level sequence;
 - CAS bảo vệ authoritative state và crash/retry correctness.
 
+Active-session invalidation cross-instance được khóa scope sang #33: registry phải generation-aware và shared invalidation event của revoke/rotate phải đóng stale session trên instance khác trong bounded default **≤ 5 giây**, đồng thời delayed/duplicate event không được đóng session generation mới.
+
 ## Stale completion và ACK
 
 Production runtime serialize completion API cùng lifecycle coordinator và revalidate exact active `credentialId + version` trước khi trả completion.
@@ -84,6 +88,7 @@ Sau explicit rotate/revoke:
 
 Regression suite có coverage cho:
 
+- strict credential wire shape / malformed authenticated hello;
 - initial issue bị block tại `setPending` trong khi explicit rotate chờ lifecycle lock;
 - recovery bị block tại `finishRecovery` trong khi explicit rotate chờ lifecycle lock;
 - concurrent explicit rotate/revoke chỉ một request thắng;
@@ -95,11 +100,11 @@ Regression suite có coverage cho:
 - outbound send-failure cleanup;
 - Windows shell regression.
 
-Verification implementation trước commit docs: Biome ✅, typecheck ✅, **222/222 tests**, 909 assertions, 34 files. Final head/CI được cập nhật ở PR #39.
+Final head/CI/test count được cập nhật ở PR #39 thay vì hard-code trong plan.
 
 ## Out of scope
 
-- authoritative device-session registry / duplicate connection policy / heartbeat / online state (#33);
+- authoritative device-session registry / duplicate connection policy / heartbeat / online state / cross-instance credential invalidation (#33);
 - reconnect/backoff (#34);
 - multi-device routing (#35);
 - public MCP endpoint/user OAuth (M4);
