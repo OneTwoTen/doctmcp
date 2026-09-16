@@ -100,7 +100,7 @@ describe("BridgeGateway authenticated heartbeat", () => {
       socket.send(
         JSON.stringify({
           kind: "mcp.message",
-          message: {
+          payload: {
             jsonrpc: "2.0",
             method: "notifications/progress",
             params: { progressToken: "test", progress: 1 },
