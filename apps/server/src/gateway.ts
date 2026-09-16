@@ -376,8 +376,11 @@ export function createBridgeGateway(
       );
     }
 
+    // Validation/serialization errors are caller errors, not socket failures.
+    // Only a native ws.send failure is allowed to tear down the ready session.
+    const frame = serializeFrame(message);
     await sendWebSocketFrameOrCleanup(
-      () => connection.ws?.send(serializeFrame(message).text) ?? 0,
+      () => connection.ws?.send(frame.text) ?? 0,
       async () => {
         if (connection.session) sessions.delete(connection.session.id);
         await closeConnection(connection, "NORMAL");
