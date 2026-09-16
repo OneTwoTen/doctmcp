@@ -147,7 +147,10 @@ export class InMemoryPairingCredentialCompletionRepository
     return this.#exclusive(async () => {
       const existing = this.#records.get(input.pairingSessionId);
       if (existing?.state === "delivered") return null;
-      if (existing?.deviceId !== undefined && existing.deviceId !== input.deviceId) {
+      if (
+        existing?.deviceId !== undefined &&
+        existing.deviceId !== input.deviceId
+      ) {
         return null;
       }
       if (existing?.state === "recovering") {
@@ -483,7 +486,7 @@ export class PairingCredentialCompletionService {
       credentialId: sourceCredentialId,
       credentialVersion: sourceCredentialVersion,
     });
-    if (!reserved || reserved.state !== "recovering") {
+    if (reserved?.state !== "recovering") {
       throw completionUnavailable();
     }
 
@@ -491,7 +494,7 @@ export class PairingCredentialCompletionService {
       const recovery = await this.#completionRepository.get(
         session.pairingSessionId,
       );
-      if (!recovery || recovery.state !== "recovering") {
+      if (recovery?.state !== "recovering") {
         throw completionUnavailable();
       }
 
