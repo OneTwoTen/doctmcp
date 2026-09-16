@@ -17,6 +17,7 @@ interface ReceivedMessage {
 }
 
 const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CREDENTIAL = "A".repeat(43);
 
 function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -137,7 +138,7 @@ describe("BridgeGateway", () => {
       port: 0,
       authenticateDevice: async (deviceId, credential) => {
         expect(deviceId).toBe(DEVICE_ID);
-        expect(credential).toBe("secret-a");
+        expect(credential).toBe(CREDENTIAL);
         return { ownerId: "owner-a", deviceId: DEVICE_ID };
       },
       onSession: (session) => {
@@ -148,7 +149,7 @@ describe("BridgeGateway", () => {
     sockets.push(socket);
     sendHello(socket, "authenticated-session", {
       deviceId: DEVICE_ID,
-      credential: "secret-a",
+      credential: CREDENTIAL,
     });
 
     await expect(
@@ -169,7 +170,7 @@ describe("BridgeGateway", () => {
     gateway = createBridgeGateway({
       port: 0,
       authenticateDevice: async () => {
-        throw new Error("secret-a must never be echoed");
+        throw new Error("credential must never be echoed");
       },
       onSession: () => {
         exposed = true;
@@ -180,7 +181,7 @@ describe("BridgeGateway", () => {
     const closePromise = waitForClose(socket);
     sendHello(socket, "bad-auth", {
       deviceId: DEVICE_ID,
-      credential: "secret-a",
+      credential: CREDENTIAL,
     });
 
     const error = await waitForMessage(
@@ -192,7 +193,7 @@ describe("BridgeGateway", () => {
       code: "AUTH_FAILED",
       message: "Device authentication failed",
     });
-    expect(JSON.stringify(error)).not.toContain("secret-a");
+    expect(JSON.stringify(error)).not.toContain(CREDENTIAL);
     await closePromise;
     expect(exposed).toBe(false);
     expect(gateway.sessionCount).toBe(0);
