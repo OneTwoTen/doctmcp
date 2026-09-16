@@ -4,9 +4,9 @@ import {
   BRIDGE_MAX_QUEUED_BYTES,
   BRIDGE_MAX_QUEUED_MESSAGES,
   BRIDGE_PROTOCOL_VERSION,
-  DEVICE_CREDENTIAL_SECRET_BASE64URL_LENGTH,
   type BridgeMessage,
   bridgeMessageSchema,
+  DEVICE_CREDENTIAL_SECRET_BASE64URL_LENGTH,
 } from "./index";
 
 const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
