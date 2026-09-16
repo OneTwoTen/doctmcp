@@ -32,7 +32,9 @@ Tài liệu chi tiết cho milestone nền:
 
 - [spec M3.1 Device identity](specs/2026-09-15-m3-device-identity-design.md): immutable `deviceId`, ownership và persistence contract.
 - [plan issue #30](plans/2026-09-15-issue-30-device-identity-store.md): task/verification của foundation M3.1.
-- [pairing.md](pairing.md): device identity đã khóa ở M3.1 và pairing/credential flow của các issue tiếp theo.
+- [pairing.md](pairing.md): pairing code M3.2, credential lifecycle + authenticated bridge M3.3 và boundary chuyển tiếp sang session registry M3.4.
+- [plan issue #32](plans/2026-09-15-issue-32-device-credential-auth.md): implementation/verification đã hoàn tất qua PR #39.
+- Active task hiện tại: #33 — device session registry, heartbeat, online/offline state và cross-instance credential invalidation.
 
 ## Contract và vận hành
 
