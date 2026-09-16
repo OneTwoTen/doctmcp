@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { BridgeServerTransport } from "../../agent/src/bridge-server-transport";
+import { InMemoryDeviceCredentialRepository } from "./device-credential";
 import {
   createDeviceCredentialInvalidationEvent,
   type DeviceCredentialInvalidationBus,
   type DeviceCredentialInvalidationHandler,
   InMemoryDeviceCredentialInvalidationBus,
 } from "./device-credential-invalidation";
-import { InMemoryDeviceCredentialRepository } from "./device-credential";
 import { InMemoryDeviceCredentialLifecycleCoordinator } from "./device-credential-lifecycle";
 import { InMemoryDeviceRepository } from "./device-repository";
 import {
@@ -117,8 +117,8 @@ describe("M3.4 device session runtime", () => {
     await waitFor(() => (first.state === "closed" ? true : undefined));
     expect(second.state).toBe("ready");
     expect(
-      runtime.deviceSessionRegistry.getActive(completed.device.deviceId)?.session
-        .id,
+      runtime.deviceSessionRegistry.getActive(completed.device.deviceId)
+        ?.session.id,
     ).toBe("device-session-new");
     expect(runtime.getDeviceStatus(completed.device.deviceId).status).toBe(
       "online",
@@ -150,7 +150,9 @@ describe("M3.4 device session runtime", () => {
         ? true
         : undefined,
     );
-    expect(runtime.deviceSessionRegistry.getActive(completed.device.deviceId)).toBeNull();
+    expect(
+      runtime.deviceSessionRegistry.getActive(completed.device.deviceId),
+    ).toBeNull();
   });
 
   test("cross-instance rotate closes stale generation and delayed old event cannot close new generation", async () => {
@@ -214,8 +216,8 @@ describe("M3.4 device session runtime", () => {
 
     expect(current.state).toBe("ready");
     expect(
-      runtimeB.deviceSessionRegistry.getActive(completed.device.deviceId)?.session
-        .id,
+      runtimeB.deviceSessionRegistry.getActive(completed.device.deviceId)
+        ?.session.id,
     ).toBe("cross-instance-current");
   });
 
