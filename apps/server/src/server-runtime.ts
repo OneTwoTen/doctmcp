@@ -225,21 +225,28 @@ export function createDoctmcpServerRuntime(
     await Promise.allSettled(closes);
   };
 
-  const runCredentialLifecycleOperation = <T>(
+  const runCredentialLifecycleOperation = async <T>(
     deviceId: string,
     operation: () => Promise<T>,
-  ): Promise<T> =>
-    credentialLifecycleCoordinator.runExclusive(deviceId, async () => {
-      beginCredentialMutation(deviceId);
-      try {
-        await waitForSessionReadyDrain(deviceId);
-        if (stopping) throw new Error("Server runtime is stopping");
-        return await operation();
-      } finally {
-        await waitForAuthenticationDrain(deviceId);
-        endCredentialMutation(deviceId);
-      }
-    });
+  ): Promise<T> => {
+    beginCredentialMutation(deviceId);
+    try {
+      return await credentialLifecycleCoordinator.runExclusive(
+        deviceId,
+        async () => {
+          try {
+            await waitForSessionReadyDrain(deviceId);
+            if (stopping) throw new Error("Server runtime is stopping");
+            return await operation();
+          } finally {
+            await waitForAuthenticationDrain(deviceId);
+          }
+        },
+      );
+    } finally {
+      endCredentialMutation(deviceId);
+    }
+  };
 
   const recoverCredentialGenerationInsideLifecycle = async (
     deviceId: string,
@@ -396,8 +403,10 @@ export function createDoctmcpServerRuntime(
   const revokeDeviceCredentialInternal = async (
     deviceId: string,
   ): Promise<DeviceCredential> => {
-    const current = await credentialService.getActive(deviceId);
-    return runCredentialLifecycleOperation(current.deviceId, async () => {
+    const lifecycleDeviceId = deviceId.toLowerCase();
+    const currentPromise = credentialService.getActive(deviceId);
+    return runCredentialLifecycleOperation(lifecycleDeviceId, async () => {
+      const current = await currentPromise;
       const revoked = await credentialRepository.revoke({
         deviceId: current.deviceId,
         expectedCredentialId: current.credentialId,
@@ -418,8 +427,10 @@ export function createDoctmcpServerRuntime(
   const rotateDeviceCredentialInternal = async (
     deviceId: string,
   ): Promise<IssuedDeviceCredential> => {
-    const current = await credentialService.getActive(deviceId);
-    return runCredentialLifecycleOperation(current.deviceId, async () => {
+    const lifecycleDeviceId = deviceId.toLowerCase();
+    const currentPromise = credentialService.getActive(deviceId);
+    return runCredentialLifecycleOperation(lifecycleDeviceId, async () => {
+      const current = await currentPromise;
       const rotated = await credentialService.rotateExpected(
         current.deviceId,
         current.credentialId,
