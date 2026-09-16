@@ -90,8 +90,9 @@ describe("BridgeGateway outbound send failure cleanup", () => {
     await expect(
       sendWebSocketFrameOrCleanup(
         () => 0,
-        async () => {
+        () => {
           cleaned = true;
+          return Promise.resolve();
         },
       ),
     ).rejects.toMatchObject({ code: "SESSION_CLOSED" });
