@@ -102,7 +102,7 @@ describe("Pairing credential terminal delivery", () => {
     ).resolves.toBe(completed);
   });
 
-  test("ACK đúng generation làm delivered terminal qua restart và sau revoke", async () => {
+  test("ACK đúng generation idempotent và delivered terminal qua restart/revoke", async () => {
     const {
       deviceRepository,
       pairingService,
@@ -111,13 +111,15 @@ describe("Pairing credential terminal delivery", () => {
       completionService,
       completed,
     } = await createFixture();
-
-    await completionService.acknowledgeDelivery({
+    const ack = {
       pairingSessionId: PAIRING_SESSION_ID,
       ownerId: "owner-a",
       credentialId: completed.credential.credentialId,
       credentialVersion: completed.credential.version,
-    });
+    } as const;
+
+    await expect(completionService.acknowledgeDelivery(ack)).resolves.toBeUndefined();
+    await expect(completionService.acknowledgeDelivery(ack)).resolves.toBeUndefined();
 
     await expect(
       completionRepository.get(PAIRING_SESSION_ID),
@@ -136,6 +138,7 @@ describe("Pairing credential terminal delivery", () => {
       deviceRepository,
       completionRepository,
     });
+    await expect(restarted.acknowledgeDelivery(ack)).resolves.toBeUndefined();
     await expect(
       restarted.resumeClaimedPairing(PAIRING_SESSION_ID, "owner-a"),
     ).rejects.toMatchObject({ code: "PAIRING_COMPLETION_UNAVAILABLE" });
