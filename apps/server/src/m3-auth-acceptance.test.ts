@@ -20,7 +20,7 @@ import {
 
 const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CREDENTIAL_ID = "11111111-1111-4111-8111-111111111111";
-const DEVICE_SECRET = "m3-authenticated-device-secret";
+const DEVICE_SECRET = "A".repeat(43);
 
 function textFromResult(result: unknown): string {
   if (
