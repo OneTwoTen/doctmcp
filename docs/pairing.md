@@ -81,7 +81,9 @@ nếu không có transaction/lock/CAS bao toàn bộ sequence.
 
 Sau pairing, server cấp credential riêng cho đúng `deviceId`:
 
-- raw secret: 32 CSPRNG bytes, encode base64url, 256 bit entropy;
+- raw secret: 32 CSPRNG bytes, encode **unpadded base64url**, 256 bit entropy;
+- wire representation luôn đúng **43 ký tự** và chỉ gồm `[A-Za-z0-9_-]`;
+- `bridge.hello.auth` reject credential sai length, có padding (`=`), `+`, `/` hoặc ký tự ngoài base64url trước khi authenticate;
 - `credentialId`: UUID v4 riêng cho từng generation;
 - server chỉ persist SHA-256 digest với domain prefix `doctmcp-device-credential:v1:`;
 - mỗi device có tối đa một credential active;
@@ -233,7 +235,9 @@ bridge.hello
     credential
 ```
 
-Production gateway mặc định yêu cầu auth. `createDoctmcpServerRuntime()` luôn wire verifier thật trên cùng credential repository mà lifecycle API sử dụng.
+Production gateway mặc định yêu cầu auth. `bridge.hello.auth.deviceId` dùng shared UUID-v4 `deviceIdSchema`, còn `credential` dùng strict 43-char unpadded-base64url schema. Frame sai shape bị reject ở protocol boundary trước khi gọi credential verifier.
+
+`createDoctmcpServerRuntime()` luôn wire verifier thật trên cùng credential repository mà lifecycle API sử dụng.
 
 M2 legacy hello chỉ được bật explicit qua `allowLegacyUnauthenticated: true` ở direct compatibility/test path; auth failure không fallback sang legacy.
 
@@ -257,14 +261,17 @@ Credential lifecycle mutation:
 - chặn auth mới của cùng device;
 - handshake verify đang in-flight thấy mutation marker và fail generic;
 - mutation chờ ready lease đã acquire drain trước khi thay credential;
-- sau rotate/revoke, active authenticated session của device bị close;
+- sau rotate/revoke, active authenticated session của device bị close trong cùng runtime process;
 - old secret reconnect fail;
 - `stop()` resolve auth/ready drain waiters để shutdown không treo.
+
+Cross-instance invalidation không thuộc M3.3. #33 đã được cập nhật để registry lưu credential generation và propagate revoke/rotate qua shared invalidation bus, mặc định bounded **≤ 5 giây**, đồng thời delayed/duplicate event không được đóng session generation mới.
 
 ## Test bắt buộc cho lifecycle boundary
 
 Regression suite phải giữ ít nhất các case sau:
 
+- strict authenticated credential wire format;
 - barrier tại `setPending`: explicit rotate phải chờ initial issue + completion commit;
 - barrier tại `finishRecovery`: explicit rotate phải chờ recovery rotate + finalize;
 - concurrent explicit rotate/revoke: chỉ một mutation của cùng expected generation thắng;
@@ -277,7 +284,7 @@ Regression suite phải giữ ít nhất các case sau:
 
 ## Out of scope của M3.3
 
-- authoritative device-session registry / duplicate connection policy / heartbeat / online state (#33);
+- authoritative device-session registry / duplicate connection policy / heartbeat / online state / cross-instance credential invalidation (#33);
 - reconnect/backoff loop (#34);
 - multi-device routing (#35);
 - public MCP endpoint và user OAuth (M4);
