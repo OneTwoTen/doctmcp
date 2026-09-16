@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { BridgeMessage } from "@doctmcp/protocol";
-import type { BridgeGatewaySession } from "./gateway";
 import { DeviceSessionRegistry } from "./device-session-registry";
+import type { BridgeGatewaySession } from "./gateway";
 
 const DEVICE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DEVICE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
