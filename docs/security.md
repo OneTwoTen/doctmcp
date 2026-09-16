@@ -101,6 +101,8 @@ thành các write độc lập không transaction/lock/CAS. Pairing transition v
 Long-lived credential tách khỏi `Device` record:
 
 - raw secret = 32 CSPRNG bytes, 256 bit entropy;
+- wire encoding = **43 ký tự unpadded base64url**, chỉ `[A-Za-z0-9_-]`;
+- authenticated bridge reject credential sai length, có padding `=`, `+`, `/` hoặc ký tự ngoài base64url trước verifier;
 - raw secret chỉ xuất hiện lúc issue/rotate/delivery;
 - server persist SHA-256 digest có domain prefix `doctmcp-device-credential:v1:`;
 - `credentialId` riêng cho từng generation và không reuse;
@@ -180,7 +182,7 @@ Security properties:
 - explicit rotate/revoke dùng expected-generation CAS dưới cùng lock;
 - explicit mutation không thể chen vào rotate/finalize window;
 - concurrent explicit requests snapshot cùng generation vẫn chỉ một CAS commit được;
-- active authenticated session bị close sau successful rotate/revoke/recovery rotation.
+- active authenticated session bị close sau successful rotate/revoke/recovery rotation trong cùng runtime process.
 
 ### Single-process vs multi-instance
 
@@ -192,6 +194,8 @@ Coordinator không thay thế CAS trong persistence. Cả hai đều cần:
 
 - coordinator: serialize high-level lifecycle sequence;
 - credential/completion CAS: bảo vệ authoritative store và crash/retry correctness.
+
+Cross-instance **active-session invalidation** là boundary riêng của #33. Registry ở M3.4 phải giữ credential generation của session và dùng shared invalidation/pub-sub event generation-aware. Revoke/rotate ở một instance phải close stale session trên instance khác trong bounded default **≤ 5 giây**; delayed/duplicate event không được close session generation mới.
 
 ## Stale completion cache và ACK
 
@@ -222,6 +226,8 @@ Không đưa credential vào URL/query.
 Production gateway:
 
 - yêu cầu auth mặc định;
+- `auth.deviceId` dùng shared UUID-v4 schema và được canonicalize;
+- `auth.credential` bắt buộc exact 43-char unpadded-base64url shape trước authenticator;
 - validate authenticator output;
 - bind server-side `{ ownerId, deviceId }` vào ready session;
 - reject `mcp.message` trước handshake;
@@ -288,6 +294,7 @@ Không mặc định lưu file content, command output, raw arguments hoặc sec
 
 Security-sensitive changes phải có denied/race-path test. M3.3 hiện giữ regression cho:
 
+- malformed credential wire shape;
 - wrong/mismatched/revoked credential;
 - concurrent rotate/revoke và rotate/rotate;
 - initial issue vs explicit rotate barrier;
@@ -305,4 +312,4 @@ Security-sensitive changes phải có denied/race-path test. M3.3 hiện giữ r
 
 CI/head/test count mới nhất được ghi ở PR thay vì hard-code trong security contract.
 
-#33 tiếp tục chịu trách nhiệm authoritative device-session registry, duplicate-session policy, heartbeat/liveness và online/offline state.
+#33 tiếp tục chịu trách nhiệm authoritative device-session registry, duplicate-session policy, generation-aware cross-instance invalidation, heartbeat/liveness và online/offline state.
