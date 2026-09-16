@@ -336,6 +336,11 @@ export class DeviceCredentialService {
     return Object.freeze({ credential, secret });
   }
 
+  async getActive(deviceId: string): Promise<DeviceCredential> {
+    const device = await this.#requireDevice(deviceId);
+    return this.#requireActiveCredential(device.deviceId);
+  }
+
   async verify(
     deviceId: unknown,
     secret: unknown,
@@ -373,14 +378,26 @@ export class DeviceCredentialService {
   }
 
   async rotate(deviceId: string): Promise<IssuedDeviceCredential> {
+    const current = await this.getActive(deviceId);
+    return this.rotateExpected(
+      current.deviceId,
+      current.credentialId,
+      current.version,
+    );
+  }
+
+  async rotateExpected(
+    deviceId: string,
+    expectedCredentialId: string,
+    expectedVersion: number,
+  ): Promise<IssuedDeviceCredential> {
     const device = await this.#requireDevice(deviceId);
-    const current = await this.#requireActiveCredential(device.deviceId);
     const secret = this.#generateSecret();
     const digest = await digestDeviceCredentialSecret(secret);
     const credential = await this.#repository.rotate({
       deviceId: device.deviceId,
-      expectedCredentialId: current.credentialId,
-      expectedVersion: current.version,
+      expectedCredentialId,
+      expectedVersion,
       credentialId: this.#generateCredentialId(),
       secretDigest: digest,
       rotatedAt: this.#readNow(),
