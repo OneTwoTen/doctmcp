@@ -618,7 +618,20 @@ export class PairingCredentialCompletionService {
       }
 
       const finalized = await this.#finishRecovery(recovery, issued);
-      if (finalized) return issued;
+      if (finalized) {
+        // Linearization check: nếu revoke/rotate bên ngoài chen vào sau recovery
+        // rotate nhưng trước completion finalize, tuyệt đối không trả raw secret
+        // của generation đã mất hiệu lực cho local.
+        const activeAfterFinalize = await this.#getActiveOrNull(device.deviceId);
+        if (
+          !activeAfterFinalize ||
+          activeAfterFinalize.credentialId !== issued.credential.credentialId ||
+          activeAfterFinalize.version !== issued.credential.version
+        ) {
+          throw completionUnavailable();
+        }
+        return issued;
+      }
     }
 
     throw completionUnavailable();
