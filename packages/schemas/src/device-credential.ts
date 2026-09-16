@@ -64,7 +64,9 @@ export const authenticatedDeviceIdentitySchema = z
   })
   .strict();
 
-export type DeviceCredentialSecret = z.infer<typeof deviceCredentialSecretSchema>;
+export type DeviceCredentialSecret = z.infer<
+  typeof deviceCredentialSecretSchema
+>;
 export type DeviceCredentialId = z.infer<typeof deviceCredentialIdSchema>;
 export type DeviceCredentialState = z.infer<typeof deviceCredentialStateSchema>;
 export type DeviceCredential = Readonly<z.infer<typeof deviceCredentialSchema>>;
