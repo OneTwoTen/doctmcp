@@ -6,9 +6,10 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 
 - M3.1: device identity + persistence contract — hoàn tất.
 - M3.2 (#31): pairing session/code lifecycle + atomic claim — hoàn tất qua PR #38.
-- M3.3 (#32): long-lived device credential + authenticated bridge handshake — implementation nằm trên PR #39 và đang chờ merge.
+- M3.3 (#32): long-lived device credential + authenticated bridge handshake — hoàn tất qua PR #39 (`163fb899`).
+- M3.4 (#33): device session registry, heartbeat, online/offline state và cross-instance invalidation — đang triển khai.
 
-Tài liệu này mô tả contract hiện tại của M3.2/M3.3. Số test/head/CI thay đổi theo từng commit nên verification mới nhất được giữ ở PR thay vì hard-code tại đây.
+Tài liệu này mô tả contract đã triển khai của M3.2/M3.3 và các boundary mà M3.4 phải tiếp tục giữ.
 
 ## Luồng tổng thể
 
