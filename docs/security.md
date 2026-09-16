@@ -139,6 +139,7 @@ deviceId
 credentialId
 credentialVersion
 state: pending | recovering | delivered
+recoveryTargetCredentialId? // chỉ khi recovering
 ```
 
 Owner được verify server-side trước khi đọc pending-secret cache, vì vậy `pairingSessionId` không phải bearer credential.
@@ -154,33 +155,37 @@ rotate credential
 
 vì crash/race giữa hai write có thể làm mất raw secret mới và để completion trỏ generation cũ.
 
-Contract hiện tại dùng durable reservation:
+Contract hiện tại reserve cả source generation và **target credential id** trước mutation:
 
 ```text
 pending(N)
-  -> recovering(N)          // persist/CAS trước mutation
-  -> rotateExpected(N,N+1) // exact generation CAS
-  -> pending(N+1)           // finalize
-  -> delivered(N+1)
+  -> recovering(source N, target T)       // persist/CAS trước mutation
+  -> rotateExpectedWithCredentialId(N,T) // exact source + target
+  -> pending(T/N+1)                       // finalize
+  -> delivered(T/N+1)
 ```
 
 Security invariant:
 
 - ACK bị reject trong `recovering`;
 - stale generation không thể trở thành `delivered` trong recovery window;
-- nếu crash sau rotate nhưng trước finalize, next resume nhận thấy active generation đã advance, CAS reservation sang generation active rồi rotate lại từ **đúng expected generation**;
-- raw secret chỉ được trả sau khi `finishRecovery()` đã commit `pending` cho generation đó;
+- nếu crash sau rotate nhưng trước finalize, next resume chỉ chấp nhận active generation là recovery commit khi `credentialId` đúng `recoveryTargetCredentialId` đã reserve và version đúng source + 1;
+- khi target khớp, recovery CAS advance source sang generation đó, reserve target mới rồi rotate tiếp từ **đúng expected generation**;
+- nếu active credential biến mất vì explicit revoke, recovery fail closed và không issue lại;
+- nếu active generation đổi sang id khác vì explicit rotate, recovery fail closed và không rotate generation đó;
+- explicit revoke/rotate vì vậy không bị recovery đảo ngược hoặc supersede;
+- raw secret chỉ được trả sau khi `finishRecovery()` đã commit `pending` cho reserved target generation;
 - concurrent worker mất CAS không được trả raw secret;
 - completion repository không persist raw secret.
 
 Production adapter phải implement atomic CAS semantics cho:
 
-- `beginRecovery`;
-- `advanceRecovery`;
+- `beginRecovery`, bao gồm durable `recoveryTargetCredentialId`;
+- `advanceRecovery`, bao gồm verify target cũ và reserve target mới;
 - `finishRecovery`;
 - `acknowledge`.
 
-Nếu các store cùng database, transaction/unit-of-work vẫn được khuyến nghị để giảm recovery work, nhưng correctness của rotate/finalize crash window dựa trên durable reservation + generation CAS, không dựa vào timing hoặc raw-secret persistence.
+Nếu các store cùng database, transaction/unit-of-work vẫn được khuyến nghị để giảm recovery work, nhưng correctness của rotate/finalize crash window dựa trên durable reservation + source/target generation CAS, không dựa vào timing hoặc raw-secret persistence.
 
 ### ACK security contract
 
@@ -253,6 +258,15 @@ Correctness không dựa vào event-loop delay, `setTimeout(0)`, post-ACK guard 
 
 `stop()` resolve auth/ready drain waiters trước gateway shutdown để mutation đang chờ không treo vô hạn.
 
+### Outbound send failure
+
+Một session `ready` không được giữ lại nếu server không thể gửi frame xuống WebSocket. `sendWebSocketFrameOrCleanup()` chạy cleanup trước khi trả `SESSION_CLOSED`:
+
+- xoá session khỏi active session map;
+- đóng native connection;
+- session không còn `ready`;
+- behavior không phụ thuộc idle timeout, nên `idleTimeoutMs = 0` cũng không để stale `sessionId` tồn tại.
+
 #33 vẫn chịu trách nhiệm authoritative device-session registry, duplicate connection policy, heartbeat/liveness và online/offline state.
 
 ## Audit
@@ -272,6 +286,9 @@ Các boundary security-sensitive hiện có test cho:
 - restart persist-before-delivery recovery;
 - **crash sau rotate trước completion finalize**;
 - `recovering` chặn ACK generation cũ;
+- explicit revoke không bị recovery issue lại;
+- explicit rotate không bị recovery supersede;
+- external rotate sau recovery reservation không bị nhận nhầm là recovery commit;
 - wrong/stale ACK không consume pending delivery;
 - exact duplicate delivered ACK idempotent;
 - delivered terminal qua restart/revoke;
@@ -279,7 +296,8 @@ Các boundary security-sensitive hiện có test cho:
 - MCP trước authenticated handshake;
 - credential thay đổi giữa auth và ready revalidation bị reject trước ACK/session;
 - revoke/rotate đóng active authenticated session;
+- outbound gateway send failure cleanup kể cả khi idle timeout tắt;
 - shutdown không để mutation drain waiter treo;
 - runtime không expose credential mutation service/repository.
 
-CI #224 trên implementation head `aa47545b`: Biome ✅, typecheck ✅, **213/213 tests**, 878 assertions, 30 files; M2 acceptance 6/6 và Windows regression ✅.
+CI #239 trên implementation head `903572b`: Biome ✅, typecheck ✅, **218/218 tests**, 895 assertions, 32 files; M2 acceptance 6/6 và Windows regression ✅.
