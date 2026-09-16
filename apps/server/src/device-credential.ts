@@ -323,13 +323,17 @@ export class DeviceCredentialService {
       options.generateSecret ?? generateDeviceCredentialSecret;
   }
 
+  createCredentialId(): string {
+    return parseCredentialId(this.#generateCredentialId());
+  }
+
   async issue(deviceId: string): Promise<IssuedDeviceCredential> {
     const device = await this.#requireDevice(deviceId);
     const secret = this.#generateSecret();
     const secretDigest = await digestDeviceCredentialSecret(secret);
     const credential = await this.#repository.issue({
       deviceId: device.deviceId,
-      credentialId: this.#generateCredentialId(),
+      credentialId: this.createCredentialId(),
       secretDigest,
       createdAt: this.#readNow(),
     });
@@ -391,14 +395,29 @@ export class DeviceCredentialService {
     expectedCredentialId: string,
     expectedVersion: number,
   ): Promise<IssuedDeviceCredential> {
+    return this.rotateExpectedWithCredentialId(
+      deviceId,
+      expectedCredentialId,
+      expectedVersion,
+      this.createCredentialId(),
+    );
+  }
+
+  async rotateExpectedWithCredentialId(
+    deviceId: string,
+    expectedCredentialId: string,
+    expectedVersion: number,
+    credentialId: string,
+  ): Promise<IssuedDeviceCredential> {
     const device = await this.#requireDevice(deviceId);
+    const parsedCredentialId = parseCredentialId(credentialId);
     const secret = this.#generateSecret();
     const digest = await digestDeviceCredentialSecret(secret);
     const credential = await this.#repository.rotate({
       deviceId: device.deviceId,
       expectedCredentialId,
       expectedVersion,
-      credentialId: this.#generateCredentialId(),
+      credentialId: parsedCredentialId,
       secretDigest: digest,
       rotatedAt: this.#readNow(),
     });
