@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  BRIDGE_PROTOCOL_VERSION,
-  type BridgeMessage,
-} from "@doctmcp/protocol";
+import { BRIDGE_PROTOCOL_VERSION, type BridgeMessage } from "@doctmcp/protocol";
 import {
   type BridgeGateway,
   type BridgeGatewaySession,
