@@ -43,7 +43,17 @@ export type BridgeSessionReadyValidator = (
   deviceId: string,
   credential: string,
   identity: AuthenticatedDeviceIdentity,
+  sessionId: string,
 ) => Promise<void>;
+
+export type BridgeSessionHeartbeatHandler = (
+  session: BridgeGatewaySession,
+) => void | Promise<void>;
+
+export type BridgeSessionClosedHandler = (
+  session: BridgeGatewaySession,
+  reason: BridgeCloseCode | "REMOTE_CLOSE",
+) => void;
 
 export interface BridgeGatewaySession {
   readonly id: string;
@@ -52,7 +62,7 @@ export interface BridgeGatewaySession {
   onmessage: ((message: BridgeMessage) => void) | undefined;
   onclose: ((reason: BridgeCloseCode | "REMOTE_CLOSE") => void) | undefined;
   send(message: BridgeMessage): Promise<void>;
-  close(code?: BridgeCloseCode): Promise<void>;
+  close(code?: BridgeCloseCode, nativeReason?: string): Promise<void>;
 }
 
 export interface CreateBridgeGatewayOptions {
@@ -61,6 +71,8 @@ export interface CreateBridgeGatewayOptions {
   path?: string;
   handshakeTimeoutMs?: number;
   idleTimeoutMs?: number;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
   logger?: BridgeGatewayLogger;
   authenticateDevice?: BridgeDeviceAuthenticator;
   beginSessionReady?: BridgeSessionReadyGuard;
@@ -68,6 +80,8 @@ export interface CreateBridgeGatewayOptions {
   /** Chỉ dành cho M2 acceptance/test. Production mặc định yêu cầu device auth. */
   allowLegacyUnauthenticated?: boolean;
   onSession?: (session: BridgeGatewaySession) => void;
+  onHeartbeat?: BridgeSessionHeartbeatHandler;
+  onSessionClosed?: BridgeSessionClosedHandler;
 }
 
 export interface BridgeGateway {
@@ -99,11 +113,16 @@ interface BridgeSocketData {
 
 interface GatewayConnection {
   readonly connectionId: string;
+  readonly onSessionClosed: BridgeSessionClosedHandler | undefined;
   ws: Bun.ServerWebSocket<BridgeSocketData> | null;
   session: GatewaySession | null;
   state: GatewaySessionState;
   closeReason: BridgeCloseCode | "REMOTE_CLOSE" | null;
   timeout: ReturnType<typeof setTimeout> | null;
+  heartbeatTimer: ReturnType<typeof setTimeout> | null;
+  heartbeatNonce: string | null;
+  heartbeatValidating: boolean;
+  lastHeartbeatAtMs: number;
   finalized: boolean;
 }
 
@@ -143,8 +162,11 @@ class GatewaySession implements BridgeGatewaySession {
     return this.sendFrame(this.connection, message);
   }
 
-  close(code: BridgeCloseCode = "NORMAL"): Promise<void> {
-    return closeConnection(this.connection, code);
+  close(
+    code: BridgeCloseCode = "NORMAL",
+    nativeReason: string = code,
+  ): Promise<void> {
+    return closeConnection(this.connection, code, true, nativeReason);
   }
 }
 
@@ -207,6 +229,14 @@ function parseIncomingFrame(frame: string | Buffer): BridgeMessage {
   return parsed.data;
 }
 
+function decodeHeartbeatPayload(payload: Buffer): string | null {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(payload);
+  } catch {
+    return null;
+  }
+}
+
 function nativeCloseCode(code: BridgeCloseCode): number {
   switch (code) {
     case "NORMAL":
@@ -227,6 +257,13 @@ function clearConnectionTimeout(connection: GatewayConnection): void {
   }
 }
 
+function clearHeartbeatTimer(connection: GatewayConnection): void {
+  if (connection.heartbeatTimer !== null) {
+    clearTimeout(connection.heartbeatTimer);
+    connection.heartbeatTimer = null;
+  }
+}
+
 function finalizeConnection(
   connection: GatewayConnection,
   reason: BridgeCloseCode | "REMOTE_CLOSE",
@@ -234,11 +271,22 @@ function finalizeConnection(
   if (connection.finalized) return;
   connection.finalized = true;
   clearConnectionTimeout(connection);
+  clearHeartbeatTimer(connection);
+  connection.heartbeatNonce = null;
+  connection.heartbeatValidating = false;
   connection.state = "closed";
+  const session = connection.session;
   try {
-    connection.session?.onclose?.(reason);
+    session?.onclose?.(reason);
   } catch {
     // Consumer callback không được phá cleanup.
+  }
+  if (session) {
+    try {
+      connection.onSessionClosed?.(session, reason);
+    } catch {
+      // Runtime cleanup callback không được phá connection cleanup.
+    }
   }
 }
 
@@ -246,6 +294,7 @@ function closeConnection(
   connection: GatewayConnection,
   code: BridgeCloseCode,
   announce = true,
+  nativeReason: string = code,
 ): Promise<void> {
   if (
     connection.finalized ||
@@ -256,6 +305,9 @@ function closeConnection(
   }
 
   clearConnectionTimeout(connection);
+  clearHeartbeatTimer(connection);
+  connection.heartbeatNonce = null;
+  connection.heartbeatValidating = false;
   connection.closeReason = code;
   connection.state = "closing";
   const ws = connection.ws;
@@ -271,7 +323,7 @@ function closeConnection(
       // Native close remains authoritative.
     }
   }
-  ws.close(nativeCloseCode(code), code);
+  ws.close(nativeCloseCode(code), nativeReason.slice(0, 123));
   return Promise.resolve();
 }
 
@@ -301,6 +353,21 @@ export function createBridgeGateway(
   const handshakeTimeoutMs =
     options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 0;
+  const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 0;
+  if (
+    !Number.isFinite(heartbeatIntervalMs) ||
+    heartbeatIntervalMs < 0 ||
+    !Number.isFinite(heartbeatTimeoutMs) ||
+    heartbeatTimeoutMs < 0 ||
+    ((heartbeatIntervalMs === 0) !== (heartbeatTimeoutMs === 0)) ||
+    (heartbeatIntervalMs > 0 && heartbeatTimeoutMs <= heartbeatIntervalMs)
+  ) {
+    throw new Error(
+      "Bridge heartbeat requires interval > 0 and timeout > interval, or both disabled.",
+    );
+  }
+
   const connections = new Map<string, GatewayConnection>();
   const sessions = new Map<string, GatewaySession>();
   let stopped = false;
@@ -324,6 +391,26 @@ export function createBridgeGateway(
     if (timeoutMs > 0) connection.timeout = setTimeout(handler, timeoutMs);
   };
 
+  const usesAuthenticatedHeartbeat = (connection: GatewayConnection): boolean =>
+    heartbeatIntervalMs > 0 &&
+    heartbeatTimeoutMs > 0 &&
+    connection.session?.identity !== null;
+
+  const armReadyIdleTimeout = (connection: GatewayConnection): void => {
+    if (usesAuthenticatedHeartbeat(connection)) {
+      clearConnectionTimeout(connection);
+      return;
+    }
+    setTimeoutFor(connection, idleTimeoutMs, () => {
+      void failConnection(
+        connection,
+        "TIMEOUT",
+        "TIMEOUT",
+        "Bridge session timed out",
+      );
+    });
+  };
+
   const failConnection = async (
     connection: GatewayConnection,
     errorCode: BridgeErrorCode,
@@ -332,6 +419,9 @@ export function createBridgeGateway(
   ): Promise<void> => {
     if (connection.finalized || connection.state === "closing") return;
     clearConnectionTimeout(connection);
+    clearHeartbeatTimer(connection);
+    connection.heartbeatNonce = null;
+    connection.heartbeatValidating = false;
     connection.closeReason = closeCode;
     connection.state = "closing";
 
@@ -356,9 +446,52 @@ export function createBridgeGateway(
       } catch {
         // Best-effort protocol error; native close remains authoritative.
       }
-      connection.ws.close(nativeCloseCode(closeCode), message);
+      connection.ws.close(nativeCloseCode(closeCode), message.slice(0, 123));
     }
     log("bridge.connection.failed", connection);
+  };
+
+  const scheduleHeartbeat = (connection: GatewayConnection): void => {
+    clearHeartbeatTimer(connection);
+    if (!usesAuthenticatedHeartbeat(connection)) return;
+    connection.heartbeatTimer = setTimeout(() => {
+      connection.heartbeatTimer = null;
+      if (
+        connection.finalized ||
+        connection.state !== "ready" ||
+        !connection.ws ||
+        !connection.session
+      ) {
+        return;
+      }
+
+      if (Date.now() - connection.lastHeartbeatAtMs >= heartbeatTimeoutMs) {
+        void failConnection(
+          connection,
+          "TIMEOUT",
+          "TIMEOUT",
+          "Device heartbeat timed out",
+        );
+        return;
+      }
+
+      if (!connection.heartbeatNonce && !connection.heartbeatValidating) {
+        const nonce = globalThis.crypto.randomUUID();
+        connection.heartbeatNonce = nonce;
+        try {
+          sendWebSocketFrameOnce(() => connection.ws?.ping(nonce) ?? 0);
+        } catch {
+          void failConnection(
+            connection,
+            "SESSION_CLOSED",
+            "NORMAL",
+            "Device heartbeat send failed",
+          );
+          return;
+        }
+      }
+      scheduleHeartbeat(connection);
+    }, heartbeatIntervalMs);
   };
 
   const sendFrame = async (
@@ -386,14 +519,7 @@ export function createBridgeGateway(
         await closeConnection(connection, "NORMAL");
       },
     );
-    setTimeoutFor(connection, idleTimeoutMs, () => {
-      void failConnection(
-        connection,
-        "TIMEOUT",
-        "TIMEOUT",
-        "Bridge session timed out",
-      );
-    });
+    armReadyIdleTimeout(connection);
   };
 
   const authenticate = async (
@@ -517,6 +643,7 @@ export function createBridgeGateway(
               message.auth.deviceId,
               message.auth.credential,
               identity,
+              message.sessionId,
             );
           } catch {
             await failConnection(
@@ -550,14 +677,8 @@ export function createBridgeGateway(
         sessions.set(session.id, session);
         clearConnectionTimeout(connection);
         connection.state = "ready";
-        setTimeoutFor(connection, idleTimeoutMs, () => {
-          void failConnection(
-            connection,
-            "TIMEOUT",
-            "TIMEOUT",
-            "Bridge session timed out",
-          );
-        });
+        connection.lastHeartbeatAtMs = Date.now();
+        armReadyIdleTimeout(connection);
 
         try {
           sendWebSocketFrameOnce(
@@ -582,6 +703,7 @@ export function createBridgeGateway(
           );
           return;
         }
+        scheduleHeartbeat(connection);
         log("bridge.session.ready", connection);
         return;
       } finally {
@@ -603,14 +725,7 @@ export function createBridgeGateway(
       return;
     }
 
-    setTimeoutFor(connection, idleTimeoutMs, () => {
-      void failConnection(
-        connection,
-        "TIMEOUT",
-        "TIMEOUT",
-        "Bridge session timed out",
-      );
-    });
+    armReadyIdleTimeout(connection);
     try {
       connection.session?.onmessage?.(message);
     } catch {
@@ -621,6 +736,47 @@ export function createBridgeGateway(
         "Bridge session forwarding failed",
       );
     }
+  };
+
+  const handlePong = (
+    connection: GatewayConnection,
+    payload: Buffer,
+  ): void => {
+    if (
+      connection.finalized ||
+      connection.state !== "ready" ||
+      !connection.session ||
+      !connection.session.identity ||
+      connection.heartbeatValidating
+    ) {
+      return;
+    }
+    const nonce = decodeHeartbeatPayload(payload);
+    if (!nonce || nonce !== connection.heartbeatNonce) return;
+
+    connection.heartbeatNonce = null;
+    connection.heartbeatValidating = true;
+    Promise.resolve(options.onHeartbeat?.(connection.session))
+      .then(() => {
+        if (
+          connection.finalized ||
+          connection.state !== "ready" ||
+          !connection.session
+        ) {
+          return;
+        }
+        connection.lastHeartbeatAtMs = Date.now();
+        connection.heartbeatValidating = false;
+      })
+      .catch(() => {
+        connection.heartbeatValidating = false;
+        void failConnection(
+          connection,
+          "AUTH_FAILED",
+          "PROTOCOL_ERROR",
+          "Device session liveness validation failed",
+        );
+      });
   };
 
   const server = Bun.serve<BridgeSocketData>({
@@ -652,6 +808,10 @@ export function createBridgeGateway(
         const connection = connections.get(ws.data.connectionId);
         if (connection) void handleMessage(connection, message);
       },
+      pong(ws, data) {
+        const connection = connections.get(ws.data.connectionId);
+        if (connection) handlePong(connection, data);
+      },
       close(ws) {
         const connection = connections.get(ws.data.connectionId);
         if (!connection) return;
@@ -676,11 +836,16 @@ export function createBridgeGateway(
       const connectionId = crypto.randomUUID();
       const connection: GatewayConnection = {
         connectionId,
+        onSessionClosed: options.onSessionClosed,
         ws: null,
         session: null,
         state: "handshaking",
         closeReason: null,
         timeout: null,
+        heartbeatTimer: null,
+        heartbeatNonce: null,
+        heartbeatValidating: false,
+        lastHeartbeatAtMs: 0,
         finalized: false,
       };
       connections.set(connectionId, connection);
