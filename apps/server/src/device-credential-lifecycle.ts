@@ -1,8 +1,5 @@
 export interface DeviceCredentialLifecycleCoordinator {
-  runExclusive<T>(
-    deviceId: string,
-    operation: () => Promise<T>,
-  ): Promise<T>;
+  runExclusive<T>(deviceId: string, operation: () => Promise<T>): Promise<T>;
 }
 
 /**
