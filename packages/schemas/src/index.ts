@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { deviceCredentialSecretSchema } from "./device-credential";
+import { deviceIdSchema } from "./device";
 
 export * from "./device";
 export * from "./device-credential";
@@ -15,8 +17,8 @@ export const bridgeRoleSchema = z.enum(["local-agent", "public-server"]);
 export const bridgeDeviceAuthSchema = z
   .object({
     mode: z.literal("device"),
-    deviceId: z.string().min(1),
-    credential: z.string().min(1),
+    deviceId: deviceIdSchema,
+    credential: deviceCredentialSecretSchema,
   })
   .strict();
 
