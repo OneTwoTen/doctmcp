@@ -91,6 +91,24 @@ describe("DeviceSessionRegistry", () => {
     expect(registry.getStatus(DEVICE_B).status).toBe("offline");
   });
 
+  test("heartbeat at timeout boundary cannot revive a stale session", () => {
+    let nowMs = Date.parse("2026-09-16T00:00:00.000Z");
+    const registry = new DeviceSessionRegistry({
+      heartbeatTimeoutMs: 100,
+      now: () => new Date(nowMs),
+    });
+    const session = createSession({ id: "stale", deviceId: DEVICE_A });
+    registry.register(session, GENERATION_1);
+
+    nowMs += 100;
+
+    expect(registry.getStatus(DEVICE_A).status).toBe("offline");
+    expect(registry.markHeartbeat(session)).toBe(false);
+    expect(registry.getStatus(DEVICE_A).lastSeenAt?.getTime()).toBe(
+      Date.parse("2026-09-16T00:00:00.000Z"),
+    );
+  });
+
   test("delayed invalidation only evicts the exact credential generation", () => {
     const registry = new DeviceSessionRegistry();
     const oldSession = createSession({ id: "old", deviceId: DEVICE_A });
