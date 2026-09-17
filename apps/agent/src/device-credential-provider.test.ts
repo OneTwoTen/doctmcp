@@ -21,113 +21,101 @@ describe("local device credential provider", () => {
     );
   });
 
-  test(
-    "in-memory provider loads null then replaces a validated credential snapshot",
-    async () => {
-      const provider = new InMemoryDeviceCredentialProvider();
+  test("in-memory provider loads null then replaces a validated credential snapshot", async () => {
+    const provider = new InMemoryDeviceCredentialProvider();
 
-      expect(await provider.load()).toBeNull();
+    expect(await provider.load()).toBeNull();
 
-      await provider.replace({ deviceId: DEVICE_ID, credential: CREDENTIAL });
-      const first = await provider.load();
-      expect(first).toEqual({ deviceId: DEVICE_ID, credential: CREDENTIAL });
+    await provider.replace({ deviceId: DEVICE_ID, credential: CREDENTIAL });
+    const first = await provider.load();
+    expect(first).toEqual({ deviceId: DEVICE_ID, credential: CREDENTIAL });
 
+    await provider.replace({
+      deviceId: DEVICE_ID.toUpperCase(),
+      credential: NEXT_CREDENTIAL,
+    });
+    expect(await provider.load()).toEqual({
+      deviceId: DEVICE_ID,
+      credential: NEXT_CREDENTIAL,
+    });
+  });
+
+  test("rejects malformed credential records without echoing raw credential material", async () => {
+    const provider = new InMemoryDeviceCredentialProvider();
+    const secret = "secret-that-must-not-appear";
+
+    let failure: unknown;
+    try {
       await provider.replace({
-        deviceId: DEVICE_ID.toUpperCase(),
-        credential: NEXT_CREDENTIAL,
+        deviceId: "not-a-device-id",
+        credential: secret,
       });
-      expect(await provider.load()).toEqual({
-        deviceId: DEVICE_ID,
-        credential: NEXT_CREDENTIAL,
-      });
-    },
-  );
+    } catch (error) {
+      failure = error;
+    }
 
-  test(
-    "rejects malformed credential records without echoing raw credential material",
-    async () => {
-      const provider = new InMemoryDeviceCredentialProvider();
-      const secret = "secret-that-must-not-appear";
+    expect(failure).toBeInstanceOf(LocalDeviceCredentialProviderError);
+    expect(failure).toMatchObject({ code: "INVALID_CREDENTIAL_RECORD" });
+    expect(String((failure as Error).message)).not.toContain(secret);
+    expect(await provider.load()).toBeNull();
+  });
 
-      let failure: unknown;
-      try {
-        await provider.replace({
-          deviceId: "not-a-device-id",
-          credential: secret,
-        });
-      } catch (error) {
-        failure = error;
-      }
+  test("file provider treats a missing file as unpaired and atomically replaces persisted credential", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-credential-provider-"));
+    roots.push(root);
+    const path = join(root, "nested", "device-credential.json");
+    const provider = new FileDeviceCredentialProvider(path);
 
-      expect(failure).toBeInstanceOf(LocalDeviceCredentialProviderError);
-      expect(failure).toMatchObject({ code: "INVALID_CREDENTIAL_RECORD" });
-      expect(String((failure as Error).message)).not.toContain(secret);
-      expect(await provider.load()).toBeNull();
-    },
-  );
+    expect(await provider.load()).toBeNull();
 
-  test(
-    "file provider treats a missing file as unpaired and atomically replaces persisted credential",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "doctmcp-credential-provider-"));
-      roots.push(root);
-      const path = join(root, "nested", "device-credential.json");
-      const provider = new FileDeviceCredentialProvider(path);
+    await provider.replace({ deviceId: DEVICE_ID, credential: CREDENTIAL });
+    expect(await provider.load()).toEqual({
+      deviceId: DEVICE_ID,
+      credential: CREDENTIAL,
+    });
 
-      expect(await provider.load()).toBeNull();
+    await provider.replace({
+      deviceId: DEVICE_ID,
+      credential: NEXT_CREDENTIAL,
+    });
+    expect(await provider.load()).toEqual({
+      deviceId: DEVICE_ID,
+      credential: NEXT_CREDENTIAL,
+    });
 
-      await provider.replace({ deviceId: DEVICE_ID, credential: CREDENTIAL });
-      expect(await provider.load()).toEqual({
-        deviceId: DEVICE_ID,
-        credential: CREDENTIAL,
-      });
+    const raw = JSON.parse(await readFile(path, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(raw).toEqual({
+      version: 1,
+      deviceId: DEVICE_ID,
+      credential: NEXT_CREDENTIAL,
+    });
 
-      await provider.replace({
-        deviceId: DEVICE_ID,
-        credential: NEXT_CREDENTIAL,
-      });
-      expect(await provider.load()).toEqual({
-        deviceId: DEVICE_ID,
-        credential: NEXT_CREDENTIAL,
-      });
+    if (process.platform !== "win32") {
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+    }
+  });
 
-      const raw = JSON.parse(await readFile(path, "utf8")) as Record<
-        string,
-        unknown
-      >;
-      expect(raw).toEqual({
-        version: 1,
-        deviceId: DEVICE_ID,
-        credential: NEXT_CREDENTIAL,
-      });
+  test("file provider rejects malformed persisted content with a generic secret-safe error", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-credential-provider-"));
+    roots.push(root);
+    const path = join(root, "device-credential.json");
+    const leaked = `not-json-${CREDENTIAL}`;
+    await writeFile(path, leaked, "utf8");
+    const provider = new FileDeviceCredentialProvider(path);
 
-      if (process.platform !== "win32") {
-        expect((await stat(path)).mode & 0o777).toBe(0o600);
-      }
-    },
-  );
+    let failure: unknown;
+    try {
+      await provider.load();
+    } catch (error) {
+      failure = error;
+    }
 
-  test(
-    "file provider rejects malformed persisted content with a generic secret-safe error",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "doctmcp-credential-provider-"));
-      roots.push(root);
-      const path = join(root, "device-credential.json");
-      const leaked = `not-json-${CREDENTIAL}`;
-      await writeFile(path, leaked, "utf8");
-      const provider = new FileDeviceCredentialProvider(path);
-
-      let failure: unknown;
-      try {
-        await provider.load();
-      } catch (error) {
-        failure = error;
-      }
-
-      expect(failure).toBeInstanceOf(LocalDeviceCredentialProviderError);
-      expect(failure).toMatchObject({ code: "CREDENTIAL_STORAGE_INVALID" });
-      expect(String((failure as Error).message)).not.toContain(CREDENTIAL);
-      expect(String((failure as Error).message)).not.toContain(leaked);
-    },
-  );
+    expect(failure).toBeInstanceOf(LocalDeviceCredentialProviderError);
+    expect(failure).toMatchObject({ code: "CREDENTIAL_STORAGE_INVALID" });
+    expect(String((failure as Error).message)).not.toContain(CREDENTIAL);
+    expect(String((failure as Error).message)).not.toContain(leaked);
+  });
 });
