@@ -4,9 +4,12 @@ import type {
   MessageExtraInfo,
   Transport,
   TransportSendOptions,
-} from "@modelcontextprotocol/server";
+} from "@doctmcp/protocol";
 import { BridgeServerTransportError } from "./bridge-server-transport";
-import { InMemoryDeviceCredentialProvider } from "./device-credential-provider";
+import {
+  type DeviceCredentialProvider,
+  InMemoryDeviceCredentialProvider,
+} from "./device-credential-provider";
 import {
   calculateReconnectDelay,
   classifyBridgeFailure,
@@ -62,7 +65,10 @@ class FakeTransport implements Transport {
   #resolveStart?: () => void;
   #rejectStart?: (error: Error) => void;
 
-  constructor(auth: { readonly deviceId: string; readonly credential: string }) {
+  constructor(auth: {
+    readonly deviceId: string;
+    readonly credential: string;
+  }) {
     this.auth = auth;
   }
 
@@ -106,10 +112,12 @@ class FakeTransport implements Transport {
   }
 }
 
-function createHarness(options: {
-  readonly credentialProvider?: InMemoryDeviceCredentialProvider;
-  readonly random?: () => number;
-} = {}) {
+function createHarness(
+  options: {
+    readonly credentialProvider?: DeviceCredentialProvider;
+    readonly random?: () => number;
+  } = {},
+) {
   const scheduler = new FakeScheduler();
   const transports: FakeTransport[] = [];
   let activeConnects = 0;
@@ -193,7 +201,9 @@ describe("local bridge reconnect policy", () => {
       ),
     ).toBe("protocol-failed");
     expect(
-      classifyBridgeFailure(new BridgeServerTransportError("TIMEOUT", "timeout")),
+      classifyBridgeFailure(
+        new BridgeServerTransportError("TIMEOUT", "timeout"),
+      ),
     ).toBe("retry");
   });
 });
@@ -220,7 +230,10 @@ describe("LocalBridgeReconnectController", () => {
     harness.scheduler.runNext();
     await flushAsync();
     const second = harness.transports[1];
-    expect(second?.auth).toEqual({ deviceId: DEVICE_ID, credential: CREDENTIAL });
+    expect(second?.auth).toEqual({
+      deviceId: DEVICE_ID,
+      credential: CREDENTIAL,
+    });
     expect(harness.maxActiveConnects).toBe(1);
 
     second?.becomeReady();
@@ -238,13 +251,17 @@ describe("LocalBridgeReconnectController", () => {
     expect(missing.scheduler.timers.size).toBe(0);
     expect(missing.transports).toHaveLength(0);
 
-    const failingProvider = new InMemoryDeviceCredentialProvider();
-    failingProvider.load = () => Promise.reject(new Error(`storage ${CREDENTIAL}`));
+    const failingProvider: DeviceCredentialProvider = {
+      load: () => Promise.reject(new Error(`storage ${CREDENTIAL}`)),
+      replace: () => Promise.resolve(),
+    };
     const failed = createHarness({ credentialProvider: failingProvider });
     failed.controller.start();
     await flushAsync();
     expect(failed.controller.snapshot.state).toBe("credential-failed");
-    expect(JSON.stringify(failed.controller.snapshot)).not.toContain(CREDENTIAL);
+    expect(JSON.stringify(failed.controller.snapshot)).not.toContain(
+      CREDENTIAL,
+    );
     expect(failed.scheduler.timers.size).toBe(0);
   });
 
