@@ -104,13 +104,14 @@ describe("M3.5 authenticated local reconnect acceptance", () => {
     const first = await waitFor(() => {
       if (controller.snapshot.state !== "ready") return undefined;
       return (
-        serverRuntime.deviceSessionRegistry.getActive(completed.device.deviceId) ??
-        undefined
+        serverRuntime.deviceSessionRegistry.getActive(
+          completed.device.deviceId,
+        ) ?? undefined
       );
     });
-    expect(serverRuntime.getDeviceStatus(completed.device.deviceId).status).toBe(
-      "online",
-    );
+    expect(
+      serverRuntime.getDeviceStatus(completed.device.deviceId).status,
+    ).toBe("online");
 
     await first.session.close("TIMEOUT", "TEST_HEARTBEAT_TIMEOUT");
 
@@ -126,9 +127,9 @@ describe("M3.5 authenticated local reconnect acceptance", () => {
 
     expect(second.session.id).not.toBe(first.session.id);
     expect(controller.snapshot.attemptGeneration).toBeGreaterThanOrEqual(2);
-    expect(serverRuntime.getDeviceStatus(completed.device.deviceId).status).toBe(
-      "online",
-    );
+    expect(
+      serverRuntime.getDeviceStatus(completed.device.deviceId).status,
+    ).toBe("online");
     expect(await credentialProvider.load()).toEqual({
       deviceId: completed.device.deviceId,
       credential: completed.secret,
@@ -141,7 +142,8 @@ describe("M3.5 authenticated local reconnect acceptance", () => {
     controller.start();
     await waitFor(() =>
       controller.snapshot.state === "ready" &&
-      serverRuntime.getDeviceStatus(completed.device.deviceId).status === "online"
+      serverRuntime.getDeviceStatus(completed.device.deviceId).status ===
+        "online"
         ? true
         : undefined,
     );
@@ -153,9 +155,9 @@ describe("M3.5 authenticated local reconnect acceptance", () => {
 
     const terminalAttempt = controller.snapshot.attemptGeneration;
     expect(controller.snapshot.lastFailureCode).toBe("AUTH_FAILED");
-    expect(serverRuntime.getDeviceStatus(completed.device.deviceId).status).toBe(
-      "offline",
-    );
+    expect(
+      serverRuntime.getDeviceStatus(completed.device.deviceId).status,
+    ).toBe("offline");
 
     await delay(80);
     expect(controller.snapshot.state).toBe("auth-failed");
