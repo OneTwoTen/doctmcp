@@ -200,6 +200,7 @@ export class LocalBridgeReconnectController {
   #currentAttempt: ActiveBridgeAttempt | null = null;
   #backoffTimer: unknown | null = null;
   #stableReadyTimer: unknown | null = null;
+  #stopPromise: Promise<void> | null = null;
 
   constructor(options: LocalBridgeReconnectControllerOptions) {
     if (!options.url) throw new Error("Bridge URL is required");
@@ -235,6 +236,7 @@ export class LocalBridgeReconnectController {
 
   start(): void {
     if (
+      this.#stopPromise !== null ||
       this.#state === "connecting" ||
       this.#state === "ready" ||
       this.#state === "backoff"
@@ -254,8 +256,9 @@ export class LocalBridgeReconnectController {
     void this.#startAttempt(lifecycleGeneration);
   }
 
-  async stop(): Promise<void> {
-    if (this.#state === "stopped") return;
+  stop(): Promise<void> {
+    if (this.#stopPromise) return this.#stopPromise;
+    if (this.#state === "stopped") return Promise.resolve();
 
     this.#lifecycleGeneration += 1;
     this.#clearBackoffTimer();
@@ -267,9 +270,17 @@ export class LocalBridgeReconnectController {
     if (attempt) attempt.finalized = true;
     this.#setState("stopped");
 
-    if (attempt) {
-      await attempt.transport.close().catch(() => undefined);
-    }
+    const cleanup: Promise<void> = attempt
+      ? attempt.transport.close().catch(() => undefined)
+      : Promise.resolve();
+    let stopPromise: Promise<void>;
+    stopPromise = cleanup.finally(() => {
+      if (this.#stopPromise === stopPromise) {
+        this.#stopPromise = null;
+      }
+    });
+    this.#stopPromise = stopPromise;
+    return stopPromise;
   }
 
   async #startAttempt(lifecycleGeneration: number): Promise<void> {
