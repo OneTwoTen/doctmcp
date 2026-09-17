@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Approved để triển khai cho issue #34.**
+**Đã triển khai trong PR #41; đang chờ merge.**
 
 Issue này xây trên authenticated bridge handshake của #32 và generation-aware device session/liveness của #33. Không thay đổi policy server `new authenticated session replaces old` và không thêm pairing UI, multi-device routing hoặc public MCP endpoint.
 
@@ -72,7 +72,7 @@ Terminal/action-required states:
 - `credential-failed`: local credential storage đọc/validate thất bại;
 - `stopped`: manual shutdown; không tự restart.
 
-Caller có thể sửa nguyên nhân rồi gọi `start()` lại. `start()` trong một active state là idempotent/no-op; từ terminal/stopped tạo lifecycle generation mới.
+Caller có thể sửa nguyên nhân rồi gọi `start()` lại. `start()` trong một active state là idempotent/no-op; từ terminal/stopped tạo lifecycle generation mới. Nếu `stop()` vẫn đang cleanup transport cũ, `start()` cũng là no-op để không mở generation mới song song; caller phải `await stop()` trước khi restart.
 
 ## Credential provider
 
@@ -161,7 +161,7 @@ Retryable failure phải đóng/drain generation cũ trước khi arm backoff ti
 
 Controller có hai monotonic token:
 
-- **lifecycle generation**: tăng khi `start()` mới sau terminal/stopped và khi `stop()` invalidate toàn bộ async callback hiện tại;
+- **lifecycle generation**: tăng khi `start()` mới sau terminal/stopped và đúng một lần khi một stop lifecycle mới invalidate toàn bộ async callback hiện tại;
 - **attempt generation**: tăng mỗi lần tạo transport mới trong cùng lifecycle.
 
 Mỗi callback giữ reference đến exact attempt object. Callback chỉ được mutate controller khi:
@@ -178,14 +178,16 @@ Khi server #33 replace old session, close callback của old local transport n�
 
 `stop()`:
 
-1. tăng lifecycle generation để stale callback mất quyền mutate;
-2. clear backoff timer;
-3. clear stable-ready reset timer;
-4. chuyển state `stopped`;
-5. đóng current transport nếu có và await cleanup best-effort;
-6. không schedule reconnect từ callback close phát sinh bởi chính `stop()`.
+1. nếu đã có cleanup in-flight thì trả cùng lifecycle cleanup thay vì tạo stop lifecycle mới;
+2. tăng lifecycle generation đúng một lần để stale callback mất quyền mutate;
+3. clear backoff timer;
+4. clear stable-ready reset timer;
+5. chuyển state `stopped`;
+6. đóng current transport nếu có và await cleanup best-effort;
+7. giữ `start()` ở no-op trong lúc cleanup chưa hoàn tất;
+8. không schedule reconnect từ callback close phát sinh bởi chính `stop()`.
 
-Stop trong connect/auth và stop trong backoff đều deterministic/idempotent.
+Stop trong connect/auth, backoff và repeated/concurrent stop đều deterministic/idempotent. Sau khi `await stop()` hoàn tất, caller có thể gọi `start()` để tạo lifecycle mới.
 
 ## Logging và secret boundary
 
@@ -234,6 +236,8 @@ Local reconnect dùng lại cùng valid credential. Khi heartbeat/server timeout
 - missing credential -> pairing-required;
 - stop trong backoff clear timer;
 - stop trong connect đóng current attempt;
+- repeated/concurrent stop cùng chờ cleanup và không tăng lifecycle generation nhiều lần;
+- start trong khi stop cleanup chưa xong không được tạo transport generation mới;
 - stale close/error/timer generation không restart/kill current generation;
 - public snapshot/logger không chứa raw credential.
 
@@ -266,3 +270,4 @@ CI vẫn phải giữ Windows `shell.exec` regression xanh.
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
 | 2026-09-17 | Khóa reconnect controller, credential provider, backoff/failure/generation semantics | Thiết kế được duyệt cho issue #34 | approved |
+| 2026-09-17 | Hoàn thiện provider, reconnect state machine, cross-layer acceptance và hardening stop cleanup race | Self-review PR #41 phát hiện `start()` có thể vượt qua transport cleanup; thêm shared stop lifecycle và regression | implemented, CI #325 green |
