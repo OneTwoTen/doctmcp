@@ -178,7 +178,9 @@ describe("M3.4 device session runtime", () => {
       secret: completed.secret,
       sessionId: "revoked-reconnect",
     });
-    await expect(rejected.start()).rejects.toMatchObject({ code: "AUTH_FAILED" });
+    await expect(rejected.start()).rejects.toMatchObject({
+      code: "AUTH_FAILED",
+    });
     expect(runtime.getDeviceStatus(completed.device.deviceId).status).toBe(
       "offline",
     );
