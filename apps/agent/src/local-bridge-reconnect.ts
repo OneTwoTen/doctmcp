@@ -255,6 +255,8 @@ export class LocalBridgeReconnectController {
   }
 
   async stop(): Promise<void> {
+    if (this.#state === "stopped") return;
+
     this.#lifecycleGeneration += 1;
     this.#clearBackoffTimer();
     this.#clearStableReadyTimer();
