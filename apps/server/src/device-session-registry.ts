@@ -207,13 +207,16 @@ export class DeviceSessionRegistry {
     if (
       !entry ||
       entry.registrationId !== ref.registrationId ||
-      entry.session !== session ||
-      entry.session.state !== "ready"
+      entry.session !== session
     ) {
       this.#registrationBySession.delete(session);
       return false;
     }
-    entry.lastSeenAtMs = Math.max(entry.lastSeenAtMs, this.#readNowMs());
+
+    const nowMs = this.#readNowMs();
+    if (!this.#isLive(entry, nowMs)) return false;
+
+    entry.lastSeenAtMs = Math.max(entry.lastSeenAtMs, nowMs);
     return true;
   }
 
@@ -280,7 +283,7 @@ export class DeviceSessionRegistry {
 
   #isLive(entry: StoredDeviceSession, nowMs: number): boolean {
     if (entry.session.state !== "ready") return false;
-    return nowMs - entry.lastSeenAtMs <= this.#heartbeatTimeoutMs;
+    return nowMs - entry.lastSeenAtMs < this.#heartbeatTimeoutMs;
   }
 
   #addOwnerDevice(ownerId: string, deviceId: string): void {
