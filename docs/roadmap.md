@@ -135,15 +135,15 @@ Pairing, database, device identity/routing, public MCP endpoint và ChatGPT inte
 
 ## M3 — Device management và pairing
 
-**M3 đang triển khai — 3/7 work item đã hoàn tất.** M3.1/#30 hoàn tất qua PR #37, M3.2/#31 qua PR #38, M3.3/#32 qua PR #39 (`163fb899`); task active hiện tại là M3.4/#33. Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
+**M3 đang triển khai — 4/7 work item đã hoàn tất.** M3.1/#30 hoàn tất qua PR #37, M3.2/#31 qua PR #38, M3.3/#32 qua PR #39, M3.4/#33 qua PR #40; task active hiện tại là M3.5/#34 qua PR #41. Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
 
 Các work item M3:
 
 - ✅ M3.1 / #30 — Device identity/domain model + persistence contract qua PR #37.
 - ✅ M3.2 / #31 — Pairing session/code lifecycle và atomic claim flow qua PR #38.
 - ✅ M3.3 / #32 — Device credential lifecycle + authenticated bridge handshake qua PR #39 (`163fb899`).
-- ⏳ M3.4 / #33 — Device session registry, heartbeat và online/offline state.
-- ⬜ M3.5 / #34 — Local reconnect/backoff + credential resume.
+- ✅ M3.4 / #33 — Device session registry, heartbeat và online/offline state qua PR #40.
+- ⏳ M3.5 / #34 — Local reconnect/backoff + credential resume qua PR #41.
 - ⬜ M3.6 / #35 — Multi-device registry + routing theo `deviceId`.
 - ⬜ M3.7 / #36 — Acceptance/security suite pairing → reconnect → routing.
 
@@ -183,19 +183,39 @@ M3.3 đã khóa:
 - successful rotate/revoke đóng same-process authenticated session và old secret không reconnect được;
 - CI #270: 223/223 tests, 914 assertions, 34 files, M2 acceptance và Windows regression xanh.
 
-Phạm vi còn lại của M3:
+M3.4 đã khóa:
 
-- M3.4: authoritative device session registry keyed/generation-aware theo `deviceId`;
-- duplicate session replacement policy;
-- heartbeat/liveness + online/offline derived state;
-- cross-instance revoke/rotate invalidation qua shared bus, bounded mặc định ≤ 5 giây và chống delayed/duplicate event;
-- M3.5: local credential persistence + reconnect/backoff;
+- `DeviceSessionRegistry` keyed theo immutable `deviceId`, giữ exact credential generation và owner index;
+- duplicate connection dùng policy new authenticated session replace old atomically, stale cleanup không evict generation mới;
+- native WebSocket ping/pong heartbeat tách khỏi MCP traffic;
+- online/offline derive từ active authenticated session + heartbeat liveness;
+- heartbeat tại hoặc sau timeout boundary không revive stale session;
+- `DeviceCredentialInvalidationBus` hỗ trợ revoke/rotate cross-instance, generation-aware với delayed/duplicate event;
+- degraded fallback heartbeat revalidate authoritative credential generation khi invalidation delivery lỗi;
+- invalidation publish mặc định bounded ≤ 5 giây để backend treo không giữ lifecycle lock vô hạn;
+- PR #40 verification: 240 tests pass, M2 acceptance và Windows `shell.exec` regression xanh.
+
+M3.5 trong PR #41 hiện đã khóa:
+
+- `BridgeServerTransport` vẫn one-shot; reconnect nằm ở reusable `LocalBridgeReconnectController`;
+- local credential provider có in-memory adapter và file-safe adapter validate bằng shared schema;
+- file replace dùng temp file cùng directory, mode `0600`, sync, close, rename và cleanup khi fail;
+- bounded exponential backoff + jitter, default 500ms → tối đa 30s, stable-ready reset sau 30s;
+- network/socket/timeout retry; auth failure, missing credential, protocol mismatch và storage failure vào terminal/action-required state tương ứng;
+- lifecycle + exact-attempt generation guard chặn stale callback/timer phá generation mới;
+- repeated server unavailable không tạo parallel connect attempt;
+- `stop()` concurrent dùng chung cleanup lifecycle, `start()` không vượt qua transport cleanup đang in-flight;
+- acceptance thật chứng minh timeout reconnect bằng cùng credential và revoke dừng ở `auth-failed`;
+- logger/public snapshot không chứa raw credential hoặc raw transport error message.
+
+Phạm vi còn lại của M3 sau M3.5:
+
 - M3.6: nhiều thiết bị trên cùng owner và routing theo `deviceId`;
 - M3.7: acceptance/security suite pairing → credential → reconnect → routing.
 
 `device.list/get/ping` nếu cần expose cho model/client thuộc public/control-plane surface ở milestone sau, không phải local M1 tool catalog.
 
-Security regression của M3 phải tiếp tục giữ pairing code one-time, credential revoke/rotate, auth race và session invalidation semantics. M2 regression phải tiếp tục xanh trong toàn M3.
+Security regression của M3 phải tiếp tục giữ pairing code one-time, credential revoke/rotate, auth race, session invalidation và reconnect lifecycle semantics. M2 regression phải tiếp tục xanh trong toàn M3.
 
 ## M4 — Public MCP endpoint
 
