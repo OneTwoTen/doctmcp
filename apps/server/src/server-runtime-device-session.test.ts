@@ -43,6 +43,16 @@ class DroppingInvalidationBus implements DeviceCredentialInvalidationBus {
   }
 }
 
+class HangingInvalidationBus implements DeviceCredentialInvalidationBus {
+  subscribe(_handler: DeviceCredentialInvalidationHandler): () => void {
+    return () => undefined;
+  }
+
+  publish(): Promise<void> {
+    return new Promise(() => undefined);
+  }
+}
+
 describe("M3.4 device session runtime", () => {
   const runtimes: DoctmcpServerRuntime[] = [];
   const transports: BridgeServerTransport[] = [];
@@ -263,5 +273,33 @@ describe("M3.4 device session runtime", () => {
     expect(runtimeB.getDeviceStatus(completed.device.deviceId).status).toBe(
       "offline",
     );
+  });
+
+  test("hung invalidation publishing is bounded and reports degraded mode", async () => {
+    const events: string[] = [];
+    const { runtime, completed } = await createPairedRuntime({
+      credentialInvalidationBus: new HangingInvalidationBus(),
+      credentialInvalidationPublishTimeoutMs: 25,
+      logger: (event) => events.push(event),
+    });
+    const transport = connect(runtime, {
+      deviceId: completed.device.deviceId,
+      secret: completed.secret,
+      sessionId: "hung-publisher-session",
+    });
+    await transport.start();
+
+    const mutationResult = await Promise.race([
+      runtime
+        .revokeDeviceCredential(completed.device.deviceId)
+        .then(() => "resolved" as const),
+      new Promise<"test-timeout">((resolve) =>
+        setTimeout(() => resolve("test-timeout"), 250),
+      ),
+    ]);
+
+    expect(mutationResult).toBe("resolved");
+    await waitFor(() => (transport.state === "closed" ? true : undefined));
+    expect(events).toContain("device.credential.invalidation.degraded");
   });
 });
