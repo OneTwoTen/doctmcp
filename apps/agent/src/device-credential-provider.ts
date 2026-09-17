@@ -1,9 +1,6 @@
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import {
-  deviceCredentialSecretSchema,
-  deviceIdSchema,
-} from "@doctmcp/schemas";
+import { deviceCredentialSecretSchema, deviceIdSchema } from "@doctmcp/schemas";
 import { z } from "zod";
 
 const localDeviceCredentialSchema = z
