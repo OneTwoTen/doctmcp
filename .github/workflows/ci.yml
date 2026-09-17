@@ -32,6 +32,9 @@ jobs:
       - name: Test
         run: bun test
 
+      - name: M2 acceptance
+        run: bun run test:m2
+
   shell-windows:
     runs-on: windows-latest
     steps:
