@@ -1,7 +1,5 @@
 import type { Transport } from "@doctmcp/protocol";
-import type {
-  BridgeServerTransportOptions,
-} from "./bridge-server-transport";
+import type { BridgeServerTransportOptions } from "./bridge-server-transport";
 import type { DeviceCredentialProvider } from "./device-credential-provider";
 
 export interface LocalBridgeBackoffPolicy {
@@ -85,7 +83,9 @@ export interface LocalBridgeReconnectControllerOptions {
 }
 
 export class LocalBridgeReconnectController {
-  constructor(_options: LocalBridgeReconnectControllerOptions) {}
+  constructor(options: LocalBridgeReconnectControllerOptions) {
+    if (!options.url) throw new Error("Bridge URL is required");
+  }
 
   get snapshot(): LocalBridgeReconnectSnapshot {
     return Object.freeze({
