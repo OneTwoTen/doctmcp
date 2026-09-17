@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -96,6 +104,21 @@ describe("local device credential provider", () => {
     if (process.platform !== "win32") {
       expect((await stat(path)).mode & 0o777).toBe(0o600);
     }
+  });
+
+  test("file provider rejects failed replacement and cleans its temporary file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "doctmcp-credential-provider-"));
+    roots.push(root);
+    const path = join(root, "device-credential.json");
+    await mkdir(path);
+    const provider = new FileDeviceCredentialProvider(path);
+
+    await expect(
+      provider.replace({ deviceId: DEVICE_ID, credential: CREDENTIAL }),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_STORAGE_FAILED" });
+
+    expect((await stat(path)).isDirectory()).toBe(true);
+    expect(await readdir(root)).toEqual(["device-credential.json"]);
   });
 
   test("file provider rejects malformed persisted content with a generic secret-safe error", async () => {
