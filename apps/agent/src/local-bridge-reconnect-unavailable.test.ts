@@ -21,15 +21,22 @@ class ManualScheduler implements LocalBridgeReconnectScheduler {
     { readonly callback: () => void; readonly delayMs: number }
   >();
   #nextId = 1;
+  #scheduledWaiters: Array<() => void> = [];
 
   setTimeout(callback: () => void, delayMs: number): unknown {
     const id = this.#nextId++;
     this.timers.set(id, { callback, delayMs });
+    for (const resolve of this.#scheduledWaiters.splice(0)) resolve();
     return id;
   }
 
   clearTimeout(handle: unknown): void {
     if (typeof handle === "number") this.timers.delete(handle);
+  }
+
+  waitForScheduledTimer(): Promise<void> {
+    if (this.timers.size > 0) return Promise.resolve();
+    return new Promise((resolve) => this.#scheduledWaiters.push(resolve));
   }
 
   runNext(): void {
@@ -67,12 +74,6 @@ class UnavailableTransport implements Transport {
     this.onclose?.();
     return Promise.resolve();
   }
-}
-
-async function flushAsync(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe("LocalBridgeReconnectController repeated unavailability", () => {
@@ -114,7 +115,7 @@ describe("LocalBridgeReconnectController repeated unavailability", () => {
     });
 
     controller.start();
-    await flushAsync();
+    await scheduler.waitForScheduledTimer();
     expect(controller.snapshot).toMatchObject({
       state: "backoff",
       consecutiveFailures: 1,
@@ -122,7 +123,7 @@ describe("LocalBridgeReconnectController repeated unavailability", () => {
     });
 
     scheduler.runNext();
-    await flushAsync();
+    await scheduler.waitForScheduledTimer();
     expect(controller.snapshot).toMatchObject({
       state: "backoff",
       consecutiveFailures: 2,
@@ -130,7 +131,7 @@ describe("LocalBridgeReconnectController repeated unavailability", () => {
     });
 
     scheduler.runNext();
-    await flushAsync();
+    await scheduler.waitForScheduledTimer();
     expect(controller.snapshot).toMatchObject({
       state: "backoff",
       consecutiveFailures: 3,
