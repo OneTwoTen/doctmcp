@@ -25,6 +25,16 @@ export {
   type VerifiedDeviceCredential,
 } from "./device-credential";
 export {
+  type CreateDeviceCredentialInvalidationEventInput,
+  createDeviceCredentialInvalidationEvent,
+  DEFAULT_CREDENTIAL_INVALIDATION_BOUND_MS,
+  type DeviceCredentialInvalidationBus,
+  type DeviceCredentialInvalidationEvent,
+  type DeviceCredentialInvalidationHandler,
+  type DeviceCredentialInvalidationKind,
+  InMemoryDeviceCredentialInvalidationBus,
+} from "./device-credential-invalidation";
+export {
   type DeviceCredentialLifecycleCoordinator,
   InMemoryDeviceCredentialLifecycleCoordinator,
 } from "./device-credential-lifecycle";
@@ -38,11 +48,23 @@ export {
   type InMemoryDeviceRepositoryOptions,
 } from "./device-repository";
 export {
+  type ActiveDeviceSession,
+  DEFAULT_DEVICE_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_DEVICE_HEARTBEAT_TIMEOUT_MS,
+  type DeviceSessionCredentialGeneration,
+  DeviceSessionRegistry,
+  type DeviceSessionRegistryOptions,
+  type DeviceSessionStatusSnapshot,
+  type RegisterDeviceSessionResult,
+} from "./device-session-registry";
+export {
   type BridgeDeviceAuthenticator,
   type BridgeGateway,
   BridgeGatewayError,
   type BridgeGatewayLogger,
   type BridgeGatewaySession,
+  type BridgeSessionClosedHandler,
+  type BridgeSessionHeartbeatHandler,
   type BridgeSessionReadyGuard,
   type BridgeSessionReadyValidator,
   type CreateBridgeGatewayOptions,
