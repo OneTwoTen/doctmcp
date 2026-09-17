@@ -11,6 +11,7 @@ import {
 } from "./device-credential";
 import {
   createDeviceCredentialInvalidationEvent,
+  DEFAULT_CREDENTIAL_INVALIDATION_BOUND_MS,
   type DeviceCredentialInvalidationBus,
   type DeviceCredentialInvalidationKind,
   InMemoryDeviceCredentialInvalidationBus,
@@ -68,6 +69,7 @@ export interface CreateDoctmcpServerRuntimeOptions
   readonly credentialLifecycleCoordinator?: DeviceCredentialLifecycleCoordinator;
   readonly deviceSessionRegistry?: DeviceSessionRegistry;
   readonly credentialInvalidationBus?: DeviceCredentialInvalidationBus;
+  readonly credentialInvalidationPublishTimeoutMs?: number;
 }
 
 export type RuntimePairingCredentialCompletionService = Pick<
@@ -108,6 +110,8 @@ export function createDoctmcpServerRuntime(
     credentialLifecycleCoordinator: configuredCredentialLifecycleCoordinator,
     deviceSessionRegistry: configuredDeviceSessionRegistry,
     credentialInvalidationBus: configuredCredentialInvalidationBus,
+    credentialInvalidationPublishTimeoutMs:
+      configuredCredentialInvalidationPublishTimeoutMs,
     heartbeatIntervalMs: configuredHeartbeatIntervalMs,
     heartbeatTimeoutMs: configuredHeartbeatTimeoutMs,
     logger,
@@ -121,12 +125,23 @@ export function createDoctmcpServerRuntime(
     DEFAULT_DEVICE_HEARTBEAT_TIMEOUT_MS;
   const heartbeatIntervalMs =
     configuredHeartbeatIntervalMs ?? DEFAULT_DEVICE_HEARTBEAT_INTERVAL_MS;
+  const credentialInvalidationPublishTimeoutMs =
+    configuredCredentialInvalidationPublishTimeoutMs ??
+    DEFAULT_CREDENTIAL_INVALIDATION_BOUND_MS;
   if (
     configuredDeviceSessionRegistry &&
     configuredDeviceSessionRegistry.heartbeatTimeoutMs !== heartbeatTimeoutMs
   ) {
     throw new Error(
       "Configured DeviceSessionRegistry heartbeat timeout must match runtime heartbeatTimeoutMs.",
+    );
+  }
+  if (
+    !Number.isFinite(credentialInvalidationPublishTimeoutMs) ||
+    credentialInvalidationPublishTimeoutMs <= 0
+  ) {
+    throw new Error(
+      "credentialInvalidationPublishTimeoutMs must be a positive finite number.",
     );
   }
 
@@ -295,14 +310,27 @@ export function createDoctmcpServerRuntime(
       credentialId: generation.credentialId,
       credentialVersion: generation.credentialVersion,
     });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await credentialInvalidationBus.publish(event);
+      await Promise.race([
+        credentialInvalidationBus.publish(event),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () =>
+              reject(new Error("Credential invalidation publish timed out")),
+            credentialInvalidationPublishTimeoutMs,
+          );
+        }),
+      ]);
     } catch {
       log("device.credential.invalidation.degraded", {
         deviceId,
         eventId: event.eventId,
         kind,
+        timeoutMs: String(credentialInvalidationPublishTimeoutMs),
       });
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   };
 
