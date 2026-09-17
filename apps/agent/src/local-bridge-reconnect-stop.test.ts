@@ -100,7 +100,9 @@ describe("LocalBridgeReconnectController stop lifecycle", () => {
     await flushAsync();
 
     expect(controller.snapshot.state).toBe("stopped");
-    expect(controller.snapshot.lifecycleGeneration).toBe(lifecycleBeforeStop + 1);
+    expect(controller.snapshot.lifecycleGeneration).toBe(
+      lifecycleBeforeStop + 1,
+    );
     expect(transports).toHaveLength(1);
     expect(transports[0]?.closeCalls).toBe(1);
     expect(secondStopResolved).toBe(false);
