@@ -2,11 +2,11 @@ import type { Transport } from "@doctmcp/protocol";
 import {
   BridgeServerTransport,
   BridgeServerTransportError,
-  type BridgeServerTransportErrorCode,
   type BridgeServerTransportOptions,
 } from "./bridge-server-transport";
 import {
   type DeviceCredentialProvider,
+  type LocalDeviceCredential,
   LocalDeviceCredentialProviderError,
 } from "./device-credential-provider";
 
@@ -65,8 +65,7 @@ export function calculateReconnectDelay(
   const normalizedRandom = Number.isFinite(randomValue)
     ? Math.min(1, Math.max(0, randomValue))
     : 0.5;
-  const multiplier =
-    1 + (normalizedRandom * 2 - 1) * validated.jitterRatio;
+  const multiplier = 1 + (normalizedRandom * 2 - 1) * validated.jitterRatio;
   return Math.min(
     validated.maxDelayMs,
     Math.max(validated.minDelayMs, Math.round(base * multiplier)),
@@ -276,7 +275,7 @@ export class LocalBridgeReconnectController {
     this.#retryDelayMs = undefined;
     this.#setState("connecting");
 
-    let credential;
+    let credential: LocalDeviceCredential | null;
     try {
       credential = await this.#credentialProvider.load();
     } catch (error) {
@@ -342,11 +341,7 @@ export class LocalBridgeReconnectController {
     try {
       await this.#runtime.connect(transport);
     } catch (error) {
-      await this.#finalizeAttempt(
-        attempt,
-        attempt.failure ?? error,
-        false,
-      );
+      await this.#finalizeAttempt(attempt, attempt.failure ?? error, false);
       return;
     }
 
