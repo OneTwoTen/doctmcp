@@ -165,6 +165,48 @@ describe("M3.4 device session runtime", () => {
     ).toBeNull();
   });
 
+  test("revoked credential cannot reconnect or make the device online", async () => {
+    const { runtime, completed } = await createPairedRuntime();
+
+    await runtime.revokeDeviceCredential(completed.device.deviceId);
+    expect(runtime.getDeviceStatus(completed.device.deviceId).status).toBe(
+      "offline",
+    );
+
+    const rejected = connect(runtime, {
+      deviceId: completed.device.deviceId,
+      secret: completed.secret,
+      sessionId: "revoked-reconnect",
+    });
+    await expect(rejected.start()).rejects.toMatchObject({ code: "AUTH_FAILED" });
+    expect(runtime.getDeviceStatus(completed.device.deviceId).status).toBe(
+      "offline",
+    );
+  });
+
+  test("server stop clears the registry and remains idempotent", async () => {
+    const { runtime, completed } = await createPairedRuntime();
+    const transport = connect(runtime, {
+      deviceId: completed.device.deviceId,
+      secret: completed.secret,
+      sessionId: "stop-cleanup-session",
+    });
+    await transport.start();
+    expect(runtime.getDeviceStatus(completed.device.deviceId).status).toBe(
+      "online",
+    );
+
+    await runtime.stop();
+    await runtime.stop();
+
+    expect(runtime.getDeviceStatus(completed.device.deviceId).status).toBe(
+      "offline",
+    );
+    expect(
+      runtime.deviceSessionRegistry.getActive(completed.device.deviceId),
+    ).toBeNull();
+  });
+
   test("cross-instance rotate/revoke closes stale generation while duplicate delayed events cannot close new generation", async () => {
     const deviceRepository = new InMemoryDeviceRepository();
     const credentialRepository = new InMemoryDeviceCredentialRepository();
