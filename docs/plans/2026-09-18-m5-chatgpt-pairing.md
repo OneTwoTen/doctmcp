@@ -101,7 +101,7 @@ Run: `bun test packages/schemas/src/pairing-control.test.ts packages/schemas/src
 
 Expected: mọi test pass, `bun run typecheck` không báo type lỗi.
 
-- [ ] **Step 5: Commit contract.** `feat(protocol): add pairing channel control frames`
+- [x] **Step 5: Commit contract.** `feat(protocol): add pairing channel control frames` (`42152eb`).
 
 ## Task 2: Multiplex WebSocket control route an toàn
 
@@ -117,15 +117,15 @@ Expected: mọi test pass, `bun run typecheck` không báo type lỗi.
 - Route phụ được chọn bằng pathname trước khi upgrade; `/bridge` tiếp tục đi đúng bridge handshake/parser cũ.
 - Gateway từ chối duplicate path, route trùng `/bridge`, non-GET upgrade và auxiliary frame vượt `maxMessageBytes`; cleanup route callback idempotent.
 
-- [ ] **Step 1: Viết tests đỏ cho route phụ trên cùng listener.** Tạo fake route `/pairing`, mở WebSocket, gửi một string frame, xác nhận callbacks nhận đúng thứ tự; xác nhận `/bridge` vẫn handshake theo schema bridge; duplicate/overlapping path bị từ chối khi tạo gateway.
-- [ ] **Step 2: Chạy gateway tests để thấy fail.**
+- [x] **Step 1: Viết tests đỏ cho route phụ trên cùng listener.** Tạo fake route `/pairing`, mở WebSocket, gửi một string frame, xác nhận callbacks nhận đúng thứ tự; xác nhận `/bridge` vẫn handshake theo schema bridge; duplicate/overlapping path bị từ chối khi tạo gateway.
+- [x] **Step 2: Chạy gateway tests để thấy fail.**
 
 Run: `bun test apps/server/src/gateway.test.ts`
 
 Expected: fail vì gateway chưa có `websocketRoutes`.
 
-- [ ] **Step 3: Thêm discriminated socket data và dispatcher.** Lưu route id/connection id riêng với bridge `GatewayConnection`; `open/message/close` được serialize theo connection, auxiliary frame không đi vào `parseIncomingFrame` hoặc `bridgeMessageSchema`.
-- [ ] **Step 4: Chạy toàn bộ gateway/M2 regression.**
+- [x] **Step 3: Thêm discriminated socket data và dispatcher.** Lưu route id/connection id riêng với bridge `GatewayConnection`; `open/message/close` được serialize theo connection, auxiliary frame không đi vào `parseIncomingFrame` hoặc `bridgeMessageSchema`.
+- [x] **Step 4: Chạy toàn bộ gateway/M2 regression.**
 
 Run: `bun test apps/server/src/gateway.test.ts apps/server/src/gateway-heartbeat.test.ts apps/server/src/gateway-send-failure.test.ts apps/server/src/m2-acceptance.test.ts`
 

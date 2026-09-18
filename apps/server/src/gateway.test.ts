@@ -383,4 +383,125 @@ describe("BridgeGateway", () => {
     await closePromise;
     expect(gateway.getSession("local")).toBeUndefined();
   });
+
+  test("dispatches an auxiliary WebSocket route without sending its frame to bridge parsing", async () => {
+    const messages: string[] = [];
+    let closeCount = 0;
+    let resolveRouteClosed: (() => void) | undefined;
+    const routeClosed = new Promise<void>((resolve) => {
+      resolveRouteClosed = resolve;
+    });
+    gateway = createBridgeGateway({
+      port: 0,
+      websocketRoutes: [
+        {
+          path: "/pairing",
+          maxMessageBytes: 64,
+          open: async (connection) => {
+            await connection.send(JSON.stringify({ kind: "pairing.ready" }));
+          },
+          message: async (connection, frame) => {
+            messages.push(
+              typeof frame === "string" ? frame : frame.toString("utf8"),
+            );
+            await connection.send(JSON.stringify({ kind: "pairing.ack" }));
+          },
+          close: () => {
+            closeCount += 1;
+            resolveRouteClosed?.();
+          },
+        },
+      ],
+    });
+
+    const url = new URL(gateway.url);
+    url.pathname = "/pairing";
+    const socket = new WebSocket(url);
+    sockets.push(socket);
+    const ready = waitForMessage(
+      socket,
+      (message) => message.kind === "pairing.ready",
+    );
+    const ack = waitForMessage(
+      socket,
+      (message) => message.kind === "pairing.ack",
+    );
+    await waitForOpen(socket);
+    await expect(ready).resolves.toEqual({ kind: "pairing.ready" });
+    socket.send("not a bridge message");
+    await expect(ack).resolves.toEqual({ kind: "pairing.ack" });
+    expect(messages).toEqual(["not a bridge message"]);
+    expect(gateway.sessionCount).toBe(0);
+    const closed = waitForClose(socket);
+    socket.close();
+    await closed;
+    await routeClosed;
+    expect(closeCount).toBe(1);
+  });
+
+  test("rejects duplicate and bridge-overlapping auxiliary paths", () => {
+    const route = {
+      path: "/pairing",
+      maxMessageBytes: 64,
+      open: () => undefined,
+      message: () => undefined,
+      close: () => undefined,
+    };
+
+    expect(() =>
+      createBridgeGateway({ port: 0, websocketRoutes: [route, route] }),
+    ).toThrow();
+    expect(() =>
+      createBridgeGateway({
+        port: 0,
+        websocketRoutes: [{ ...route, path: "/bridge" }],
+      }),
+    ).toThrow();
+  });
+
+  test("bounds auxiliary message bytes and exposes the socket remote address to HTTP handlers", async () => {
+    const received: Array<string | Buffer> = [];
+    let remoteAddress: string | null | undefined;
+    gateway = createBridgeGateway({
+      port: 0,
+      websocketRoutes: [
+        {
+          path: "/pairing",
+          maxMessageBytes: 3,
+          open: () => undefined,
+          message: (_connection, frame) => {
+            received.push(frame);
+          },
+          close: () => undefined,
+        },
+      ],
+      httpHandler: (_request, context) => {
+        remoteAddress = context?.remoteAddress;
+        return new Response("ok");
+      },
+    });
+
+    const url = new URL(gateway.url);
+    url.protocol = "http:";
+    url.pathname = "/health";
+    const httpResponse = await fetch(url);
+    expect(httpResponse.status).toBe(200);
+    expect(typeof remoteAddress).toBe("string");
+    expect(remoteAddress?.length).toBeGreaterThan(0);
+
+    const pairingUrl = new URL(gateway.url);
+    pairingUrl.pathname = "/pairing";
+    const pairingHttpUrl = new URL(pairingUrl);
+    pairingHttpUrl.protocol = "http:";
+    const nonUpgrade = await fetch(pairingHttpUrl, { method: "POST" });
+    expect(nonUpgrade.status).toBe(405);
+
+    const socket = new WebSocket(pairingUrl);
+    sockets.push(socket);
+    await waitForOpen(socket);
+    const close = waitForClose(socket);
+    socket.send("éé");
+    await expect(close).resolves.toMatchObject({ code: 1009 });
+    expect(received).toEqual([]);
+  });
 });

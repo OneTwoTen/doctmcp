@@ -24,6 +24,32 @@ export type BridgeGatewayLogger = (
   details?: Readonly<Record<string, string>>,
 ) => void;
 
+export type BridgeGatewayHttpHandler = (
+  request: Request,
+  context?: BridgeGatewayHttpContext,
+) => Response | Promise<Response>;
+
+export interface BridgeGatewayHttpContext {
+  readonly remoteAddress: string | null;
+}
+
+export interface GatewayWebSocketConnection {
+  readonly id: string;
+  send(message: string): Promise<void>;
+  close(code?: number, reason?: string): void;
+}
+
+export interface GatewayWebSocketRoute {
+  readonly path: string;
+  readonly maxMessageBytes: number;
+  open(connection: GatewayWebSocketConnection): void | Promise<void>;
+  message(
+    connection: GatewayWebSocketConnection,
+    frame: string | Buffer,
+  ): void | Promise<void>;
+  close(connection: GatewayWebSocketConnection): void | Promise<void>;
+}
+
 export type BridgeDeviceAuthenticator = (
   deviceId: string,
   credential: string,
@@ -74,6 +100,8 @@ export interface CreateBridgeGatewayOptions {
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
   logger?: BridgeGatewayLogger;
+  httpHandler?: BridgeGatewayHttpHandler;
+  websocketRoutes?: readonly GatewayWebSocketRoute[];
   authenticateDevice?: BridgeDeviceAuthenticator;
   beginSessionReady?: BridgeSessionReadyGuard;
   validateSessionReady?: BridgeSessionReadyValidator;
@@ -107,8 +135,81 @@ export class BridgeGatewayError extends Error {
   }
 }
 
-interface BridgeSocketData {
-  readonly connectionId: string;
+class GatewayRouteConnection implements GatewayWebSocketConnection {
+  #socket: Bun.ServerWebSocket<BridgeSocketData> | null = null;
+  #closed = false;
+  #closeNotified = false;
+
+  constructor(
+    readonly id: string,
+    private readonly route: GatewayWebSocketRoute,
+    private readonly notifyClose: () => void,
+  ) {}
+
+  bind(socket: Bun.ServerWebSocket<BridgeSocketData>): void {
+    this.#socket = socket;
+  }
+
+  async send(message: string): Promise<void> {
+    const socket = this.#socket;
+    if (this.#closed || !socket) {
+      throw new BridgeGatewayError(
+        "SESSION_CLOSED",
+        "WebSocket route connection is closed",
+      );
+    }
+    if (
+      new TextEncoder().encode(message).byteLength > this.route.maxMessageBytes
+    ) {
+      throw new BridgeGatewayError(
+        "MESSAGE_TOO_LARGE",
+        "WebSocket route message exceeds the maximum size",
+      );
+    }
+
+    await sendWebSocketFrameOrCleanup(
+      () => socket.send(message),
+      async () => this.close(1011, "Socket send failed"),
+    );
+  }
+
+  close(code = 1000, reason = ""): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    const socket = this.#socket;
+    if (!socket) {
+      this.#notifyClose();
+      return;
+    }
+    socket.close(code, reason.slice(0, 123));
+  }
+
+  receivedClose(): void {
+    this.#closed = true;
+    this.#notifyClose();
+  }
+
+  #notifyClose(): void {
+    if (this.#closeNotified) return;
+    this.#closeNotified = true;
+    this.notifyClose();
+  }
+}
+
+type BridgeSocketData =
+  | {
+      readonly kind: "bridge";
+      readonly connectionId: string;
+    }
+  | {
+      readonly kind: "route";
+      readonly routeId: string;
+      readonly connectionId: string;
+    };
+
+interface GatewayRouteState {
+  readonly connection: GatewayRouteConnection;
+  readonly route: GatewayWebSocketRoute;
 }
 
 interface GatewayConnection {
@@ -350,6 +451,7 @@ export function createBridgeGateway(
   options: CreateBridgeGatewayOptions = {},
 ): BridgeGateway {
   const path = options.path ?? DEFAULT_BRIDGE_PATH;
+  const websocketRoutes = options.websocketRoutes ?? [];
   const handshakeTimeoutMs =
     options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
@@ -368,9 +470,68 @@ export function createBridgeGateway(
     );
   }
 
+  const routeByPath = new Map<string, GatewayWebSocketRoute>();
+  for (const route of websocketRoutes) {
+    if (
+      !/^\/(?!\/)[^?#]*$/.test(route.path) ||
+      route.path === path ||
+      routeByPath.has(route.path) ||
+      !Number.isSafeInteger(route.maxMessageBytes) ||
+      route.maxMessageBytes <= 0 ||
+      route.maxMessageBytes > BRIDGE_MAX_MESSAGE_BYTES
+    ) {
+      throw new Error("Auxiliary WebSocket route configuration is invalid.");
+    }
+    routeByPath.set(route.path, route);
+  }
+
   const connections = new Map<string, GatewayConnection>();
   const sessions = new Map<string, GatewaySession>();
+  const routeConnections = new Map<string, GatewayRouteState>();
   let stopped = false;
+
+  const closeRouteConnection = (
+    connection: GatewayWebSocketConnection,
+    route: GatewayWebSocketRoute,
+  ): void => {
+    try {
+      void Promise.resolve(route.close(connection)).catch(() => undefined);
+    } catch {
+      // Auxiliary route cleanup must not break gateway cleanup.
+    }
+  };
+
+  const createRouteConnection = (
+    connectionId: string,
+    route: GatewayWebSocketRoute,
+  ): GatewayRouteConnection => {
+    let connection: GatewayRouteConnection;
+    connection = new GatewayRouteConnection(connectionId, route, () => {
+      routeConnections.delete(connectionId);
+      closeRouteConnection(connection, route);
+    });
+    routeConnections.set(connectionId, { connection, route });
+    return connection;
+  };
+
+  const handleRouteMessage = async (
+    state: GatewayRouteState,
+    frame: string | Buffer,
+  ): Promise<void> => {
+    const frameBytes =
+      typeof frame === "string"
+        ? new TextEncoder().encode(frame).byteLength
+        : frame.byteLength;
+    if (frameBytes > state.route.maxMessageBytes) {
+      state.connection.close(1009, "Message too large");
+      return;
+    }
+    try {
+      await state.route.message(state.connection, frame);
+    } catch {
+      state.connection.close(WEBSOCKET_PROTOCOL_ERROR, "Protocol error");
+    }
+  };
 
   const log = (event: string, connection: GatewayConnection): void => {
     const details: Record<string, string> = {};
@@ -787,6 +948,22 @@ export function createBridgeGateway(
       closeOnBackpressureLimit: false,
       sendPings: false,
       open(ws) {
+        if (ws.data.kind === "route") {
+          const routeState = routeConnections.get(ws.data.connectionId);
+          if (!routeState || routeState.route.path !== ws.data.routeId) {
+            ws.close(WEBSOCKET_PROTOCOL_ERROR, "Unknown WebSocket route");
+            return;
+          }
+          routeState.connection.bind(ws);
+          try {
+            void Promise.resolve(
+              routeState.route.open(routeState.connection),
+            ).catch(() => routeState.connection.close(1011, "Route failed"));
+          } catch {
+            routeState.connection.close(1011, "Route failed");
+          }
+          return;
+        }
         const connection = connections.get(ws.data.connectionId);
         if (!connection) {
           ws.close(WEBSOCKET_PROTOCOL_ERROR, "Unknown bridge connection");
@@ -804,14 +981,28 @@ export function createBridgeGateway(
         log("bridge.connection.opened", connection);
       },
       message(ws, message) {
+        if (ws.data.kind === "route") {
+          const routeState = routeConnections.get(ws.data.connectionId);
+          if (routeState && routeState.route.path === ws.data.routeId) {
+            void handleRouteMessage(routeState, message);
+          }
+          return;
+        }
         const connection = connections.get(ws.data.connectionId);
         if (connection) void handleMessage(connection, message);
       },
       pong(ws, data) {
+        if (ws.data.kind === "route") return;
         const connection = connections.get(ws.data.connectionId);
         if (connection) handlePong(connection, data);
       },
       close(ws) {
+        if (ws.data.kind === "route") {
+          routeConnections
+            .get(ws.data.connectionId)
+            ?.connection.receivedClose();
+          return;
+        }
         const connection = connections.get(ws.data.connectionId);
         if (!connection) return;
         if (connection.session) sessions.delete(connection.session.id);
@@ -825,7 +1016,34 @@ export function createBridgeGateway(
     },
     fetch(request, serverInstance) {
       const requestUrl = new URL(request.url);
+      const route = routeByPath.get(requestUrl.pathname);
+      if (route) {
+        if (request.method !== "GET") {
+          return new Response("Method not allowed", { status: 405 });
+        }
+
+        const connectionId = crypto.randomUUID();
+        const routeConnection = createRouteConnection(connectionId, route);
+        if (
+          serverInstance.upgrade(request, {
+            data: {
+              kind: "route",
+              routeId: route.path,
+              connectionId,
+            },
+          })
+        ) {
+          return;
+        }
+        routeConnection.close(WEBSOCKET_PROTOCOL_ERROR, "Upgrade failed");
+        return new Response("WebSocket upgrade required", { status: 400 });
+      }
       if (requestUrl.pathname !== path) {
+        if (options.httpHandler) {
+          return options.httpHandler(request, {
+            remoteAddress: serverInstance.requestIP(request)?.address ?? null,
+          });
+        }
         return new Response("Not found", { status: 404 });
       }
       if (request.method !== "GET") {
@@ -848,7 +1066,13 @@ export function createBridgeGateway(
         finalized: false,
       };
       connections.set(connectionId, connection);
-      if (serverInstance.upgrade(request, { data: { connectionId } })) return;
+      if (
+        serverInstance.upgrade(request, {
+          data: { kind: "bridge", connectionId },
+        })
+      ) {
+        return;
+      }
       connections.delete(connectionId);
       return new Response("WebSocket upgrade required", { status: 400 });
     },
@@ -870,11 +1094,15 @@ export function createBridgeGateway(
       if (stopped) return;
       stopped = true;
       const activeConnections = [...connections.values()];
+      const activeRouteConnections = [...routeConnections.values()];
       await Promise.all(
         activeConnections.map((connection) =>
           closeConnection(connection, "SERVER_SHUTDOWN"),
         ),
       );
+      for (const routeState of activeRouteConnections) {
+        routeState.connection.close(1012, "Server shutdown");
+      }
       for (const connection of activeConnections) {
         if (connection.session) sessions.delete(connection.session.id);
         connections.delete(connection.connectionId);
@@ -884,6 +1112,9 @@ export function createBridgeGateway(
         );
       }
       await server.stop(true);
+      for (const routeState of [...routeConnections.values()]) {
+        routeState.connection.receivedClose();
+      }
     },
   };
 }
