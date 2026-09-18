@@ -10,7 +10,9 @@ Repository hiện đã có:
 - `apps/agent` đã có local MCP runtime và `BridgeServerTransport`; `apps/server` đã có WebSocket gateway, `BridgeClientTransport`, device/pairing repositories, credential lifecycle/completion và production runtime cho authenticated bridge.
 - `packages/protocol` giữ bridge control-plane contract; `packages/schemas` đã có shared bridge, `Device`, pairing và device-credential schemas.
 
-MCP server local và custom WebSocket bridge M2 đã hoàn tất. M3.1–M3.3 cũng đã hoàn tất: immutable device identity, atomic pairing code lifecycle, long-lived credential lifecycle và authenticated bridge handshake đã có implementation + regression coverage. M3.4/#33 là task active hiện tại; authoritative device-session registry, heartbeat/online state và cross-instance invalidation vẫn **chưa được coi là đã triển khai** cho tới khi #33 hoàn tất.
+MCP server local và custom WebSocket bridge M2 đã hoàn tất. M3.1–M3.5 đã có trên `main`; M3.6/#35 owner-scoped multi-device registry/routing và M3.7/#36 vertical acceptance/security suite đã được triển khai trong nhánh hiện tại. `test:m3` (127 pass), M1/M2 acceptance, `check` và `typecheck` xanh local. Full suite Windows còn 32 lỗi fixture symlink `EPERM`; cross-platform CI cho nhánh này đang chờ.
+
+M4 implementation và local acceptance đã hoàn tất trong nhánh hiện tại: public Streamable HTTP endpoint trên Bun listener, OIDC JWT verifier, principal ổn định từ `issuer + sub`, tool alias theo `deviceId` và upstream MCP Client dùng lại theo bridge session. `test:m4` kiểm tra flow qua HTTP, WebSocket và local MCP thật. Cross-platform CI, IdP/domain thật và durable persistence chưa được xác nhận; M4 chưa production-ready.
 
 ## Kiến trúc mục tiêu
 
@@ -88,7 +90,9 @@ Tool implementation không được phụ thuộc vào public server hoặc Chat
 
 Ở M3.3, server có long-lived device credential lifecycle, pairing credential completion/recovery, per-device lifecycle linearization và authenticated bridge handshake. Production runtime verify credential trước ready/ACK, bind server-side `{ownerId, deviceId}`, reject MCP trước auth và đóng same-process active session khi credential generation bị rotate/revoke. Credential wire shape là 32 random bytes encode 43-char unpadded base64url; raw credential không persist trong server credential/completion stores.
 
-M3.4/#33 bổ sung authoritative session registry keyed bằng `deviceId`, duplicate-session policy, heartbeat/liveness, online/offline derived state và generation-aware cross-instance revoke/rotate invalidation. Public MCP endpoint thuộc M4.
+M3.4/#33 đã bổ sung authoritative session registry keyed bằng `deviceId`, duplicate-session policy, heartbeat/liveness, online/offline derived state và generation-aware cross-instance revoke/rotate invalidation.
+
+M3.5/#34 đã bổ sung `LocalBridgeReconnectController`, credential provider local và bounded exponential backoff + jitter. M3.6/#35 bổ sung owner-scoped `DeviceRoutingService`, ghép device record với online session hiện hành và kiểm tra active credential generation trước khi route. M3.7/#36 chứng minh MCP call qua routed WebSocket tới đúng một trong nhiều local runtime. Public MCP endpoint thuộc M4.
 
 ### MCP data plane
 
@@ -168,12 +172,17 @@ Custom WebSocket bridge chỉ chịu trách nhiệm chuyển MCP message qua k�
 
 ## M3 — Device identity, pairing và authenticated sessions
 
-M3 hiện hoàn tất 3/7 work item:
+M3 implementation hiện hoàn tất 7/7 work item; #36 vẫn là gate active cho CI/cross-platform verification:
 
 - ✅ M3.1/#30 — immutable device identity + persistence contract qua PR #37;
 - ✅ M3.2/#31 — pairing session/code lifecycle + atomic claim qua PR #38;
 - ✅ M3.3/#32 — device credential lifecycle + authenticated bridge handshake qua PR #39 (`163fb899`);
-- ⏳ M3.4/#33 — device session registry, heartbeat và online/offline state — task active.
+- ✅ M3.4/#33 — device session registry, heartbeat và online/offline state qua PR #40;
+- ✅ M3.5/#34 — local reconnect/backoff và credential resume qua PR #41;
+- ✅ M3.6/#35 — multi-device registry và routing theo `deviceId` — implementation và target verification trong nhánh hiện tại.
+- 🔎 M3.7/#36 — acceptance/security suite pairing → reconnect → routing — local suite xanh; CI/cross-platform chờ.
+
+Trong môi trường Windows hiện tại (`Bun 1.4.1`), full `bun test` có 32 test fixture fail khi tạo symlink vì `EPERM`; M3 (127 tests), M1/M2, M4, M5, `bun run check` và `bun run typecheck` đều pass. Xem [M3 acceptance](testing/m3-acceptance.md) để biết lệnh và evidence đầy đủ.
 
 Foundation đã khóa:
 
@@ -186,7 +195,25 @@ Foundation đã khóa:
 - same-process lifecycle linearization chặn rotate/revoke chen vào pairing recovery/ready boundary;
 - strict `bridge.hello.auth` schema và generic auth failure không leak raw credential.
 
-M3.4 phải xây registry generation-aware để cùng `deviceId` có session ownership/liveness deterministic, chốt duplicate connection policy, derive online/offline state và propagate credential invalidation cross-instance trong bounded default ≤ 5 giây mà không đóng nhầm session generation mới.
+M3.4 đã triển khai registry generation-aware cho session ownership/liveness theo `deviceId`, duplicate replacement, online/offline derived state và credential invalidation cross-instance với bound mặc định ≤ 5 giây.
+
+## M4 — Public MCP endpoint
+
+M4 thêm `/mcp` vào cùng Bun listener đang phục vụ `/bridge`. Endpoint dùng Streamable HTTP từ MCP TypeScript SDK chính thức; tool call, schema, error và cancellation tiếp tục thuộc MCP.
+
+Public server xác minh bearer access token từ authorization server OIDC bên ngoài. OIDC discovery/JWKS, OAuth protected-resource metadata RFC 9728, JWT signature, issuer, audience, expiry và scope `mcp` nằm trên boundary của `/mcp`. Discovery phải quảng bá Authorization Code + PKCE `S256`; capability OAuth tùy chọn chỉ được chuyển tiếp nếu provider công bố. `ownerId` được dẫn xuất bằng hash domain-separated của `issuer + sub`, không dùng `client_id` làm user identity.
+
+Tool set dành riêng cho principal đã xác thực. Alias có dạng `d_<deviceIdHex32>__<localToolName>` để tên thiết bị trùng không gây va chạm. Callback route lại theo owner, device và active credential generation. Một MCP `Client` được initialize một lần và dùng lại cho đúng `BridgeGatewaySession`; session reconnect tạo client mới. Tool catalog vừa khám phá được giữ trong memory để alias cũ báo `DEVICE_OFFLINE` thay vì đổi thiết bị ngầm.
+
+Audit hook chỉ nhận principal opaque, device/tool id, timestamp/duration và outcome/error code; arguments và results không ghi. Repositories mặc định vẫn in-memory cho development/test. Production cần durable repository adapters và deployment process/coordination tương thích trước khi triển khai dùng thật.
+
+## M5 — CLI local và pairing ChatGPT
+
+Local CLI đọc config strict, validate/canonicalize workspace trước khi mở kết nối, và mặc định deny mọi capability không được bật. Khi chưa có credential, CLI tạo proof trong RAM, POST `/pairing/sessions`, rồi mở outbound WebSocket `/pairing`. Code chỉ xuất hiện sau khi server gắn socket đúng session/proof. `devices_pair` chạy dưới OAuth `/mcp`, claim code một lần, gửi credential qua pairing socket và chỉ trả metadata sau khi local ghi credential rồi ACK. Sau đó CLI mở `/bridge` bằng credential đã lưu và reconnect theo policy M3.5. Secret cache được dọn khi ACK hoặc channel hết hạn; pairing repository có capacity bound và pruning định kỳ.
+
+Pairing frames là control plane riêng; MCP tool discovery/call vẫn đi qua Streamable HTTP → routed MCP Client → authenticated bridge → local MCP. Credential, code và proof không đi vào MCP result/audit. `/pairing/sessions` dùng body limit, strict keys, server-derived remote address và rate guard; HTTP plaintext chỉ được chấp nhận từ loopback. TLS proxy ngoài loopback cần IP peer chính xác trong `TRUSTED_PROXY_ADDRESSES` và phải ghi đè `X-Forwarded-Proto=https`. Pairing record có capacity bound và runtime pruning định kỳ.
+
+`bun run test:m5` chạy local vertical flow bằng Bun server, WebSocket pairing, OAuth verifier fixture, MCP Client thật, file credential provider, bridge reconnect và workspace permission. OIDC tenant, TLS proxy, ChatGPT registration và durable multi-instance storage là cấu hình deployment bên ngoài, chưa được xác nhận từ repository.
 
 ## Security boundary
 
@@ -204,18 +231,18 @@ M3.4 phải xây registry generation-aware để cùng `deviceId` có session ow
 - Tách tool implementation khỏi transport.
 - Tách MCP semantics khỏi device/session control plane.
 - Không thêm database, queue, Redis hoặc service riêng trước khi milestone hiện tại chứng minh nhu cầu thật.
-- Không khóa framework HTTP public server trước khi public endpoint production thực sự cần.
+- Public HTTP/MCP framework và OIDC resource-server contract được chốt tại [decision M4](decisions/2026-09-17-public-mcp-endpoint.md).
 - Breaking change của custom bridge/control plane phải có version/compatibility strategy riêng; không trộn version này với MCP protocol version.
 - Thêm tool mới dựa trên semantic/permission boundary, không dựa trên mục tiêu làm `tools/list` ngắn bằng mọi giá.
 
 ## Phần chưa chốt
 
-Các quyết định sau vẫn chưa cần khóa sau M3.3:
+Các quyết định sau vẫn chưa được khóa:
 
-- framework HTTP cuối cùng của public server;
 - production database adapter cho user/device registry;
-- cơ chế user authentication của public endpoint;
 - persistence/audit log ngoài Device/credential foundation hiện có;
+- OIDC provider cụ thể, tenant, scope/audience registration và public HTTPS domain;
+- deployment target và persistent database/volume;
 - installer/tray/auto-update cho local runtime;
 - UX chọn nhiều thiết bị trong ChatGPT;
 - shell mode/PTY/streaming;

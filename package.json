@@ -9,12 +9,16 @@
   "scripts": {
     "dev:server": "bun --cwd apps/server run dev",
     "dev:agent": "bun --cwd apps/agent run dev",
+    "connect:agent": "bun --cwd apps/agent src/cli.ts connect",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:local": "bun test apps/agent/src/m1-acceptance.test.ts apps/agent/src/m1-tool-contract.test.ts",
     "test:m2": "bun test apps/server/src/m2-acceptance.test.ts",
+    "test:m3": "bun test apps/server/src/m3-acceptance.test.ts apps/server/src/m3-auth-acceptance.test.ts apps/server/src/m3-reconnect-acceptance.test.ts apps/server/src/device-repository.test.ts apps/server/src/pairing.test.ts apps/server/src/pairing-credential-completion.test.ts apps/server/src/pairing-credential-completion-terminal.test.ts apps/server/src/pairing-credential-external-mutation.test.ts apps/server/src/pairing-credential-post-finalize-race.test.ts apps/server/src/pairing-credential-recovery-reservation.test.ts apps/server/src/device-credential.test.ts apps/server/src/device-credential-invalidation.test.ts apps/server/src/server-runtime.test.ts apps/server/src/server-runtime-boundary.test.ts apps/server/src/server-runtime-credential-lifecycle.test.ts apps/server/src/server-runtime-device-session.test.ts apps/server/src/device-session-registry.test.ts apps/server/src/gateway-heartbeat.test.ts apps/server/src/gateway.test.ts apps/server/src/gateway-send-failure.test.ts apps/server/src/device-routing.test.ts apps/server/src/device-routing-runtime.test.ts apps/agent/src/device-credential-provider.test.ts apps/agent/src/local-bridge-reconnect-security.test.ts apps/agent/src/local-bridge-reconnect.test.ts apps/agent/src/local-bridge-reconnect-stop.test.ts apps/agent/src/local-bridge-reconnect-unavailable.test.ts packages/schemas/src/device.test.ts packages/schemas/src/pairing.test.ts",
+    "test:m4": "bun test apps/server/src/public-mcp-auth.test.ts apps/server/src/routed-device-mcp-client-registry.test.ts apps/server/src/public-mcp-endpoint.test.ts",
+    "test:m5": "bun test packages/schemas/src/pairing-control.test.ts apps/server/src/pairing-abuse-guard.test.ts apps/server/src/pairing-channel.test.ts apps/server/src/pairing-channel-route.test.ts apps/server/src/public-pairing-endpoint.test.ts apps/server/src/public-mcp-endpoint.test.ts apps/server/src/m5-acceptance.test.ts apps/agent/src/pairing-client.test.ts apps/agent/src/cli-config.test.ts apps/agent/src/cli.test.ts",
     "ci": "bun run check && bun run typecheck && bun test"
   },
   "devDependencies": {

@@ -14,10 +14,13 @@ import {
 
 const SESSION_A = "11111111-1111-4111-8111-111111111111";
 const SESSION_B = "22222222-2222-4222-8222-222222222222";
+const SESSION_C = "33333333-3333-4333-8333-333333333333";
+const SESSION_D = "44444444-4444-4444-8444-444444444444";
 const DEVICE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DEVICE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const CODE_A = "ABCD-EFGH-JKLM";
 const CODE_B = "NPQR-STUV-WXYZ";
+const CODE_C = "2345-6789-ABCD";
 
 const validClaim = (ownerId = "owner-a"): ClaimPairingInput => ({
   ownerId,
@@ -378,6 +381,36 @@ describe("PairingService", () => {
     expect(await service.expirePairingSessions()).toBe(2);
     expect((await service.getPairingSession(SESSION_A))?.state).toBe("expired");
     expect((await service.getPairingSession(SESSION_B))?.state).toBe("expired");
+  });
+
+  test("giới hạn số session và loại record hết hạn khỏi repository", async () => {
+    let nowMs = Date.parse("2026-09-15T06:00:00.000Z");
+    const deviceRepository = new InMemoryDeviceRepository();
+    const repository = new InMemoryPairingSessionRepository(deviceRepository, {
+      maxSessions: 1,
+    });
+    const service = new PairingService({
+      repository,
+      now: () => new Date(nowMs),
+      generatePairingCode: sequence([CODE_A, CODE_B, CODE_A, CODE_C]),
+      generatePairingSessionId: sequence([
+        SESSION_A,
+        SESSION_B,
+        SESSION_C,
+        SESSION_D,
+      ]),
+    });
+    await service.createPairingSession();
+    await expect(service.createPairingSession()).rejects.toMatchObject({
+      code: "PAIRING_CREATE_FAILED",
+    });
+
+    nowMs += DEFAULT_PAIRING_TTL_MS;
+    await expect(service.pruneExpiredPairingSessions()).resolves.toBe(1);
+    await expect(service.getPairingSession(SESSION_A)).resolves.toBeNull();
+    await expect(service.createPairingSession()).resolves.toMatchObject({
+      session: { pairingSessionId: SESSION_D },
+    });
   });
 
   test("device repository failure không consume pairing code", async () => {

@@ -1,5 +1,7 @@
 # M5 — CLI local và ghép nối ChatGPT Implementation Plan
 
+**Trạng thái:** Local implementation, acceptance suites và quality checks đã hoàn tất. Full Linux suite và Windows target CI đang chờ push nhánh.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Dùng `superpowers:executing-plans` để thực hiện plan này theo từng task. Mỗi task giữ checkbox để ghi trạng thái.
 
 **Goal:** Người dùng cấu hình local CLI một lần, pair device với principal OAuth đang đăng nhập trong ChatGPT, rồi gọi MCP tools trên local runtime qua M4.
@@ -131,7 +133,7 @@ Run: `bun test apps/server/src/gateway.test.ts apps/server/src/gateway-heartbeat
 
 Expected: tất cả pass; cleanup `stop()` đóng cả bridge lẫn auxiliary socket đúng một lần.
 
-- [ ] **Step 5: Commit gateway mux.** `feat(server): multiplex pairing websocket route`
+- [x] **Step 5: Commit gateway mux.** `feat(server): multiplex pairing websocket route`
 
 ## Task 3: Channel proof, start bounds và credential delivery
 
@@ -152,23 +154,23 @@ Expected: tất cả pass; cleanup `stop()` đóng cả bridge lẫn auxiliary s
 - `PairingAbuseGuard.beforeStart(remoteAddress?)`, `beforeClaim({ownerId, codeDigest, remoteAddress?})`; guard chỉ lưu bucket/counters theo owner/IP, digest hoặc window, không lưu raw code/proof.
 - Default guard có capacity cố định, TTL cleanup và injectable clock; production multi-instance phải inject shared adapter.
 
-- [ ] **Step 1: Viết tests đỏ cho guard.** Cùng owner vượt burst bị từ chối generic, owner khác vẫn có quota riêng, pending capacity không vượt cấu hình, reset chỉ sau window, raw code không được giữ trong snapshot/log.
-- [ ] **Step 2: Viết tests đỏ cho coordinator.** Proof đúng attach một lần; proof sai/session sai/expired/duplicate attach bị từ chối; delivery gửi đúng socket; reconnect cùng proof gửi lại đúng generation đang pending; ACK trùng generation mismatch không resolve; disconnect/timeout resolve bằng safe error; `close()` clear timers và raw secret buffer.
-- [ ] **Step 3: Chạy tests mới để xác nhận fail.**
+- [x] **Step 1: Viết tests đỏ cho guard.** Cùng owner vượt burst bị từ chối generic, owner khác vẫn có quota riêng, pending capacity không vượt cấu hình, reset chỉ sau window, raw code không được giữ trong snapshot/log.
+- [x] **Step 2: Viết tests đỏ cho coordinator.** Proof đúng attach một lần; proof sai/session sai/expired/duplicate attach bị từ chối; delivery gửi đúng socket; reconnect cùng proof gửi lại đúng generation đang pending; ACK trùng generation mismatch không resolve; disconnect/timeout resolve bằng safe error; `close()` clear timers và raw secret buffer.
+- [x] **Step 3: Chạy tests mới để xác nhận fail.**
 
 Run: `bun test apps/server/src/pairing-abuse-guard.test.ts apps/server/src/pairing-channel.test.ts`
 
 Expected: FAIL vì coordinator/guard chưa tồn tại.
 
-- [ ] **Step 4: Triển khai giới hạn và coordinator.** Hash proof bằng SHA-256 có domain prefix; kiểm tra digest constant-time bằng helper so sánh fixed-length; bound pending session/socket, body/frame size, delivery timeout; cancel/expire dọn channel; không log message/secret.
-- [ ] **Step 5: Ghép lifecycle credential runtime.** `createDoctmcpServerRuntime` tạo coordinator sau completion service, cấp `acknowledgeDelivery` qua boundary runtime hiện có; `stop()` đóng channel trước gateway và cleanup idempotent. Guard được inject qua runtime; default pairing claim guard không còn `ALLOW_ALL` cho public runtime.
-- [ ] **Step 6: Chạy tests service/runtime và M3 pairing regression.**
+- [x] **Step 4: Triển khai giới hạn và coordinator.** Hash proof bằng SHA-256 có domain prefix; kiểm tra digest constant-time bằng helper so sánh fixed-length; bound pending session/socket, body/frame size, delivery timeout; cancel/expire dọn channel; không log message/secret.
+- [x] **Step 5: Ghép lifecycle credential runtime.** `createDoctmcpServerRuntime` tạo coordinator sau completion service, cấp `acknowledgeDelivery` qua boundary runtime hiện có; `stop()` đóng channel trước gateway và cleanup idempotent. Guard được inject qua runtime; default pairing claim guard không còn `ALLOW_ALL` cho public runtime.
+- [x] **Step 6: Chạy tests service/runtime và M3 pairing regression.**
 
 Run: `bun test apps/server/src/pairing-abuse-guard.test.ts apps/server/src/pairing-channel.test.ts apps/server/src/pairing-credential-completion.test.ts apps/server/src/server-runtime.test.ts apps/server/src/server-runtime-credential-lifecycle.test.ts`
 
 Expected: pass; prior pairing claim/recovery/revoke semantics vẫn nguyên.
 
-- [ ] **Step 7: Commit channel lifecycle.** `feat(server): add bounded pairing credential delivery`
+- [x] **Step 7: Commit channel lifecycle.** `feat(server): add bounded pairing credential delivery`
 
 ## Task 4: HTTP start route và MCP `devices_pair`
 
@@ -187,24 +189,24 @@ Expected: pass; prior pairing claim/recovery/revoke semantics vẫn nguyên.
 - `devices_pair` derive `ownerId` từ `AuthInfo`; sau claim gọi coordinator `deliver(completed)` và chỉ trả success sau persistence ACK.
 - MCP audit ghi `devices_pair`, ownerId opaque, outcome/error code; không ghi code, arguments, result, credential hay proof.
 
-- [ ] **Step 1: Viết HTTP tests đỏ.** Method sai → 405; path sai → 404; body quá lớn/malformed/field thừa → generic 400; success chỉ tạo một session và không trả channel proof; capacity/rate guard → 429; không tin `X-Forwarded-For` từ request bất kỳ.
-- [ ] **Step 2: Viết MCP tests đỏ.** `tools/list` có `devices_pair`; no bearer/scope sai chặn trước tool; valid owner claims và chờ ACK; tool result không có `credential`; đối số `ownerId` bị schema strict reject; owner A/B isolation và code errors giữ generic.
-- [ ] **Step 3: Chạy endpoint tests để thấy fail.**
+- [x] **Step 1: Viết HTTP tests đỏ.** Method sai → 405; path sai → 404; body quá lớn/malformed/field thừa → generic 400; success chỉ tạo một session và không trả channel proof; capacity/rate guard → 429; không tin `X-Forwarded-For` từ request bất kỳ.
+- [x] **Step 2: Viết MCP tests đỏ.** `tools/list` có `devices_pair`; no bearer/scope sai chặn trước tool; valid owner claims và chờ ACK; tool result không có `credential`; đối số `ownerId` bị schema strict reject; owner A/B isolation và code errors giữ generic.
+- [x] **Step 3: Chạy endpoint tests để thấy fail.**
 
 Run: `bun test apps/server/src/public-pairing-endpoint.test.ts apps/server/src/public-mcp-endpoint.test.ts`
 
 Expected: FAIL vì route/tool chưa được expose.
 
-- [ ] **Step 4: Triển khai endpoint.** Start route chỉ tạo session pending, register proof digest và không đăng nhập owner; derive remote address từ `Bun.Server.requestIP` qua gateway-supplied request context; không tin proxy header trừ trust proxy được cấu hình rõ.
-- [ ] **Step 5: Đăng ký MCP tool.** Thêm description tiếng Việt yêu cầu model hỏi code từ người dùng; `ownerId` luôn closure từ verified auth; safe output chỉ sau ACK; `recordAudit` chỉ nhận mã outcome/error.
-- [ ] **Step 6: Compose public fetch mux.** `apps/server/src/index.ts` dispatch `/pairing/sessions` trước public MCP handler, discovery và `/mcp` tiếp tục nguyên trạng; `/bridge` và `/pairing` upgrade vẫn do gateway route mux xử lý.
-- [ ] **Step 7: Chạy endpoint/M4 regression.**
+- [x] **Step 4: Triển khai endpoint.** Start route chỉ tạo session pending, register proof digest và không đăng nhập owner; derive remote address từ `Bun.Server.requestIP` qua gateway-supplied request context; không tin proxy header trừ trust proxy được cấu hình rõ.
+- [x] **Step 5: Đăng ký MCP tool.** Thêm description tiếng Việt yêu cầu model hỏi code từ người dùng; `ownerId` luôn closure từ verified auth; safe output chỉ sau ACK; `recordAudit` chỉ nhận mã outcome/error.
+- [x] **Step 6: Compose public fetch mux.** `apps/server/src/index.ts` dispatch `/pairing/sessions` trước public MCP handler, discovery và `/mcp` tiếp tục nguyên trạng; `/bridge` và `/pairing` upgrade vẫn do gateway route mux xử lý.
+- [x] **Step 7: Chạy endpoint/M4 regression.**
 
 Run: `bun test apps/server/src/public-pairing-endpoint.test.ts apps/server/src/public-mcp-endpoint.test.ts apps/server/src/public-mcp-auth.test.ts apps/server/src/routed-device-mcp-client-registry.test.ts`
 
 Expected: pass; OAuth gate M4 và alias routing không đổi.
 
-- [ ] **Step 8: Commit public pairing API.** `feat(server): expose authenticated MCP device pairing`
+- [x] **Step 8: Commit public pairing API.** `feat(server): expose authenticated MCP device pairing`
 
 ## Task 5: Local pairing client và credential persistence
 
@@ -219,21 +221,21 @@ Expected: pass; OAuth gate M4 và alias routing không đổi.
 - `LocalPairingClient.waitForCredential(): Promise<LocalDeviceCredential>` validate pairing.credential schema, ghi `{deviceId, credential}` qua provider, rồi gửi ACK khớp generation.
 - `LocalPairingClient.close()` abort fetch/socket, hủy timer và xóa reference tới proof/credential; không log frame content.
 
-- [ ] **Step 1: Viết tests đỏ cho local client.** Fake fetch/WS chứng minh proof random 43-char base64url, URL chuyển HTTPS→WSS đúng path, code chỉ lộ qua callback sau `attached`, credential malformed không lưu, storage error không ACK, save resolve trước ACK, sai session/version/duplicate credential bị từ chối, close cleanup.
-- [ ] **Step 2: Chạy client tests để thấy fail.**
+- [x] **Step 1: Viết tests đỏ cho local client.** Fake fetch/WS chứng minh proof random 43-char base64url, URL chuyển HTTPS→WSS đúng path, code chỉ lộ qua callback sau `attached`, credential malformed không lưu, storage error không ACK, save resolve trước ACK, sai session/version/duplicate credential bị từ chối, close cleanup.
+- [x] **Step 2: Chạy client tests để thấy fail.**
 
 Run: `bun test apps/agent/src/pairing-client.test.ts`
 
 Expected: FAIL vì `LocalPairingClient` chưa tồn tại.
 
-- [ ] **Step 3: Thêm implementation với injectable I/O.** Không thêm dependency; dùng global `fetch`, `WebSocket`, `crypto.getRandomValues()` mặc định. CLI callback nhận code/expiresAt để in terminal; secrets không thuộc callback.
-- [ ] **Step 4: Chạy client + provider security regressions.**
+- [x] **Step 3: Thêm implementation với injectable I/O.** Không thêm dependency; dùng global `fetch`, `WebSocket`, `crypto.getRandomValues()` mặc định. CLI callback nhận code/expiresAt để in terminal; secrets không thuộc callback.
+- [x] **Step 4: Chạy client + provider security regressions.**
 
 Run: `bun test apps/agent/src/pairing-client.test.ts apps/agent/src/device-credential-provider.test.ts`
 
 Expected: pass; credential provider vẫn atomic và không echo secret trong lỗi.
 
-- [ ] **Step 5: Commit local pairing transport.** `feat(agent): pair through outbound control channel`
+- [x] **Step 5: Commit local pairing transport.** `feat(agent): pair through outbound control channel`
 
 ## Task 6: CLI config và `connect` lifecycle
 
@@ -252,23 +254,23 @@ Expected: pass; credential provider vẫn atomic và không echo secret trong l�
 - `runConnectCli(argv, dependencies): Promise<number>` dependency injection gồm read config, stdout/stderr, signal hooks, pairing client factory, runtime factory, exit; hỗ trợ `connect --config <path>` và `--help`.
 - Bun script agent `connect: bun src/cli.ts connect`; root `connect:agent: bun --cwd apps/agent run connect`.
 
-- [ ] **Step 1: Viết config tests đỏ.** Missing/extra fields, invalid URL, empty device name, duplicate workspace ID, nonexistent/overlap path, invalid capability type reject; capability omitted → tất cả false; credential path resolves relative to config.
-- [ ] **Step 2: Viết CLI lifecycle tests đỏ.** Missing credential: connect to pairing channel, print one-time code only after attach, persist and start runtime. Existing credential: skip pair. Ctrl+C: stop reconnect/runtime/client once. Config/pair/storage error: safe message and nonzero exit. Tool/local runtime retains exact configured capabilities.
-- [ ] **Step 3: Chạy CLI tests để thấy fail.**
+- [x] **Step 1: Viết config tests đỏ.** Missing/extra fields, invalid URL, empty device name, duplicate workspace ID, nonexistent/overlap path, invalid capability type reject; capability omitted → tất cả false; credential path resolves relative to config.
+- [x] **Step 2: Viết CLI lifecycle tests đỏ.** Missing credential: connect to pairing channel, print one-time code only after attach, persist and start runtime. Existing credential: skip pair. Ctrl+C: stop reconnect/runtime/client once. Config/pair/storage error: safe message and nonzero exit. Tool/local runtime retains exact configured capabilities.
+- [x] **Step 3: Chạy CLI tests để thấy fail.**
 
 Run: `bun test apps/agent/src/cli-config.test.ts apps/agent/src/cli.test.ts`
 
 Expected: FAIL vì config loader/CLI chưa tồn tại.
 
-- [ ] **Step 4: Triển khai strict config loader.** Gọi `WorkspaceRegistry.create(config.workspaces)` trước khi mở socket; `credentialPath` mặc định là path riêng dưới user data directory theo OS, config có thể override; khi file chưa tồn tại dùng `FileDeviceCredentialProvider`.
-- [ ] **Step 5: Triển khai runtime assembly.** Tạo `LocalMcpRuntime`, `LocalBridgeReconnectController` với bridge URL suy ra từ HTTPS server base; đã có credential thì `controller.start()`, chưa có thì pair/save rồi mới `start()`. Signal handler dùng một shared stop promise.
-- [ ] **Step 6: Thêm script và chạy config/CLI/M1/M3 tests.**
+- [x] **Step 4: Triển khai strict config loader.** Gọi `WorkspaceRegistry.create(config.workspaces)` trước khi mở socket; `credentialPath` mặc định là path riêng dưới user data directory theo OS, config có thể override; khi file chưa tồn tại dùng `FileDeviceCredentialProvider`.
+- [x] **Step 5: Triển khai runtime assembly.** Tạo `LocalMcpRuntime`, `LocalBridgeReconnectController` với bridge URL suy ra từ HTTPS server base; đã có credential thì `controller.start()`, chưa có thì pair/save rồi mới `start()`. Signal handler dùng một shared stop promise.
+- [x] **Step 6: Thêm script và chạy config/CLI/M1/M3 tests.**
 
 Run: `bun test apps/agent/src/cli-config.test.ts apps/agent/src/cli.test.ts apps/agent/src/m1-acceptance.test.ts apps/agent/src/local-bridge-reconnect-stop.test.ts apps/agent/src/device-credential-provider.test.ts`
 
 Expected: pass; local server catalog/security contract không đổi.
 
-- [ ] **Step 7: Commit CLI lifecycle.** `feat(agent): add local connect CLI`
+- [x] **Step 7: Commit CLI lifecycle.** `feat(agent): add local connect CLI`
 
 ## Task 7: Vertical M5 acceptance, docs và CI
 
@@ -289,16 +291,16 @@ Expected: pass; local server catalog/security contract không đổi.
 - Root `test:m5` chạy pairing schemas, channel/guard, HTTP pairing endpoint, MCP pairing tools, local pairing client, CLI lifecycle và vertical acceptance.
 - Acceptance test dùng test OIDC/JWKS verifier, Streamable HTTP MCP client thật, Bun gateway thật, local MCP runtime thật và temporary workspace.
 
-- [ ] **Step 1: Viết acceptance đỏ cho full happy path.** CLI start → attach → hiển thị code → MCP `devices_pair` → local persist/ACK → bridge authenticated → `devices_list` → gọi alias đọc file trong workspace.
-- [ ] **Step 2: Thêm security failure paths.** Owner B không thấy/route device Owner A; wrong/expired/reused code; proof sai; credential không có trong result/log/audit; storage fail không ACK; local permission deny; offline không fallback; device name trùng route theo ID.
-- [ ] **Step 3: Chạy acceptance trước implementation tài liệu cuối.**
+- [x] **Step 1: Viết acceptance đỏ cho full happy path.** CLI start → attach → hiển thị code → MCP `devices_pair` → local persist/ACK → bridge authenticated → `devices_list` → gọi alias đọc file trong workspace.
+- [x] **Step 2: Thêm security failure paths.** Owner B không thấy/route device Owner A; wrong/expired/reused code; proof sai; credential không có trong result/log/audit; storage fail không ACK; local permission deny; offline không fallback; device name trùng route theo ID.
+- [x] **Step 3: Chạy acceptance trước implementation tài liệu cuối.**
 
 Run: `bun test apps/server/src/m5-acceptance.test.ts`
 
 Expected: FAIL trước khi composition end-to-end hoàn tất; sau các task trước đây pass với server/listener thật.
 
-- [ ] **Step 4: Thêm scripts và CI.** `test:m5` trỏ đến đúng file tests M5; Ubuntu job chạy command này rõ ràng ngoài `bun test`; Windows job chạy `test:m5`; không bỏ qua M1–M4 target acceptance.
-- [ ] **Step 5: Cập nhật tài liệu trạng thái.** Hướng dẫn config/command, URL `/mcp`, OAuth Authorization Code + PKCE S256, `mcp` scope, pairing code, workspace capabilities và manual ChatGPT setup. Nêu rõ live ChatGPT auth cần issuer/domain/workspace hợp lệ; in-memory server chỉ single-instance dev/test.
+- [x] **Step 4: Thêm scripts và CI.** `test:m5` trỏ đến đúng file tests M5; Ubuntu job chạy command này rõ ràng ngoài `bun test`; Windows job chạy `test:m5`; không bỏ qua M1–M4 target acceptance.
+- [x] **Step 5: Cập nhật tài liệu trạng thái.** Hướng dẫn config/command, URL `/mcp`, OAuth Authorization Code + PKCE S256, `mcp` scope, pairing code, workspace capabilities và manual ChatGPT setup. Nêu rõ live ChatGPT auth cần issuer/domain/workspace hợp lệ; in-memory server chỉ single-instance dev/test.
 - [ ] **Step 6: Chạy verification cuối.**
 
 Run: `bun run check`

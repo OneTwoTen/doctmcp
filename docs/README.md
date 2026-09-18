@@ -28,13 +28,26 @@ Tài liệu chi tiết cho milestone nền:
 - [spec M2 bridge](specs/2026-09-15-m2-bridge-design.md): contract handshake, MCP frame và lifecycle cho WebSocket bridge.
 - [test M2 server ↔ local](testing/m2-server-local.md): acceptance flow production boundary.
 
+## M4 — Public MCP endpoint
+
+- [quyết định public MCP/OIDC](decisions/2026-09-17-public-mcp-endpoint.md): Streamable HTTP, OIDC resource server, owner derivation và tool routing.
+- [spec M4 public MCP](specs/2026-09-17-m4-public-mcp-design.md) và [plan](plans/2026-09-17-m4-public-mcp-endpoint.md).
+- [test M4](testing/m4-public-mcp.md): JWT/OIDC, public MCP, routing, offline và audit acceptance.
+
+## M5 — CLI local và pairing ChatGPT
+
+- [spec M5](specs/2026-09-18-m5-chatgpt-pairing-design.md) và [implementation plan](plans/2026-09-18-m5-chatgpt-pairing.md).
+- [test M5](testing/m5-chatgpt.md): CLI config, outbound pairing, credential ACK, authenticated MCP tool và local permission.
+
 ## M3 — Device management và pairing
 
 - [spec M3.1 Device identity](specs/2026-09-15-m3-device-identity-design.md): immutable `deviceId`, ownership và persistence contract.
 - [plan issue #30](plans/2026-09-15-issue-30-device-identity-store.md): task/verification của foundation M3.1.
-- [pairing.md](pairing.md): pairing code M3.2, credential lifecycle + authenticated bridge M3.3 và boundary chuyển tiếp sang session registry M3.4.
+- [pairing.md](pairing.md): pairing/authentication M3.2–M3.3 cùng trạng thái session, reconnect và routing M3.4–M3.6.
 - [plan issue #32](plans/2026-09-15-issue-32-device-credential-auth.md): implementation/verification đã hoàn tất qua PR #39.
-- Active task hiện tại: #33 — device session registry, heartbeat, online/offline state và cross-instance credential invalidation.
+- [spec M3.5 reconnect](specs/2026-09-17-m3-local-reconnect-design.md) và [plan #34](plans/2026-09-17-issue-34-local-reconnect.md): đã triển khai qua PR #41.
+- [spec M3.6 device routing](specs/2026-09-17-m3-multidevice-routing-design.md) và [plan #35](plans/2026-09-17-issue-35-multidevice-routing.md): implementation và target verification đã hoàn tất trong nhánh hiện tại.
+- [spec M3.7 vertical acceptance](specs/2026-09-17-m3-vertical-acceptance-design.md), [plan #36](plans/2026-09-17-issue-36-m3-acceptance.md) và [test strategy](testing/m3-acceptance.md): `test:m3` xanh local; CI/cross-platform verification còn chờ.
 
 ## Contract và vận hành
 

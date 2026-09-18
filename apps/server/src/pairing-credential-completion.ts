@@ -448,6 +448,10 @@ export class PairingCredentialCompletionService {
     this.#completionBySessionId.delete(input.pairingSessionId);
   }
 
+  forgetPendingCompletion(pairingSessionId: string): void {
+    this.#completionBySessionId.delete(pairingSessionId);
+  }
+
   async #complete(
     session: PairingSession,
     device: Device,

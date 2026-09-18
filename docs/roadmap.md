@@ -135,7 +135,7 @@ Pairing, database, device identity/routing, public MCP endpoint và ChatGPT inte
 
 ## M3 — Device management và pairing
 
-**M3 đang triển khai — 4/7 work item đã hoàn tất.** M3.1/#30 hoàn tất qua PR #37, M3.2/#31 qua PR #38, M3.3/#32 qua PR #39, M3.4/#33 qua PR #40; task active hiện tại là M3.5/#34 qua PR #41. Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
+**M3 implementation đã hoàn tất 7/7 work item; gate active là xác nhận CI/cross-platform cho #36.** M3.1–M3.5 đã merge qua PR #37–#41. M3.6/#35 và M3.7/#36 có implementation trong nhánh hiện tại; `test:m3` hiện 127/127 pass, cùng M1/M2, `check` và `typecheck` xanh local. Full `bun test` trên Windows hiện có 32 lỗi fixture symlink `EPERM`; kết quả và môi trường được ghi ở [M3 acceptance](testing/m3-acceptance.md). CI chạy acceptance M1–M5 trên Windows và kích hoạt khi push nhánh `codex/**`; lần chạy cho nhánh này vẫn pending. Mục tiêu: biến kết nối M2 thành kết nối thiết bị có identity, auth và lifecycle rõ ràng.
 
 Các work item M3:
 
@@ -143,9 +143,9 @@ Các work item M3:
 - ✅ M3.2 / #31 — Pairing session/code lifecycle và atomic claim flow qua PR #38.
 - ✅ M3.3 / #32 — Device credential lifecycle + authenticated bridge handshake qua PR #39 (`163fb899`).
 - ✅ M3.4 / #33 — Device session registry, heartbeat và online/offline state qua PR #40.
-- ⏳ M3.5 / #34 — Local reconnect/backoff + credential resume qua PR #41.
-- ⬜ M3.6 / #35 — Multi-device registry + routing theo `deviceId`.
-- ⬜ M3.7 / #36 — Acceptance/security suite pairing → reconnect → routing.
+- ✅ M3.5 / #34 — Local reconnect/backoff + credential resume qua PR #41.
+- ✅ M3.6 / #35 — Multi-device registry + routing theo `deviceId` — implementation/target verification trong nhánh hiện tại.
+- 🔎 M3.7 / #36 — Acceptance/security suite pairing → reconnect → routing — local suite pass; CI/cross-platform verification pending.
 
 M3.1 đã khóa:
 
@@ -195,7 +195,7 @@ M3.4 đã khóa:
 - invalidation publish mặc định bounded ≤ 5 giây để backend treo không giữ lifecycle lock vô hạn;
 - PR #40 verification: 240 tests pass, M2 acceptance và Windows `shell.exec` regression xanh.
 
-M3.5 trong PR #41 hiện đã khóa:
+M3.5 đã triển khai trên `main` qua PR #41:
 
 - `BridgeServerTransport` vẫn one-shot; reconnect nằm ở reusable `LocalBridgeReconnectController`;
 - local credential provider có in-memory adapter và file-safe adapter validate bằng shared schema;
@@ -208,10 +208,18 @@ M3.5 trong PR #41 hiện đã khóa:
 - acceptance thật chứng minh timeout reconnect bằng cùng credential và revoke dừng ở `auth-failed`;
 - logger/public snapshot không chứa raw credential hoặc raw transport error message.
 
-Phạm vi còn lại của M3 sau M3.5:
+M3.6 đã triển khai trên task #35:
 
-- M3.6: nhiều thiết bị trên cùng owner và routing theo `deviceId`;
-- M3.7: acceptance/security suite pairing → credential → reconnect → routing.
+- `DeviceRoutingService` ghép owner-scoped `DeviceRepository`, session registry và active credential repository;
+- device DTO không chứa `ownerId`, session handle hoặc credential metadata;
+- route xác minh `{ ownerId, deviceId }`, trạng thái credential và exact session generation trước khi trả authenticated bridge session;
+- unknown/wrong-owner, offline và credential không khả dụng có error code deterministic; không fallback theo `deviceName` hoặc session khác.
+
+M3.7/#36 đã thêm `test:m3` và vertical flow pairing hai device cùng tên → authenticated WebSocket → route theo ID → MCP initialize/list/call → transient reconnect. Suite local hiện xanh. Workflow CI chạy các acceptance M1–M5 trên Windows và nhánh `codex/**`; cần push để có kết quả CI cho nhánh này.
+
+Phạm vi còn lại của M3:
+
+- xác nhận cross-platform CI cho #36 trước khi đóng Epic #29 và chuyển active milestone sang M4.
 
 `device.list/get/ping` nếu cần expose cho model/client thuộc public/control-plane surface ở milestone sau, không phải local M1 tool catalog.
 
@@ -219,32 +227,35 @@ Security regression của M3 phải tiếp tục giữ pairing code one-time, cr
 
 ## M4 — Public MCP endpoint
 
+**Implementation và local acceptance đã hoàn tất trong nhánh hiện tại.** `test:m4`, M1/M2/M3 target suite, `bun run check` và `bun run typecheck` đều xanh. Full `bun test` trên Windows còn 32 lỗi tạo symlink (`EPERM`); M3 #36 cross-platform CI vẫn pending. M4 chưa được coi là production-ready cho tới khi CI/cross-platform gate và external deployment/authentication setup được xác nhận.
+
 Mục tiêu: public server expose MCP endpoint chuẩn cho MCP client bên ngoài.
 
 Phạm vi dự kiến:
 
 - MCP server/public endpoint;
-- authentication/authorization của user;
+- OAuth 2.1/OIDC user authentication qua authorization server bên ngoài;
 - chọn device hoặc route device;
 - ánh xạ public tool call sang MCP client session của local device;
 - xử lý offline/timeout/error rõ ràng;
 - audit metadata tối thiểu.
 
-Ở milestone này mới cần chốt framework HTTP/MCP endpoint nếu chưa có quyết định trước đó.
+Decision về Bun web-standard listener, Streamable HTTP SDK và OIDC resource server được ghi trong [decision M4](decisions/2026-09-17-public-mcp-endpoint.md). Repositories hiện tại mặc định in-memory; production persistence/deployment vẫn cần adapter bền vững.
 
 ## M5 — ChatGPT integration
 
-Mục tiêu: sử dụng public MCP endpoint trong ChatGPT với UX đủ tốt cho dùng cá nhân.
+**CLI local, pairing và local end-to-end đã triển khai trong nhánh hiện tại.** `bun run test:m5` kiểm tra HTTPS pairing start, WebSocket control channel outbound, OAuth-protected `devices_pair`, credential persistence trước ACK, authenticated bridge reconnect, `devices_list` và tool call vào workspace có permission. Cần CI/cross-platform gate sau push; chưa xác nhận OIDC provider, HTTPS deployment hoặc ChatGPT Developer Mode bằng cấu hình thật.
 
-Phạm vi dự kiến:
+Đã triển khai:
 
-- kết nối plugin/app tới public endpoint;
-- flow thêm thiết bị;
-- list/chọn thiết bị;
-- thông báo device offline;
-- tool descriptions tối ưu cho model;
-- approval UX cho operation nhạy cảm nếu cần;
-- kiểm thử end-to-end ChatGPT → server → local.
+- CLI `connect --config` với strict JSON/workspace validation, default deny, file credential provider và signal cleanup;
+- pairing code chỉ hiện sau attach; credential được ghi local trước ACK;
+- `devices_pair` lấy owner từ OAuth principal và không trả credential trong MCP result;
+- pairing WebSocket riêng trên cùng gateway, rate/capacity limits và generic errors;
+- local bridge reconnect, device listing, alias route và permission enforcement;
+- fixture end-to-end chạy public MCP/bridge/local runtime thật.
+
+Giới hạn còn lại trước triển khai hosted: GitHub CI chưa chạy cho nhánh trước push; cần OIDC issuer/audience, public HTTPS/TLS proxy, OAuth client/redirect URI do ChatGPT workspace cung cấp và kiểm thử thủ công qua ChatGPT thật. Repository chưa có durable multi-instance adapters; server state mặc định in-memory và chỉ phù hợp dev/test một process. Xem [M5 acceptance](testing/m5-chatgpt.md).
 
 ## Giai đoạn sau
 

@@ -24,6 +24,7 @@ import {
   type DeviceRepository,
   InMemoryDeviceRepository,
 } from "./device-repository";
+import { DeviceRoutingService } from "./device-routing";
 import {
   DEFAULT_DEVICE_HEARTBEAT_INTERVAL_MS,
   DEFAULT_DEVICE_HEARTBEAT_TIMEOUT_MS,
@@ -43,6 +44,12 @@ import {
   type PairingSessionRepository,
 } from "./pairing";
 import {
+  InMemoryPairingAbuseGuard,
+  type PairingAbuseGuard,
+} from "./pairing-abuse-guard";
+import { PairingChannelCoordinator } from "./pairing-channel";
+import { createPairingChannelWebSocketRoute } from "./pairing-channel-route";
+import {
   type CompletedPairingCredential,
   InMemoryPairingCredentialCompletionRepository,
   PairingCredentialCompletionError,
@@ -60,11 +67,14 @@ export interface CreateDoctmcpServerRuntimeOptions
     | "onSession"
     | "onHeartbeat"
     | "onSessionClosed"
+    | "websocketRoutes"
   > {
   readonly onSession?: (session: BridgeGatewaySession) => void;
+  readonly websocketRoutes?: CreateBridgeGatewayOptions["websocketRoutes"];
   readonly deviceRepository?: DeviceRepository;
   readonly credentialRepository?: DeviceCredentialRepository;
   readonly pairingRepository?: PairingSessionRepository;
+  readonly pairingAbuseGuard?: PairingAbuseGuard;
   readonly pairingCredentialCompletionRepository?: PairingCredentialCompletionRepository;
   readonly credentialLifecycleCoordinator?: DeviceCredentialLifecycleCoordinator;
   readonly deviceSessionRegistry?: DeviceSessionRegistry;
@@ -74,14 +84,20 @@ export interface CreateDoctmcpServerRuntimeOptions
 
 export type RuntimePairingCredentialCompletionService = Pick<
   PairingCredentialCompletionService,
-  "claimAndIssue" | "resumeClaimedPairing" | "acknowledgeDelivery"
+  | "claimAndIssue"
+  | "resumeClaimedPairing"
+  | "acknowledgeDelivery"
+  | "forgetPendingCompletion"
 >;
 
 export interface DoctmcpServerRuntime {
   readonly gateway: BridgeGateway;
   readonly deviceRepository: DeviceRepository;
   readonly deviceSessionRegistry: DeviceSessionRegistry;
+  readonly deviceRouter: DeviceRoutingService;
   readonly pairingService: PairingService;
+  readonly pairingAbuseGuard: PairingAbuseGuard;
+  readonly pairingChannelCoordinator: PairingChannelCoordinator;
   readonly pairingCredentialCompletionService: RuntimePairingCredentialCompletionService;
   getDeviceStatus(deviceId: string): DeviceSessionStatusSnapshot;
   revokeDeviceCredential(deviceId: string): Promise<DeviceCredential>;
@@ -105,6 +121,7 @@ export function createDoctmcpServerRuntime(
     deviceRepository: configuredDeviceRepository,
     credentialRepository: configuredCredentialRepository,
     pairingRepository: configuredPairingRepository,
+    pairingAbuseGuard: configuredPairingAbuseGuard,
     pairingCredentialCompletionRepository:
       configuredPairingCredentialCompletionRepository,
     credentialLifecycleCoordinator: configuredCredentialLifecycleCoordinator,
@@ -116,6 +133,7 @@ export function createDoctmcpServerRuntime(
     heartbeatTimeoutMs: configuredHeartbeatTimeoutMs,
     logger,
     onSession,
+    websocketRoutes: configuredWebSocketRoutes,
     ...gatewayOptions
   } = options;
 
@@ -156,7 +174,12 @@ export function createDoctmcpServerRuntime(
   const pairingRepository =
     configuredPairingRepository ??
     new InMemoryPairingSessionRepository(deviceRepository);
-  const pairingService = new PairingService({ repository: pairingRepository });
+  const pairingAbuseGuard =
+    configuredPairingAbuseGuard ?? new InMemoryPairingAbuseGuard();
+  const pairingService = new PairingService({
+    repository: pairingRepository,
+    claimAttemptGuard: pairingAbuseGuard,
+  });
   const pairingCredentialCompletionRepository =
     configuredPairingCredentialCompletionRepository ??
     new InMemoryPairingCredentialCompletionRepository();
@@ -166,6 +189,11 @@ export function createDoctmcpServerRuntime(
   const deviceSessionRegistry =
     configuredDeviceSessionRegistry ??
     new DeviceSessionRegistry({ heartbeatTimeoutMs });
+  const deviceRouter = new DeviceRoutingService({
+    deviceRepository,
+    credentialRepository,
+    deviceSessionRegistry,
+  });
   const credentialInvalidationBus =
     configuredCredentialInvalidationBus ??
     new InMemoryDeviceCredentialInvalidationBus();
@@ -541,6 +569,22 @@ export function createDoctmcpServerRuntime(
     claimAndIssue,
     resumeClaimedPairing,
     acknowledgeDelivery,
+    forgetPendingCompletion: (pairingSessionId: string) =>
+      rawPairingCredentialCompletionService.forgetPendingCompletion(
+        pairingSessionId,
+      ),
+  });
+
+  const pairingChannelCoordinator = new PairingChannelCoordinator({
+    acknowledgeDelivery: (input) =>
+      pairingCredentialCompletionService.acknowledgeDelivery(input),
+    cancelPairingSession: async (pairingSessionId) => {
+      await pairingService.cancelPairingSession(pairingSessionId);
+    },
+    forgetPendingCompletion: (pairingSessionId) =>
+      pairingCredentialCompletionService.forgetPendingCompletion(
+        pairingSessionId,
+      ),
   });
 
   const revokeDeviceCredentialInternal = async (
@@ -594,6 +638,10 @@ export function createDoctmcpServerRuntime(
 
   const gateway = createBridgeGateway({
     ...gatewayOptions,
+    websocketRoutes: [
+      ...(configuredWebSocketRoutes ?? []),
+      createPairingChannelWebSocketRoute(pairingChannelCoordinator),
+    ],
     logger,
     heartbeatIntervalMs,
     heartbeatTimeoutMs,
@@ -679,11 +727,19 @@ export function createDoctmcpServerRuntime(
     },
   });
 
+  const pairingPruneInterval = setInterval(() => {
+    if (stopping) return;
+    void pairingService.pruneExpiredPairingSessions().catch(() => undefined);
+  }, 60_000);
+
   return Object.freeze({
     gateway,
     deviceRepository,
     deviceSessionRegistry,
+    deviceRouter,
     pairingService,
+    pairingAbuseGuard,
+    pairingChannelCoordinator,
     pairingCredentialCompletionService,
     getDeviceStatus(deviceId: string) {
       return deviceSessionRegistry.getStatus(deviceId);
@@ -693,9 +749,11 @@ export function createDoctmcpServerRuntime(
     async stop() {
       if (stopping) return;
       stopping = true;
+      clearInterval(pairingPruneInterval);
       unsubscribeCredentialInvalidation();
       resolveDrainWaiters(authenticationDrainWaiters);
       resolveDrainWaiters(sessionReadyDrainWaiters);
+      await pairingChannelCoordinator.close();
       await gateway.stop();
       deviceSessionRegistry.clear();
       authenticationCounts.clear();

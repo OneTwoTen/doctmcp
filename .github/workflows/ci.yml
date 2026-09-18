@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "codex/**"]
   pull_request:
 
 permissions:
@@ -35,6 +35,15 @@ jobs:
       - name: M2 acceptance
         run: bun run test:m2
 
+      - name: M3 device lifecycle acceptance
+        run: bun run test:m3
+
+      - name: M4 public MCP acceptance
+        run: bun run test:m4
+
+      - name: M5 pairing acceptance
+        run: bun run test:m5
+
   shell-windows:
     runs-on: windows-latest
     steps:
@@ -51,3 +60,18 @@ jobs:
 
       - name: shell.exec tests
         run: bun test apps/agent/src/shell-exec.test.ts apps/agent/src/shell-exec-hardening.test.ts
+
+      - name: M1 local acceptance
+        run: bun run test:local
+
+      - name: M2 bridge acceptance
+        run: bun run test:m2
+
+      - name: M3 device lifecycle acceptance
+        run: bun run test:m3
+
+      - name: M4 public MCP acceptance
+        run: bun run test:m4
+
+      - name: M5 pairing acceptance
+        run: bun run test:m5

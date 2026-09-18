@@ -1,5 +1,7 @@
 # Issue #34 Local Reconnect Implementation Plan
 
+**Trạng thái:** Hoàn tất và đã merge trên `main` qua PR #41; issue #34 đã đóng. Checklist lịch sử bên dưới được đánh dấu theo implementation/CI của PR đó.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Cho local agent đã pair tự reconnect authenticated bridge bằng cùng credential với bounded exponential backoff + jitter, deterministic lifecycle và không tạo parallel/stale reconnect loop.
@@ -49,7 +51,7 @@ export class InMemoryDeviceCredentialProvider implements DeviceCredentialProvide
 export class FileDeviceCredentialProvider implements DeviceCredentialProvider {}
 ```
 
-- [ ] **Step 1: Viết test đỏ cho memory provider và validation**
+- [x] **Step 1: Viết test đỏ cho memory provider và validation**
 
 ```ts
 const provider = new InMemoryDeviceCredentialProvider();
@@ -61,7 +63,7 @@ expect(provider.replace({ deviceId: "bad", credential: CREDENTIAL })).rejects.to
 });
 ```
 
-- [ ] **Step 2: Viết test đỏ cho file provider atomic replace và secret-safe error**
+- [x] **Step 2: Viết test đỏ cho file provider atomic replace và secret-safe error**
 
 ```ts
 const provider = new FileDeviceCredentialProvider(path);
@@ -77,13 +79,13 @@ try {
 }
 ```
 
-- [ ] **Step 3: Chạy test targeted để xác nhận RED**
+- [x] **Step 3: Chạy test targeted để xác nhận RED**
 
 Run: `bun test apps/agent/src/device-credential-provider.test.ts`
 
 Expected: FAIL vì module/classes chưa tồn tại.
 
-- [ ] **Step 4: Implement minimal provider**
+- [x] **Step 4: Implement minimal provider**
 
 Production behavior bắt buộc:
 
@@ -100,13 +102,13 @@ const persistedCredentialSchema = localDeviceCredentialSchema.extend({
 
 `FileDeviceCredentialProvider.replace()` phải ghi temp file cùng directory bằng `open(tempPath, "wx", 0o600)`, `writeFile()`, `sync()`, `close()`, sau đó `rename(tempPath, targetPath)`. `finally` cleanup temp nếu rename chưa commit. Error message chỉ mô tả category/path operation, không include raw content/credential.
 
-- [ ] **Step 5: Chạy test targeted để xác nhận GREEN**
+- [x] **Step 5: Chạy test targeted để xác nhận GREEN**
 
 Run: `bun test apps/agent/src/device-credential-provider.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 6: Export provider từ agent package**
+- [x] **Step 6: Export provider từ agent package**
 
 Thêm vào `apps/agent/src/index.ts`:
 
@@ -114,7 +116,7 @@ Thêm vào `apps/agent/src/index.ts`:
 export * from "./device-credential-provider";
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add apps/agent/src/device-credential-provider.ts apps/agent/src/device-credential-provider.test.ts apps/agent/src/index.ts
@@ -158,7 +160,7 @@ export type LocalBridgeFailureDisposition =
 export function classifyBridgeFailure(error: unknown): LocalBridgeFailureDisposition;
 ```
 
-- [ ] **Step 1: Viết test đỏ cho exponential backoff/jitter bounds**
+- [x] **Step 1: Viết test đỏ cho exponential backoff/jitter bounds**
 
 ```ts
 expect(calculateReconnectDelay(1, policy, () => 0)).toBe(500);
@@ -169,7 +171,7 @@ expect(calculateReconnectDelay(20, policy, () => 1)).toBe(30000);
 
 `random()` phải được clamp/validate về `[0, 1]` để test deterministic không tạo delay ngoài bound.
 
-- [ ] **Step 2: Viết test đỏ cho failure classification**
+- [x] **Step 2: Viết test đỏ cho failure classification**
 
 ```ts
 expect(classifyBridgeFailure(new BridgeServerTransportError("AUTH_FAILED", "x"))).toBe("auth-failed");
@@ -177,13 +179,13 @@ expect(classifyBridgeFailure(new BridgeServerTransportError("TIMEOUT", "x"))).to
 expect(classifyBridgeFailure(new BridgeServerTransportError("UNSUPPORTED_VERSION", "x"))).toBe("protocol-failed");
 ```
 
-- [ ] **Step 3: Chạy targeted test để xác nhận RED**
+- [x] **Step 3: Chạy targeted test để xác nhận RED**
 
 Run: `bun test apps/agent/src/local-bridge-reconnect.test.ts`
 
 Expected: FAIL vì helper chưa tồn tại.
 
-- [ ] **Step 4: Implement minimal helper**
+- [x] **Step 4: Implement minimal helper**
 
 Failure map:
 
@@ -198,13 +200,13 @@ unknown Error -> "retry"
 
 Delay formula phải đúng spec và validate policy positive/finite trước khi controller nhận.
 
-- [ ] **Step 5: Chạy targeted test để xác nhận GREEN**
+- [x] **Step 5: Chạy targeted test để xác nhận GREEN**
 
 Run: `bun test apps/agent/src/local-bridge-reconnect.test.ts`
 
 Expected: helper tests PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add apps/agent/src/local-bridge-reconnect.ts apps/agent/src/local-bridge-reconnect.test.ts
@@ -266,11 +268,11 @@ export interface LocalBridgeReconnectScheduler {
 }
 ```
 
-- [ ] **Step 1: Viết fake transport/runtime/scheduler trong test**
+- [x] **Step 1: Viết fake transport/runtime/scheduler trong test**
 
 Fake transport phải implement real `Transport` surface tối thiểu (`start`, `send`, `close`, `onclose`, `onerror`, `onmessage`) và track số active transport. Fake runtime `connect()` chỉ gọi `transport.start()` để controller test không phụ thuộc MCP SDK internals.
 
-- [ ] **Step 2: Viết test đỏ transient retry không parallel socket**
+- [x] **Step 2: Viết test đỏ transient retry không parallel socket**
 
 Flow:
 
@@ -287,7 +289,7 @@ attempt 2 ready
 
 Assert attempt 2 nhận cùng `deviceId + credential` từ provider.
 
-- [ ] **Step 3: Viết test đỏ terminal states**
+- [x] **Step 3: Viết test đỏ terminal states**
 
 Cover:
 
@@ -300,7 +302,7 @@ provider.load() reject -> credential-failed, no transport
 
 Snapshot chỉ chứa failure code/category và không chứa credential.
 
-- [ ] **Step 4: Viết test đỏ stop/backoff/connect**
+- [x] **Step 4: Viết test đỏ stop/backoff/connect**
 
 Cover:
 
@@ -310,7 +312,7 @@ stop while connecting -> exact transport close called, stale close no retry
 stop twice -> idempotent
 ```
 
-- [ ] **Step 5: Viết test đỏ stable-ready reset**
+- [x] **Step 5: Viết test đỏ stable-ready reset**
 
 ```text
 failure -> consecutiveFailures = 1
@@ -319,17 +321,17 @@ reconnect -> ready >= stableReadyMs -> consecutiveFailures reset 0
 later close -> next failure = 1
 ```
 
-- [ ] **Step 6: Viết test đỏ stale generation callback**
+- [x] **Step 6: Viết test đỏ stale generation callback**
 
 Giữ callback của attempt cũ; sau khi attempt mới ready, invoke lại old `onclose`/`onerror` và stale timers. Assert snapshot/active attempt của generation mới không đổi và không tạo attempt thứ ba.
 
-- [ ] **Step 7: Chạy targeted test để xác nhận RED**
+- [x] **Step 7: Chạy targeted test để xác nhận RED**
 
 Run: `bun test apps/agent/src/local-bridge-reconnect.test.ts`
 
 Expected: controller tests FAIL vì class/state machine chưa tồn tại.
 
-- [ ] **Step 8: Implement controller minimal theo exact-attempt guard**
+- [x] **Step 8: Implement controller minimal theo exact-attempt guard**
 
 Attempt object:
 
@@ -347,13 +349,13 @@ Controller chỉ finalize khi object này vẫn là `currentAttempt`. Retryable 
 
 `onerror` chỉ record sanitized failure; lifecycle transition thực hiện khi transport close/connect reject để tránh double schedule.
 
-- [ ] **Step 9: Chạy targeted test để xác nhận GREEN**
+- [x] **Step 9: Chạy targeted test để xác nhận GREEN**
 
 Run: `bun test apps/agent/src/local-bridge-reconnect.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 10: Export controller**
+- [x] **Step 10: Export controller**
 
 Thêm vào `apps/agent/src/index.ts`:
 
@@ -361,7 +363,7 @@ Thêm vào `apps/agent/src/index.ts`:
 export * from "./local-bridge-reconnect";
 ```
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```sh
 git add apps/agent/src/local-bridge-reconnect.ts apps/agent/src/local-bridge-reconnect.test.ts apps/agent/src/index.ts
@@ -379,7 +381,7 @@ git commit -m "feat(agent): add local bridge reconnect controller"
 - Consumes: `createDoctmcpServerRuntime`, `InMemoryDeviceRepository`, `InMemoryDeviceCredentialRepository`, `DeviceCredentialService`, `createLocalMcpRuntime`, `LocalBridgeReconnectController`, `InMemoryDeviceCredentialProvider`, `WorkspaceRegistry`.
 - Produces: regression proof cho #34 với production WebSocket transport/server registry.
 
-- [ ] **Step 1: Viết setup helper seed authenticated device**
+- [x] **Step 1: Viết setup helper seed authenticated device**
 
 ```ts
 const deviceRepository = new InMemoryDeviceRepository();
@@ -398,7 +400,7 @@ const issued = await credentialService.issue(device.deviceId);
 
 Tạo server runtime với hai repository trên, heartbeat timeout nhỏ nhưng hợp lệ; seed local provider bằng `issued.rawCredential`/raw secret field thực tế của #32 contract.
 
-- [ ] **Step 2: Viết test đỏ reconnect sau timeout close**
+- [x] **Step 2: Viết test đỏ reconnect sau timeout close**
 
 Flow:
 
@@ -416,7 +418,7 @@ assert controller ready
 
 Backoff test override dùng min/max nhỏ + jitter 0 để test nhanh deterministic.
 
-- [ ] **Step 3: Viết test đỏ revoke -> terminal auth failure**
+- [x] **Step 3: Viết test đỏ revoke -> terminal auth failure**
 
 Flow:
 
@@ -431,23 +433,23 @@ wait > max test backoff
 assert no additional session/connect generation
 ```
 
-- [ ] **Step 4: Chạy acceptance targeted để xác nhận RED nếu controller integration còn thiếu**
+- [x] **Step 4: Chạy acceptance targeted để xác nhận RED nếu controller integration còn thiếu**
 
 Run: `bun test apps/server/src/m3-reconnect-acceptance.test.ts`
 
 Expected trước integration hoàn chỉnh: FAIL ở reconnect/SDK reuse hoặc API mismatch cụ thể; sửa production code, không nới assertion.
 
-- [ ] **Step 5: Chỉ sửa integration boundary cần thiết**
+- [x] **Step 5: Chỉ sửa integration boundary cần thiết**
 
 Nếu SDK reuse cần local wrapper cập nhật connection bookkeeping, chỉ thay `apps/agent/src/server.ts` với regression test tương ứng. Không recreate tool catalog hoặc duplicate MCP server trừ khi actual SDK behavior chứng minh bắt buộc.
 
-- [ ] **Step 6: Chạy acceptance targeted để xác nhận GREEN**
+- [x] **Step 6: Chạy acceptance targeted để xác nhận GREEN**
 
 Run: `bun test apps/server/src/m3-reconnect-acceptance.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add apps/server/src/m3-reconnect-acceptance.test.ts apps/agent/src/server.ts apps/agent/src/server.test.ts
@@ -469,11 +471,11 @@ Chỉ add `server.ts/server.test.ts` nếu thực tế phải sửa.
 - Consumes: implementation cuối của Task 1-4.
 - Produces: source-of-truth status và verification evidence.
 
-- [ ] **Step 1: Update docs theo behavior thực tế**
+- [x] **Step 1: Update docs theo behavior thực tế**
 
 Ghi rõ final state names, backoff constants, credential file adapter scope, stable-ready reset, failure classification và generation guard. Không mô tả OS keychain/pairing UI là đã implement.
 
-- [ ] **Step 2: Chạy targeted regressions**
+- [x] **Step 2: Chạy targeted regressions**
 
 ```sh
 bun test apps/agent/src/device-credential-provider.test.ts
@@ -481,7 +483,7 @@ bun test apps/agent/src/local-bridge-reconnect.test.ts
 bun test apps/server/src/m3-reconnect-acceptance.test.ts
 ```
 
-- [ ] **Step 3: Chạy full verification**
+- [x] **Step 3: Chạy full verification**
 
 ```sh
 bun run check
@@ -492,7 +494,7 @@ bun run test:m2
 
 Expected: tất cả pass; CI Windows `shell.exec` pass.
 
-- [ ] **Step 4: Review diff theo acceptance #34**
+- [x] **Step 4: Review diff theo acceptance #34**
 
 Kiểm tra cụ thể:
 
@@ -508,11 +510,11 @@ Kiểm tra cụ thể:
 [ ] M2 behavior không đổi
 ```
 
-- [ ] **Step 5: Cập nhật history trạng thái complete sau khi verification xanh**
+- [x] **Step 5: Cập nhật history trạng thái complete sau khi verification xanh**
 
 Thêm history row ngày `2026-09-17` với final test counts/CI evidence.
 
-- [ ] **Step 6: Commit docs/hardening**
+- [x] **Step 6: Commit docs/hardening**
 
 ```sh
 git add docs apps/agent apps/server
