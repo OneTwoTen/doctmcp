@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentConfigError, loadAgentConfig } from "./cli-config";
@@ -45,13 +45,13 @@ describe("loadAgentConfig", () => {
     const config = await loadAgentConfig(fixture.configPath);
     expect(config.serverUrl).toBe("https://api.example.test");
     expect(config.credentialPath).toBe(
-      join(fixture.directory, "secrets", "device.json"),
+      join(await realpath(fixture.directory), "secrets", "device.json"),
     );
     expect(config.workspaceRegistry.list()).toEqual([
       {
         id: "work",
         name: "Work files",
-        root: fixture.workspace,
+        root: await realpath(fixture.workspace),
         capabilities: {
           read: false,
           write: false,
