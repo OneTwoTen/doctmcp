@@ -11,6 +11,9 @@ export type {
   BridgeMcpMessage,
   BridgeMessage,
   BridgeRole,
+  PairingChannelCloseCode,
+  PairingChannelErrorCode,
+  PairingChannelMessage,
 } from "@doctmcp/schemas";
 export {
   BRIDGE_MAX_MESSAGE_BYTES,
@@ -27,6 +30,11 @@ export {
   bridgeMcpMessageSchema,
   bridgeMessageSchema,
   bridgeRoleSchema,
+  PAIRING_CHANNEL_MAX_MESSAGE_BYTES,
+  pairingChannelCloseCodeSchema,
+  pairingChannelErrorCodeSchema,
+  pairingChannelMessageSchema,
+  pairingChannelProofSchema,
 } from "@doctmcp/schemas";
 
 import type {

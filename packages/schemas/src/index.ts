@@ -5,6 +5,7 @@ import { deviceCredentialSecretSchema } from "./device-credential";
 export * from "./device";
 export * from "./device-credential";
 export * from "./pairing";
+export * from "./pairing-control";
 
 /** Phiên bản control-plane của bridge, độc lập với MCP protocol version. */
 export const BRIDGE_PROTOCOL_VERSION = "1" as const;
