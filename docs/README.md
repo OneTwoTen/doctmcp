@@ -47,7 +47,7 @@ Tài liệu chi tiết cho milestone nền:
 - [plan issue #32](plans/2026-09-15-issue-32-device-credential-auth.md): implementation/verification đã hoàn tất qua PR #39.
 - [spec M3.5 reconnect](specs/2026-09-17-m3-local-reconnect-design.md) và [plan #34](plans/2026-09-17-issue-34-local-reconnect.md): đã triển khai qua PR #41.
 - [spec M3.6 device routing](specs/2026-09-17-m3-multidevice-routing-design.md) và [plan #35](plans/2026-09-17-issue-35-multidevice-routing.md): implementation và target verification đã hoàn tất trong nhánh hiện tại.
-- [spec M3.7 vertical acceptance](specs/2026-09-17-m3-vertical-acceptance-design.md), [plan #36](plans/2026-09-17-issue-36-m3-acceptance.md) và [test strategy](testing/m3-acceptance.md): `test:m3` xanh local; CI/cross-platform verification còn chờ.
+- [spec M3.7 vertical acceptance](specs/2026-09-17-m3-vertical-acceptance-design.md), [plan #36](plans/2026-09-17-issue-36-m3-acceptance.md) và [test strategy](testing/m3-acceptance.md): `test:m3` xanh local; CI/cross-platform verification xanh trong [run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097).
 
 ## Contract và vận hành
 

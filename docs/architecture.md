@@ -10,9 +10,9 @@ Repository hiện đã có:
 - `apps/agent` đã có local MCP runtime và `BridgeServerTransport`; `apps/server` đã có WebSocket gateway, `BridgeClientTransport`, device/pairing repositories, credential lifecycle/completion và production runtime cho authenticated bridge.
 - `packages/protocol` giữ bridge control-plane contract; `packages/schemas` đã có shared bridge, `Device`, pairing và device-credential schemas.
 
-MCP server local và custom WebSocket bridge M2 đã hoàn tất. M3.1–M3.5 đã có trên `main`; M3.6/#35 owner-scoped multi-device registry/routing và M3.7/#36 vertical acceptance/security suite đã được triển khai trong nhánh hiện tại. `test:m3` (127 pass), M1/M2 acceptance, `check` và `typecheck` xanh local. Full suite Windows còn 32 lỗi fixture symlink `EPERM`; cross-platform CI cho nhánh này đang chờ.
+MCP server local và custom WebSocket bridge M2 đã hoàn tất. M3.1–M3.5 đã có trên `main`; M3.6/#35 owner-scoped multi-device registry/routing và M3.7/#36 vertical acceptance/security suite đã được triển khai trong nhánh hiện tại. `test:m3` (127 pass), M1/M2 acceptance, `check` và `typecheck` xanh local; Linux full suite và Windows acceptance M1–M5 xanh trong [CI run](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097). Full suite Windows local còn 32 lỗi fixture symlink `EPERM`.
 
-M4 implementation và local acceptance đã hoàn tất trong nhánh hiện tại: public Streamable HTTP endpoint trên Bun listener, OIDC JWT verifier, principal ổn định từ `issuer + sub`, tool alias theo `deviceId` và upstream MCP Client dùng lại theo bridge session. `test:m4` kiểm tra flow qua HTTP, WebSocket và local MCP thật. Cross-platform CI, IdP/domain thật và durable persistence chưa được xác nhận; M4 chưa production-ready.
+M4 implementation và local acceptance đã hoàn tất trong nhánh hiện tại: public Streamable HTTP endpoint trên Bun listener, OIDC JWT verifier, principal ổn định từ `issuer + sub`, tool alias theo `deviceId` và upstream MCP Client dùng lại theo bridge session. `test:m4` kiểm tra flow qua HTTP, WebSocket và local MCP thật; cross-platform CI đã xanh. IdP/domain thật và durable persistence chưa được xác nhận; M4 chưa production-ready.
 
 ## Kiến trúc mục tiêu
 
@@ -172,7 +172,7 @@ Custom WebSocket bridge chỉ chịu trách nhiệm chuyển MCP message qua k�
 
 ## M3 — Device identity, pairing và authenticated sessions
 
-M3 implementation hiện hoàn tất 7/7 work item; #36 vẫn là gate active cho CI/cross-platform verification:
+M3 implementation hiện hoàn tất 7/7 work item; #36 đã qua CI/cross-platform verification:
 
 - ✅ M3.1/#30 — immutable device identity + persistence contract qua PR #37;
 - ✅ M3.2/#31 — pairing session/code lifecycle + atomic claim qua PR #38;
@@ -180,7 +180,7 @@ M3 implementation hiện hoàn tất 7/7 work item; #36 vẫn là gate active ch
 - ✅ M3.4/#33 — device session registry, heartbeat và online/offline state qua PR #40;
 - ✅ M3.5/#34 — local reconnect/backoff và credential resume qua PR #41;
 - ✅ M3.6/#35 — multi-device registry và routing theo `deviceId` — implementation và target verification trong nhánh hiện tại.
-- 🔎 M3.7/#36 — acceptance/security suite pairing → reconnect → routing — local suite xanh; CI/cross-platform chờ.
+- ✅ M3.7/#36 — acceptance/security suite pairing → reconnect → routing — local suite và CI/cross-platform xanh.
 
 Trong môi trường Windows hiện tại (`Bun 1.4.1`), full `bun test` có 32 test fixture fail khi tạo symlink vì `EPERM`; M3 (127 tests), M1/M2, M4, M5, `bun run check` và `bun run typecheck` đều pass. Xem [M3 acceptance](testing/m3-acceptance.md) để biết lệnh và evidence đầy đủ.
 

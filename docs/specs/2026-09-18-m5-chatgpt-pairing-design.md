@@ -133,4 +133,4 @@ ChatGPT
 
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
-| 2026-09-18 | Người dùng duyệt hướng CLI local + ChatGPT pair; hoàn tất local implementation và bổ sung cache/expiry/proxy bounds | Ghép nối local đã có acceptance end-to-end; CI và cấu hình hosted vẫn đang chờ | local-verified |
+| 2026-09-18 | Người dùng duyệt hướng CLI local + ChatGPT pair; hoàn tất implementation, hardening và CI verification | Linux full suite và Windows acceptance M1–M5 xanh trong [CI run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097); hosted ChatGPT còn cần cấu hình OIDC/domain/workspace | completed |

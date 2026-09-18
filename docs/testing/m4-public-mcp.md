@@ -60,4 +60,4 @@ Verification local mới nhất trên Windows với Bun 1.4.1 (repo ghim 1.4.2):
 - `bun run check` và `bun run typecheck` — pass.
 - `bun test`: 292 pass, 32 fail (1215 assertion). Cả 32 lỗi đều do fixture `filesystem.read`/`filesystem.write` tạo symlink nhận `EPERM` trên Windows.
 
-Workflow CI chạy các acceptance M1–M5 trên Windows và trigger khi push nhánh `codex/**`; run cho nhánh này vẫn pending. Chưa xác thực với IdP hoặc ChatGPT thật vì chưa có public domain và cấu hình authorization server.
+Workflow CI chạy các acceptance M1–M5 trên Windows và full suite/quality checks trên Linux; [run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097) đều xanh. Chưa xác thực với IdP hoặc ChatGPT thật vì chưa có public domain và cấu hình authorization server.

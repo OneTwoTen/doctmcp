@@ -8,7 +8,7 @@
 
 **Spec:** [`docs/specs/2026-09-17-m3-vertical-acceptance-design.md`](../specs/2026-09-17-m3-vertical-acceptance-design.md)
 
-**Trạng thái:** Acceptance/security implementation hoàn tất; local suite xanh. Gate #36 chờ CI/cross-platform verification. Full Windows suite lỗi ở 32 fixture symlink (`EPERM`), được ghi tại [`docs/testing/m3-acceptance.md`](../testing/m3-acceptance.md).
+**Trạng thái:** Acceptance/security implementation và gate #36 hoàn tất. `test:m3` đạt 127/127; Linux full suite và Windows acceptance M1–M5 xanh trong [CI run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097). Full Windows suite local còn 32 fixture symlink lỗi `EPERM`; chi tiết ở [`docs/testing/m3-acceptance.md`](../testing/m3-acceptance.md).
 
 ## Task 1: MCP routed vertical acceptance
 
@@ -37,7 +37,7 @@
 - Modify: spec/plan M3.5 và M3.6 để chốt trạng thái thực tế.
 - Modify: `docs/testing/m3-acceptance.md`.
 
-- [ ] Chuyển roadmap active sang M4 sau khi CI/cross-platform gate #36 đạt; ghi rõ M4/M5 còn dự kiến.
+- [x] Chuyển roadmap từ gate M3 sang trạng thái M3–M5 đã qua CI; ghi rõ cấu hình hosted còn lại.
 - [x] Thêm hướng dẫn `test:m3`, flow acceptance và ánh xạ bảo mật.
 - [x] Rà diff với issue #36, architecture, protocol, permissions và security; không có protocol duplication/fallback/secret leak.
 - [x] Chạy `bun run check`, `bun run typecheck`, `bun test`, `bun run test:local`, `bun run test:m2`, `bun run test:m3`; ghi chính xác kết quả và hạn chế nền tảng.
@@ -47,3 +47,4 @@
 | Ngày | Thay đổi | Lý do | Trạng thái |
 |---|---|---|---|
 | 2026-09-17 | Khởi tạo plan M3.7 theo issue #36 | Lập thứ tự thực thi cho acceptance và security gate cuối M3 | in-progress |
+| 2026-09-18 | Hoàn tất gate #36; `test:m3` 127/127 và Linux full/Windows target CI xanh | Xác nhận cross-platform qua CI run 35359769097; ghi riêng giới hạn symlink `EPERM` local | completed |

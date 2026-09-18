@@ -45,3 +45,4 @@ Public MCP endpoint, OAuth/login, ChatGPT integration, production device picker 
 |---|---|---|---|
 | 2026-09-17 | Khởi tạo acceptance M3.7 theo issue #36 | Khóa vertical flow và gom regression bảo mật hiện có thành lệnh riêng | in-progress |
 | 2026-09-17 | Hoàn tất suite `test:m3` và chạy full verification local | 123 test M3, M1/M2, check/typecheck xanh; ghi riêng 32 lỗi symlink `EPERM` của full suite trên Windows | in-progress |
+| 2026-09-18 | Xác nhận `test:m3` 127/127 và CI Linux full suite + Windows target suites | Gate #36 đã xanh trong [CI run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097) | completed |

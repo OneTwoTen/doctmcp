@@ -43,4 +43,4 @@ Ngày 2026-09-18, trên Windows với Bun **1.4.1** (repository yêu cầu **1.4
 - `bun run check` và `bun run typecheck` — pass.
 - `bun test`: 292 pass, 32 fail (1215 assertion). Tất cả 32 lỗi xảy ra khi test `filesystem.read`/`filesystem.write` tạo symlink trong fixture trên Windows; hệ điều hành trả `EPERM`. Đây là giới hạn quyền symlink của môi trường local, không phải lỗi assertion. Không bỏ qua hoặc disable các test này.
 
-Workflow CI chạy `test:local`, `test:m2`, `test:m3`, `test:m4` và `test:m5` trên Windows, đồng thời trigger khi push nhánh `codex/**`. Run cho nhánh thay đổi vẫn pending tới khi push; M3 implementation và suite mục tiêu đã chạy local, nhưng chưa ghi nhận CI như thể đã chạy.
+Workflow CI chạy `test:local`, `test:m2`, `test:m3`, `test:m4` và `test:m5` trên Windows, đồng thời chạy full `bun test` cùng quality checks trên Linux. Cả hai job xanh tại [CI run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097).

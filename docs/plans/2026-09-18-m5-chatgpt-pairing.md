@@ -1,6 +1,6 @@
 # M5 — CLI local và ghép nối ChatGPT Implementation Plan
 
-**Trạng thái:** Local implementation, acceptance suites và quality checks đã hoàn tất. Full Linux suite và Windows target CI đang chờ push nhánh.
+**Trạng thái:** Implementation, acceptance suites, quality checks và CI đã hoàn tất. Linux full suite và Windows acceptance M1–M5 xanh trên commit `8fa55f8` trong [CI run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097). ChatGPT hosted vẫn cần OIDC/domain/workspace config.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Dùng `superpowers:executing-plans` để thực hiện plan này theo từng task. Mỗi task giữ checkbox để ghi trạng thái.
 
@@ -301,7 +301,7 @@ Expected: FAIL trước khi composition end-to-end hoàn tất; sau các task tr
 
 - [x] **Step 4: Thêm scripts và CI.** `test:m5` trỏ đến đúng file tests M5; Ubuntu job chạy command này rõ ràng ngoài `bun test`; Windows job chạy `test:m5`; không bỏ qua M1–M4 target acceptance.
 - [x] **Step 5: Cập nhật tài liệu trạng thái.** Hướng dẫn config/command, URL `/mcp`, OAuth Authorization Code + PKCE S256, `mcp` scope, pairing code, workspace capabilities và manual ChatGPT setup. Nêu rõ live ChatGPT auth cần issuer/domain/workspace hợp lệ; in-memory server chỉ single-instance dev/test.
-- [ ] **Step 6: Chạy verification cuối.**
+- [x] **Step 6: Chạy verification cuối.**
 
 Run: `bun run check`
 
@@ -333,9 +333,9 @@ Expected: M5 end-to-end acceptance pass.
 
 Run: `bun test`
 
-Expected: full suite pass on Linux runner with symlink support. Windows full-suite local `EPERM` is an environment limitation; Windows CI must pass all listed target suites.
+Expected: full suite pass on Linux runner with symlink support. Đã xanh trong CI run 35359769097; Windows full-suite local `EPERM` được ghi nhận, còn Windows CI target suites M1–M5 đều xanh.
 
-- [ ] **Step 7: Self-review diff, inspect push CI, commit M5 acceptance/docs.** `feat(m5): pair local CLI with ChatGPT`
+- [x] **Step 7: Self-review diff, inspect push CI và hoàn tất M5 acceptance/docs.** Implementation nằm trong `e54a07f`; sau fix Windows assertion, toàn bộ Linux/Windows CI xanh trên `8fa55f8` (run 35359769097).
 
 ## Self-review
 

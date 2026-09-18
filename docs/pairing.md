@@ -10,7 +10,7 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 - M3.4 (#33): device session registry, heartbeat, online/offline state và cross-instance invalidation — hoàn tất qua PR #40.
 - M3.5 (#34): local reconnect/backoff và credential resume — hoàn tất qua PR #41.
 - M3.6 (#35): owner-scoped multi-device registry và routing theo `deviceId` — implementation/target tests hoàn tất trong nhánh hiện tại.
-- M3.7 (#36): vertical acceptance/security suite — `bun run test:m3` xanh local; CI/cross-platform gate còn chờ.
+- M3.7 (#36): vertical acceptance/security suite — `bun run test:m3` xanh local; CI/cross-platform gate xanh trong [run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097).
 
 Tài liệu này mô tả contract pairing/authentication đã triển khai và các boundary session/routing M3.4–M3.7 tiếp tục giữ.
 

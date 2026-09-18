@@ -14,9 +14,9 @@ bun run check
 bun run typecheck
 ```
 
-Verification local gần nhất: `test:m5` 37/37, `test:m4` 16/16, `test:m3` 127/127, `test:local` 6/6, `test:m2` 6/6; `check` và `typecheck` xanh. Full Windows `bun test` có 292 pass và 32 fixture symlink fail (`EPERM`); Linux full suite vẫn là CI gate.
+Verification local gần nhất: `test:m5` 37/37, `test:m4` 16/16, `test:m3` 127/127, `test:local` 6/6, `test:m2` 6/6; `check` và `typecheck` xanh. Full Windows `bun test` có 292 pass và 32 fixture symlink fail (`EPERM`). Linux full suite cùng Windows target suites M1–M5 xanh trong [CI run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097).
 
-Linux CI còn chạy full `bun test`. Windows CI chạy các target suite riêng để tránh fixture symlink cần quyền không có trên runner local Windows này.
+Linux CI chạy full `bun test`; Windows CI chạy các target suite riêng để tránh fixture symlink cần quyền không có trên runner local Windows này. Cả hai job đã xanh trên commit `8fa55f8`.
 
 ## Flow đã xác nhận tự động
 

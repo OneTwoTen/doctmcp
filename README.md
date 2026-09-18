@@ -10,19 +10,19 @@ M1 — Local MCP đã hoàn tất **8/8 work item** và đủ **6/6 tool**: `wor
 
 M2 — Public server gọi Local MCP cũng đã hoàn tất **5/5 work item**. Public MCP Client hiện có thể chạy `initialize → tools/list → tools/call system/info` qua `BridgeClientTransport → Public Gateway → BridgeServerTransport → Local MCP Runtime` trên WebSocket thật. Acceptance suite #23 còn khóa filesystem round-trip, structured MCP/domain error, pending disconnect, public close, malformed/oversized frame và cleanup idempotent.
 
-**M3 — implementation 7/7 work item đã có trong nhánh hiện tại; gate cuối #36 đang chờ CI/cross-platform verification.** `bun run test:m3` (127 test), M1/M2 acceptance, `bun run check` và `bun run typecheck` xanh local. Full `bun test` trên Windows có 32 lỗi tạo symlink với `EPERM`; chi tiết ở [M3 acceptance](docs/testing/m3-acceptance.md).
+**M3 — implementation 7/7 work item đã có trong nhánh hiện tại; CI/cross-platform gate #36 đã xanh.** `bun run test:m3` (127 test), M1/M2 acceptance, `bun run check` và `bun run typecheck` xanh local. Full `bun test` trên Windows có 32 fixture symlink `EPERM`; GitHub Linux full suite và Windows target suites đều xanh trong [CI run](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097).
 
-**M4 — implementation và local acceptance đã hoàn tất trong nhánh hiện tại.** Public `/mcp` dùng Streamable HTTP trên Bun, OIDC JWT auth từ provider bên ngoài, tool routing theo `deviceId` và MCP Client persistent theo bridge session. `bun run test:m4` kiểm tra flow qua HTTP → WebSocket → local MCP. Cross-platform CI, OIDC tenant/domain và durable production persistence chưa được xác nhận; chưa coi là production-ready.
+**M4 — implementation và local acceptance đã hoàn tất trong nhánh hiện tại.** Public `/mcp` dùng Streamable HTTP trên Bun, OIDC JWT auth từ provider bên ngoài, tool routing theo `deviceId` và MCP Client persistent theo bridge session. `bun run test:m4` và cross-platform CI xanh. OIDC tenant/domain và durable production persistence vẫn cần cấu hình triển khai; chưa coi là production-ready.
 
-**M5 — CLI local và pairing ChatGPT đã triển khai trong nhánh hiện tại.** `bun run test:m5` (37 test) bao phủ start pairing, kênh WebSocket outbound, lưu credential trước ACK, `devices_pair` OAuth, reconnect bridge và gọi tool local với permission đã cấu hình. Pairing session có capacity bound, secret cache được dọn khi channel kết thúc, và TLS proxy chỉ được tin theo IP peer cấu hình chính xác. Việc đăng nhập ChatGPT thật vẫn cần OIDC provider, HTTPS domain và OAuth registration của deployment; những giá trị này không có trong repository.
+**M5 — CLI local và pairing ChatGPT đã triển khai trong nhánh hiện tại.** `bun run test:m5` (37 test) bao phủ start pairing, kênh WebSocket outbound, lưu credential trước ACK, `devices_pair` OAuth, reconnect bridge và gọi tool local với permission đã cấu hình. Pairing session có capacity bound, secret cache được dọn khi channel kết thúc, và TLS proxy chỉ được tin theo IP peer cấu hình chính xác. Linux và Windows CI xanh; đăng nhập ChatGPT thật vẫn cần OIDC provider, HTTPS domain và OAuth registration của deployment.
 
 Thứ tự phát triển đã chốt:
 
 1. **M1 — Local MCP**: local runtime chạy MCP server thật và expose các tool cơ bản. ✅
 2. **M2 — Server → Local**: public server đóng vai MCP client, giao tiếp với MCP server local qua custom WebSocket transport. ✅
-3. **M3 — Device management**: device identity, session, pairing, auth, reconnect và heartbeat. ✅ Implementation xong; 🔎 chờ CI cho M3.7
-4. **M4 — Public MCP endpoint**: ✅ implementation và acceptance local; 🔎 còn cross-platform CI và cấu hình triển khai production.
-5. **M5 — ChatGPT integration**: ✅ code và local end-to-end acceptance; 🔎 còn xác nhận CI/cross-platform và cấu hình OIDC/ChatGPT thực tế.
+3. **M3 — Device management**: device identity, session, pairing, auth, reconnect và heartbeat. ✅ Implementation và CI M1–M5 xanh.
+4. **M4 — Public MCP endpoint**: ✅ implementation, acceptance và CI; 🔎 còn cấu hình triển khai production.
+5. **M5 — ChatGPT integration**: ✅ code, local end-to-end acceptance và CI; 🔎 còn cấu hình OIDC/ChatGPT thực tế.
 
 Xem chi tiết tại [roadmap](docs/roadmap.md).
 

@@ -48,7 +48,7 @@ bun run dev:agent
 bun run dev:server
 ```
 
-M1/M2 acceptance và implementation/local acceptance của M3/M4 đã hoàn tất trong nhánh hiện tại. M3 #36 vẫn cần CI/cross-platform verification. `dev:server` chỉ bật public `/mcp` khi OIDC config hợp lệ; chỉ thấy process listen không chứng minh external OAuth/ChatGPT đã kết nối được. M4 chưa production-ready khi chưa có IdP, domain và durable persistence.
+M1–M5 implementation và target acceptance đã hoàn tất trong nhánh hiện tại; Linux quality/full suite và Windows acceptance M1–M5 đều xanh trong [CI run](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097). `dev:server` chỉ bật public `/mcp` khi OIDC config hợp lệ; chỉ thấy process listen không chứng minh external OAuth/ChatGPT đã kết nối được. Hosted auth và durable production persistence vẫn cần cấu hình triển khai.
 
 ## Chạy public MCP với authorization server
 
@@ -89,7 +89,7 @@ Chi tiết: [`testing/m2-server-local.md`](testing/m2-server-local.md).
 
 ### M3 — Device management và pairing
 
-M3 implementation đã đủ 7/7 work item; M3.7 (#36) còn chờ CI/cross-platform gate. Chạy `bun run test:m3` để kiểm tra pairing/auth, reconnect/heartbeat, routing và security lifecycle; giữ transport core M2 độc lập.
+M3 implementation đã đủ 7/7 work item; M3.7 (#36) đã qua CI/cross-platform gate. Chạy `bun run test:m3` để kiểm tra pairing/auth, reconnect/heartbeat, routing và security lifecycle; giữ transport core M2 độc lập.
 
 Verification M1–M5 hiện chạy trên Windows local. Bun khả dụng tại môi trường này là 1.4.1 trong khi repository ghim 1.4.2; target suites xanh, còn full `bun test` có 32 fixture fail với `EPERM` khi tạo symlink. Không đổi test/security behavior để lách lỗi quyền này; xem [`testing/m3-acceptance.md`](testing/m3-acceptance.md).
 
