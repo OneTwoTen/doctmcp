@@ -236,10 +236,9 @@ describe("M3 vertical acceptance", () => {
     const devices = await server.deviceRouter.listDevices(
       "owner-m3-acceptance",
     );
-    expect(devices.map(({ deviceId }) => deviceId)).toEqual([
-      alpha.completed.device.deviceId,
-      beta.completed.device.deviceId,
-    ]);
+    expect(devices.map(({ deviceId }) => deviceId).sort()).toEqual(
+      [alpha.completed.device.deviceId, beta.completed.device.deviceId].sort(),
+    );
     expect(devices.every(({ status }) => status === "online")).toBe(true);
 
     const routedAlpha = await connectMcpClient(

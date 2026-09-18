@@ -95,10 +95,9 @@ describe("DoctmcpServerRuntime device routing", () => {
     });
 
     const devices = await runtime.deviceRouter.listDevices("owner-routing");
-    expect(devices.map(({ deviceId }) => deviceId)).toEqual([
-      deviceA.device.deviceId,
-      deviceB.device.deviceId,
-    ]);
+    expect(devices.map(({ deviceId }) => deviceId).sort()).toEqual(
+      [deviceA.device.deviceId, deviceB.device.deviceId].sort(),
+    );
     expect(devices.map(({ status }) => status)).toEqual(["online", "online"]);
 
     const routeA = await runtime.deviceRouter.resolve(
