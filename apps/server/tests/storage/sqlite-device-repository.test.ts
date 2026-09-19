@@ -146,7 +146,7 @@ describe("M6.3 SQLite device integration", () => {
         second.database
           .query("SELECT version FROM schema_migrations ORDER BY version")
           .all(),
-      ).toEqual([{ version: 1 }, { version: 2 }]);
+      ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
       const repo = new SqliteDeviceRepository(second.database, {
         generateDeviceId: () => DEVICE_B,
       });

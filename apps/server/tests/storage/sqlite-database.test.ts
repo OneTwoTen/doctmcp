@@ -63,6 +63,7 @@ describe("M6.2 SQLite bootstrap and migrations", () => {
       ).toEqual([
         { version: 1, name: "0001_storage_baseline" },
         { version: 2, name: "0002_devices" },
+        { version: 3, name: "0003_device_credentials" },
       ]);
     } finally {
       opened.close();
