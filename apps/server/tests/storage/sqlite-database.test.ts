@@ -43,14 +43,18 @@ describe("M6.2 SQLite bootstrap and migrations", () => {
     try {
       expect(opened.path).toBe(join(directory, SQLITE_DATABASE_FILENAME));
       expect(
-        (opened.database.query("PRAGMA journal_mode;").get() as {
-          journal_mode: string;
-        }).journal_mode,
+        (
+          opened.database.query("PRAGMA journal_mode;").get() as {
+            journal_mode: string;
+          }
+        ).journal_mode,
       ).toBe("wal");
       expect(
-        (opened.database.query("PRAGMA foreign_keys;").get() as {
-          foreign_keys: number;
-        }).foreign_keys,
+        (
+          opened.database.query("PRAGMA foreign_keys;").get() as {
+            foreign_keys: number;
+          }
+        ).foreign_keys,
       ).toBe(1);
       expect(
         opened.database
@@ -151,9 +155,9 @@ describe("M6.2 SQLite bootstrap and migrations", () => {
       expect(reopened.database.query("SELECT * FROM records").all()).toEqual([
         { id: 1, value: "safe" },
       ]);
-      expect(reopened.database.query("SELECT version FROM schema_migrations").all()).toEqual([
-        { version: 1 },
-      ]);
+      expect(
+        reopened.database.query("SELECT version FROM schema_migrations").all(),
+      ).toEqual([{ version: 1 }]);
     } finally {
       reopened.close();
     }
@@ -189,9 +193,9 @@ describe("M6.2 SQLite bootstrap and migrations", () => {
   });
 
   test("DOCTMCP_DATA_DIR thiếu hoặc rỗng bị từ chối, không có fallback ./data", async () => {
-    await expect(
-      openSqliteDatabase({ dataDir: "  " }),
-    ).rejects.toThrow("DOCTMCP_DATA_DIR");
+    await expect(openSqliteDatabase({ dataDir: "  " })).rejects.toThrow(
+      "DOCTMCP_DATA_DIR",
+    );
   });
 
   test("hai bootstrap đồng thời không apply cùng migration hai lần", async () => {
