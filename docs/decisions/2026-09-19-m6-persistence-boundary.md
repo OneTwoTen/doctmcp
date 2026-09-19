@@ -32,6 +32,6 @@ Luồng M5 còn có `PairingCredentialCompletionRepository`: reservation/pending
 
 ## Contract tests và triển khai
 
-`persistent-repository-contract-suite.ts` định nghĩa bộ test dùng lại cho cả in-memory và SQLite (thiết bị/owner scoping, duplicate, credential CAS, expired/reused/concurrent claim, rollback khi tạo device lỗi). `persistent-repository-contract.test.ts` chạy trên adapter in-memory; #48–#50 sẽ bổ sung SQLite factory độc lập và kiểm thử reopen trên file database thật. Không trộn SQLite pairing với in-memory device repository trong các test transaction.
+Bộ test nằm riêng tại `apps/server/tests/contracts/`, tách khỏi `apps/server/src/` và không được import bởi production entrypoint. `persistent-repository-contract-suite.ts` định nghĩa bộ test dùng lại cho cả in-memory và SQLite (thiết bị/owner scoping, duplicate, credential CAS, expired/reused/concurrent claim, rollback khi tạo device lỗi). `persistent-repository-contract.test.ts` chạy trên adapter in-memory; #48–#50 sẽ bổ sung SQLite factory độc lập và kiểm thử reopen trên file database thật. Không trộn SQLite pairing với in-memory device repository trong các test transaction.
 
 Verification bắt buộc trước khi đánh dấu #46 hoàn tất: `bun run check`, `bun run typecheck`, `bun test`; #47–#51 bổ sung SQLite integration, migration upgrade và Coolify restart/recreate acceptance theo issue.
