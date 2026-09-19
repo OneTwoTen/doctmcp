@@ -63,6 +63,10 @@ interface BeginRecoveryInput extends CompletionGenerationInput {
 
 export interface PairingCredentialCompletionRepository {
   reserve(pairingSessionId: string): Promise<boolean>;
+  transferReservation(
+    fromPairingSessionId: string,
+    toPairingSessionId: string,
+  ): Promise<boolean>;
   get(
     pairingSessionId: string,
   ): Promise<PairingCredentialCompletionRecord | null>;
@@ -195,6 +199,26 @@ export class InMemoryPairingCredentialCompletionRepository
         pairingSessionId,
         this.#nowMs() + this.#retentionMs,
       );
+      return true;
+    });
+  }
+
+  async transferReservation(
+    fromPairingSessionId: string,
+    toPairingSessionId: string,
+  ): Promise<boolean> {
+    return this.#exclusive(async () => {
+      this.#pruneExpired();
+      const expiresAtMs = this.#reservations.get(fromPairingSessionId);
+      if (
+        expiresAtMs === undefined ||
+        this.#records.has(toPairingSessionId) ||
+        this.#reservations.has(toPairingSessionId)
+      ) {
+        return false;
+      }
+      this.#reservations.delete(fromPairingSessionId);
+      this.#reservations.set(toPairingSessionId, expiresAtMs);
       return true;
     });
   }
@@ -508,11 +532,30 @@ export class PairingCredentialCompletionService {
     input: ClaimPairingInput,
     context: PairingClaimContext = {},
   ): Promise<CompletedPairingCredential> {
-    const claimed = await this.#pairingService.claimPairingCode(
-      pairingCode,
-      input,
-      context,
+    const admissionId = `admission:${crypto.randomUUID()}`;
+    const admitted = await this.#completionRepository.reserve(admissionId);
+    if (!admitted) throw completionUnavailable();
+
+    let claimed;
+    try {
+      claimed = await this.#pairingService.claimPairingCode(
+        pairingCode,
+        input,
+        context,
+      );
+    } catch (error) {
+      await this.#completionRepository.delete(admissionId).catch(() => undefined);
+      throw error;
+    }
+
+    const transferred = await this.#completionRepository.transferReservation(
+      admissionId,
+      claimed.session.pairingSessionId,
     );
+    if (!transferred) {
+      await this.#completionRepository.delete(admissionId).catch(() => undefined);
+      throw completionUnavailable();
+    }
     return this.#complete(claimed.session, claimed.device, false);
   }
 

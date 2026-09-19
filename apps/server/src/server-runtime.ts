@@ -493,11 +493,37 @@ export function createDoctmcpServerRuntime(
 
   const claimAndIssue: PairingCredentialCompletionService["claimAndIssue"] =
     async (pairingCode, input, context = {}) => {
-      const claimed = await pairingService.claimPairingCode(
-        pairingCode,
-        input,
-        context,
-      );
+      const admissionId = `admission:${crypto.randomUUID()}`;
+      const admitted =
+        await pairingCredentialCompletionRepository.reserve(admissionId);
+      if (!admitted) throw completionUnavailable();
+
+      let claimed;
+      try {
+        claimed = await pairingService.claimPairingCode(
+          pairingCode,
+          input,
+          context,
+        );
+      } catch (error) {
+        await pairingCredentialCompletionRepository
+          .delete(admissionId)
+          .catch(() => undefined);
+        throw error;
+      }
+
+      const transferred =
+        await pairingCredentialCompletionRepository.transferReservation(
+          admissionId,
+          claimed.session.pairingSessionId,
+        );
+      if (!transferred) {
+        await pairingCredentialCompletionRepository
+          .delete(admissionId)
+          .catch(() => undefined);
+        throw completionUnavailable();
+      }
+
       return runCredentialLifecycleOperation(
         claimed.device.deviceId,
         async () => {

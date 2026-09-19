@@ -316,14 +316,19 @@ describe("PairingCredentialCompletionService", () => {
     ).resolves.toBeNull();
     await expect(
       fixture.pairingService.getPairingSession(PAIRING_SESSION_ID),
-    ).resolves.toMatchObject({ state: "claimed", deviceId: DEVICE_ID });
+    ).resolves.toMatchObject({ state: "pending" });
+    expect(await fixture.devices.listByOwnerId("owner-a")).toHaveLength(0);
 
     await completionRepository.delete(occupiedSessionId);
-    const resumed = await fixture.completionService.resumeClaimedPairing(
-      PAIRING_SESSION_ID,
-      "owner-a",
+    const completed = await fixture.completionService.claimAndIssue(
+      fixture.created.pairingCode,
+      {
+        ownerId: "owner-a",
+        deviceName: "Capacity device",
+        metadata: { platform: "linux-x64" },
+      },
     );
-    expect(resumed.credential).toMatchObject({
+    expect(completed.credential).toMatchObject({
       deviceId: DEVICE_ID,
       state: "active",
     });
