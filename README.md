@@ -207,6 +207,7 @@ Các tài liệu chính:
 - [Pairing thiết bị](docs/pairing.md)
 - [Phát triển local](docs/development.md)
 - [Quy trình làm việc với AI agent](docs/agent-workflow.md)
+- [Project playbook](docs/project-playbook.md) — hướng dẫn thực hành chi tiết cho task, test, review PR, security và Definition of Done
 
 Ngôn ngữ mặc định của tài liệu dự án là **tiếng Việt**. Tên kỹ thuật, code, command, API identifier và thuật ngữ cần tương thích có thể giữ tiếng Anh.
 

@@ -145,3 +145,8 @@ bun test
 ```
 
 Feature cross-layer phải chạy thêm acceptance/integration test tương ứng. Với thay đổi M2 bridge, chạy thêm `bun run test:m2`. Không dùng kết quả CI cũ hoặc suy đoán thay cho bằng chứng kiểm tra mới.
+
+
+## Playbook thực hành
+
+Khi bắt đầu issue mới, review PR, xử lý review feedback hoặc cần xác định test/tài liệu phải cập nhật, dùng [`project-playbook.md`](project-playbook.md) làm checklist thực hành. `development.md` tập trung vào môi trường và lệnh local; playbook tập trung vào quy trình hoàn thành một task từ đầu đến cuối.

@@ -8,6 +8,7 @@ Thư mục này là nguồn tài liệu chính của dự án. Tài liệu mặc
 - [roadmap.md](roadmap.md): thứ tự milestone và tiêu chí hoàn tất từng giai đoạn.
 - [development.md](development.md): chuẩn bị máy, lệnh local, test và quy ước phát triển.
 - [agent-workflow.md](agent-workflow.md): quy trình làm việc cho feature nhiều bước hoặc thay đổi kiến trúc.
+- [project-playbook.md](project-playbook.md): playbook thực hành cho contributor/AI agent: bắt đầu task, chọn module, test matrix, review PR, security checklist, Git/PR và Definition of Done.
 
 ## M1 — Local MCP
 

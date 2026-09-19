@@ -17,6 +17,7 @@ Không thay đổi nguyên tắc kiến trúc đã chốt nếu chưa có quyế
 - `docs/security.md`: trust boundary và yêu cầu bảo mật.
 - `docs/permissions.md`: permission ở local.
 - `docs/agent-workflow.md`: workflow chung cho công việc nhiều bước/kiến trúc.
+- `docs/project-playbook.md`: hướng dẫn thực hành chi tiết để bắt đầu task, chọn module, test, review PR, cập nhật tài liệu và hoàn tất công việc.
 
 ## Hướng kiến trúc hiện tại
 
@@ -66,7 +67,7 @@ Không thêm dependency chỉ vì tiện nếu Bun API hoặc dependency đã c�
 
 Công việc nhỏ, cục bộ và rõ ràng có thể triển khai trực tiếp kèm test tương ứng.
 
-Feature mới, subsystem mới, thay đổi protocol/transport/security hoặc thay đổi nhiều module phải theo `docs/agent-workflow.md`:
+Feature mới, subsystem mới, thay đổi protocol/transport/security hoặc thay đổi nhiều module phải theo `docs/agent-workflow.md`. Dùng `docs/project-playbook.md` làm checklist thực hành cho từng task/PR:
 
 - đọc context và history liên quan;
 - mô tả design/acceptance criteria;
@@ -89,7 +90,7 @@ bun run dev:agent
 bun run dev:server
 ```
 
-`dev:agent` và `dev:server` hiện chỉ phản ánh entrypoint scaffold cho đến khi runtime thật được triển khai. Không tuyên bố networking/MCP runtime đã hoạt động chỉ vì entrypoint chạy được.
+`dev:agent` và `dev:server` là entrypoint phát triển của local runtime và public server. Capability thực tế phải được xác nhận bằng code + acceptance test của milestone tương ứng; không suy ra milestone sau đã tồn tại chỉ vì entrypoint chạy được.
 
 ## Security rules
 
