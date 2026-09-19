@@ -274,7 +274,9 @@ export function describePersistentRepositoryContract(
             createdAt: new Date(CREATED_AT_MS),
           }),
         ]);
-        expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        expect(
+          results.filter((result) => result.status === "fulfilled"),
+        ).toHaveLength(1);
         expect(
           results.find((result) => result.status === "rejected"),
         ).toMatchObject({
@@ -286,10 +288,12 @@ export function describePersistentRepositoryContract(
         expect(winner?.credentialId).toBe(
           results[0]?.status === "fulfilled" ? CREDENTIAL_A : CREDENTIAL_B,
         );
-        expect(await credentials.verify(
-          DEVICE_A,
-          results[0]?.status === "fulfilled" ? DIGEST_B : DIGEST_A,
-        )).toBeNull();
+        expect(
+          await credentials.verify(
+            DEVICE_A,
+            results[0]?.status === "fulfilled" ? DIGEST_B : DIGEST_A,
+          ),
+        ).toBeNull();
       });
     });
 
@@ -375,12 +379,14 @@ export function describePersistentRepositoryContract(
           secretDigest: DIGEST_B,
           rotatedAt: new Date(CREATED_AT_MS + 1000),
         });
-        expect(await credentials.revoke({
-          deviceId: DEVICE_A,
-          expectedCredentialId: CREDENTIAL_A,
-          expectedVersion: 1,
-          revokedAt: new Date(CREATED_AT_MS + 2000),
-        })).toBeNull();
+        expect(
+          await credentials.revoke({
+            deviceId: DEVICE_A,
+            expectedCredentialId: CREDENTIAL_A,
+            expectedVersion: 1,
+            revokedAt: new Date(CREATED_AT_MS + 2000),
+          }),
+        ).toBeNull();
         expect(await credentials.verify(DEVICE_A, DIGEST_B)).toMatchObject({
           credentialId: CREDENTIAL_B,
           version: 2,
