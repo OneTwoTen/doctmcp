@@ -2,6 +2,7 @@ import { createOidcAccessTokenVerifier } from "./public-mcp-auth";
 import { createPublicMcpEndpoint } from "./public-mcp-endpoint";
 import { createPublicPairingEndpoint } from "./public-pairing-endpoint";
 import { createDoctmcpServerRuntime } from "./server-runtime";
+import { openSqliteDatabase } from "./storage/sqlite-database";
 
 export const SERVER_COMPONENT = "doctmcp-server";
 
@@ -191,11 +192,23 @@ async function startDoctmcpServer(): Promise<void> {
     request: Request,
     _context?: import("./gateway").BridgeGatewayHttpContext,
   ): Promise<Response> => publicMcpFetch(request);
-  const runtime = createDoctmcpServerRuntime({
-    host: process.env.BIND_HOST ?? "127.0.0.1",
-    port: Number(process.env.PORT ?? 3000),
-    httpHandler: (request, context) => publicHttpFetch(request, context),
-  });
+  // Bootstrap/migrations phải hoàn tất trước khi gateway bắt đầu listen.
+  // M6.2 chỉ chuẩn bị schema; production repository wiring thuộc M6.3–M6.6.
+  const storage =
+    process.env.DOCTMCP_DATA_DIR !== undefined
+      ? await openSqliteDatabase()
+      : undefined;
+  let runtime: ReturnType<typeof createDoctmcpServerRuntime>;
+  try {
+    runtime = createDoctmcpServerRuntime({
+      host: process.env.BIND_HOST ?? "127.0.0.1",
+      port: Number(process.env.PORT ?? 3000),
+      httpHandler: (request, context) => publicHttpFetch(request, context),
+    });
+  } catch (error) {
+    storage?.close();
+    throw error;
+  }
   const publicPairing = createPublicPairingEndpoint({
     pairingService: runtime.pairingService,
     channelCoordinator: runtime.pairingChannelCoordinator,
@@ -250,10 +263,19 @@ async function startDoctmcpServer(): Promise<void> {
       publicMcpFetch = publicMcp.fetch;
     }
   } catch (error) {
-    await runtime.stop();
+    try {
+      await runtime.stop();
+    } finally {
+      storage?.close();
+    }
     throw error;
   }
 
+  if (storage) {
+    console.warn(
+      "SQLite schema ready; device/credential/pairing repositories vẫn in-memory cho đến M6.6.",
+    );
+  }
   console.log(`${SERVER_COMPONENT}: listening on ${runtime.gateway.url}`);
   if (publicMcp) {
     console.log(`Public MCP: ${process.env.PUBLIC_MCP_URL}`);
@@ -263,7 +285,11 @@ async function startDoctmcpServer(): Promise<void> {
   const stop = async (): Promise<void> => {
     if (stopping) return;
     stopping = true;
-    await stopDoctmcpServer(publicMcp, runtime);
+    try {
+      await stopDoctmcpServer(publicMcp, runtime);
+    } finally {
+      storage?.close();
+    }
   };
   process.once("SIGINT", () => void stop());
   process.once("SIGTERM", () => void stop());
