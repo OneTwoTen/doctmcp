@@ -30,7 +30,10 @@ interface DeviceRow {
 function parseOwnerId(value: string): string {
   const parsed = ownerIdSchema.safeParse(value);
   if (!parsed.success) {
-    throw new DeviceRepositoryError("INVALID_DEVICE_INPUT", "ownerId không hợp lệ.");
+    throw new DeviceRepositoryError(
+      "INVALID_DEVICE_INPUT",
+      "ownerId không hợp lệ.",
+    );
   }
   return parsed.data;
 }
@@ -38,7 +41,10 @@ function parseOwnerId(value: string): string {
 function parseDeviceId(value: string): string {
   const parsed = deviceIdSchema.safeParse(value);
   if (!parsed.success) {
-    throw new DeviceRepositoryError("INVALID_DEVICE_ID", "deviceId không hợp lệ.");
+    throw new DeviceRepositoryError(
+      "INVALID_DEVICE_ID",
+      "deviceId không hợp lệ.",
+    );
   }
   return parsed.data;
 }
@@ -47,7 +53,9 @@ function snapshot(row: DeviceRow): Device {
   const metadata: DeviceMetadata = Object.freeze({
     platform: row.platform,
     ...(row.app_version === null ? {} : { appVersion: row.app_version }),
-    ...(row.runtime_version === null ? {} : { runtimeVersion: row.runtime_version }),
+    ...(row.runtime_version === null
+      ? {}
+      : { runtimeVersion: row.runtime_version }),
   });
   return Object.freeze({
     deviceId: row.device_id,
@@ -182,7 +190,9 @@ export class SqliteDeviceRepository implements DeviceRepository {
       .run(
         parsed.data.deviceName ?? row.device_name,
         metadata?.platform ?? row.platform,
-        metadata === undefined ? row.app_version : (metadata.appVersion ?? null),
+        metadata === undefined
+          ? row.app_version
+          : (metadata.appVersion ?? null),
         metadata === undefined
           ? row.runtime_version
           : (metadata.runtimeVersion ?? null),
@@ -208,10 +218,10 @@ export class SqliteDeviceRepository implements DeviceRepository {
   }
 
   async isOwnedBy(ownerId: string, deviceId: string): Promise<boolean> {
-    return this.#findForOwner(
-      parseOwnerId(ownerId),
-      parseDeviceId(deviceId),
-    ) !== null;
+    return (
+      this.#findForOwner(parseOwnerId(ownerId), parseDeviceId(deviceId)) !==
+      null
+    );
   }
 
   #findById(deviceId: string): DeviceRow | null {
