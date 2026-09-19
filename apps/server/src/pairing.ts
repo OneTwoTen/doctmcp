@@ -16,6 +16,9 @@ export const PAIRING_CODE_SYMBOLS = 12;
 export const PAIRING_CODE_GROUP_SIZE = 4;
 export const PAIRING_CODE_ENTROPY_BITS = 60;
 export const PAIRING_CREATE_MAX_ATTEMPTS = 5;
+export const DEFAULT_PAIRING_REPOSITORY_MAX_SESSIONS = 10_000;
+export const DEFAULT_PAIRING_CLAIMED_RETENTION_MS = 10 * 60 * 1000;
+export const DEFAULT_PAIRING_EXPIRED_CODE_TOMBSTONES = 100_000;
 
 const PAIRING_CODE_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const PAIRING_CODE_DIGEST_PREFIX = "doctmcp-pairing:v1:";
@@ -77,6 +80,7 @@ export type PairingRepositoryErrorCode =
   | "PAIRING_CODE_UNAVAILABLE"
   | "PAIRING_SESSION_NOT_FOUND"
   | "PAIRING_SESSION_NOT_PENDING"
+  | "PAIRING_CAPACITY_EXCEEDED"
   | "INVALID_PAIRING_RECORD"
   | "INVALID_CLOCK";
 
@@ -108,10 +112,13 @@ export interface PairingSessionRepository {
   claim(input: ClaimPairingRecordInput): Promise<ClaimPairingResult>;
   cancel(pairingSessionId: string, cancelledAt: Date): Promise<PairingSession>;
   expire(expiredAt: Date): Promise<number>;
+  pruneExpired(expiredAt: Date): Promise<number>;
 }
 
 export interface InMemoryPairingSessionRepositoryOptions {
   readonly now?: PairingClock;
+  readonly maxSessions?: number;
+  readonly claimedRetentionMs?: number;
 }
 
 interface StoredPairingSession {
@@ -199,6 +206,10 @@ export class InMemoryPairingSessionRepository
 {
   readonly #deviceRepository: DeviceRepository;
   readonly #now: PairingClock;
+  readonly #maxSessions: number;
+  readonly #claimedRetentionMs: number;
+  readonly #expiredCodeTombstones = new Set<string>();
+  readonly #expiredCodeTombstoneOrder: string[] = [];
   readonly #recordsById = new Map<string, StoredPairingSession>();
   readonly #sessionIdByDigest = new Map<string, string>();
   #mutationTail: Promise<void> = Promise.resolve();
@@ -209,6 +220,19 @@ export class InMemoryPairingSessionRepository
   ) {
     this.#deviceRepository = deviceRepository;
     this.#now = options.now ?? (() => new Date());
+    this.#maxSessions =
+      options.maxSessions ?? DEFAULT_PAIRING_REPOSITORY_MAX_SESSIONS;
+    this.#claimedRetentionMs =
+      options.claimedRetentionMs ?? DEFAULT_PAIRING_CLAIMED_RETENTION_MS;
+    if (!Number.isSafeInteger(this.#maxSessions) || this.#maxSessions <= 0) {
+      throw new Error("maxSessions must be a positive safe integer.");
+    }
+    if (
+      !Number.isSafeInteger(this.#claimedRetentionMs) ||
+      this.#claimedRetentionMs <= 0
+    ) {
+      throw new Error("claimedRetentionMs must be a positive safe integer.");
+    }
   }
 
   async create(input: CreatePairingRecordInput): Promise<PairingSession> {
@@ -225,16 +249,26 @@ export class InMemoryPairingSessionRepository
     }
 
     return this.#runExclusive(async () => {
+      this.#pruneExpiredRecords(createdAtMs);
       if (this.#recordsById.has(pairingSessionId)) {
         return repositoryError(
           "PAIRING_SESSION_ALREADY_EXISTS",
           "pairingSessionId đã tồn tại.",
         );
       }
-      if (this.#sessionIdByDigest.has(codeDigest)) {
+      if (
+        this.#sessionIdByDigest.has(codeDigest) ||
+        this.#expiredCodeTombstones.has(codeDigest)
+      ) {
         return repositoryError(
           "PAIRING_CODE_DIGEST_ALREADY_EXISTS",
           "Pairing code digest đã tồn tại.",
+        );
+      }
+      if (this.#recordsById.size >= this.#maxSessions) {
+        return repositoryError(
+          "PAIRING_CAPACITY_EXCEEDED",
+          "Pairing repository capacity is full.",
         );
       }
 
@@ -367,6 +401,37 @@ export class InMemoryPairingSessionRepository
       }
       return count;
     });
+  }
+
+  async pruneExpired(expiredAt: Date): Promise<number> {
+    const expiredAtMs = readTimestamp(expiredAt, "expiredAt");
+    return this.#runExclusive(async () =>
+      this.#pruneExpiredRecords(expiredAtMs),
+    );
+  }
+
+  #pruneExpiredRecords(expiredAtMs: number): number {
+    let count = 0;
+    for (const [pairingSessionId, record] of this.#recordsById) {
+      const pruneAtMs =
+        record.state === "claimed" && record.claimedAtMs !== undefined
+          ? record.claimedAtMs + this.#claimedRetentionMs
+          : record.expiresAtMs;
+      if (pruneAtMs > expiredAtMs) continue;
+      this.#recordsById.delete(pairingSessionId);
+      this.#sessionIdByDigest.delete(record.codeDigest);
+      this.#expiredCodeTombstones.add(record.codeDigest);
+      this.#expiredCodeTombstoneOrder.push(record.codeDigest);
+      while (
+        this.#expiredCodeTombstoneOrder.length >
+        DEFAULT_PAIRING_EXPIRED_CODE_TOMBSTONES
+      ) {
+        const oldest = this.#expiredCodeTombstoneOrder.shift();
+        if (oldest !== undefined) this.#expiredCodeTombstones.delete(oldest);
+      }
+      count += 1;
+    }
+    return count;
   }
 
   async #runExclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -584,6 +649,14 @@ export class PairingService {
   async expirePairingSessions(): Promise<number> {
     try {
       return await this.#repository.expire(this.#readNow());
+    } catch (error) {
+      throw this.#mapRepositoryError(error);
+    }
+  }
+
+  async pruneExpiredPairingSessions(): Promise<number> {
+    try {
+      return await this.#repository.pruneExpired(this.#readNow());
     } catch (error) {
       throw this.#mapRepositoryError(error);
     }

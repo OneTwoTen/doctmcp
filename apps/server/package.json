@@ -9,6 +9,8 @@
   "dependencies": {
     "@doctmcp/protocol": "workspace:*",
     "@doctmcp/schemas": "workspace:*",
-    "@modelcontextprotocol/client": "2.0.0"
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "jose": "6.2.12"
   }
 }

@@ -96,6 +96,10 @@ check pending
 
 thành các write độc lập không transaction/lock/CAS. Pairing transition và device creation phải nằm trong atomic unit-of-work hoặc primitive tương đương.
 
+M5 start route giới hạn body ở 2 KiB, yêu cầu JSON strict `{deviceName, channelProof}`, dùng remote address do Bun gateway cung cấp và rate-limit theo địa chỉ. `X-Forwarded-For` không được dùng. Remote plaintext pairing start bị từ chối; HTTP chỉ dùng loopback development. TLS proxy ngoài loopback chỉ được tin khi peer IP chính xác nằm trong `TRUSTED_PROXY_ADDRESSES` và `X-Forwarded-Proto` bằng `https`; biến này không bật trust cho forwarded client IP. Pairing repository giới hạn số session và runtime loại record hết hạn theo chu kỳ. Pairing WebSocket có giới hạn frame/socket/attach timeout, proof digest constant-time và một socket active cho mỗi session.
+
+`devices_pair` chỉ đăng ký trên public MCP endpoint đã qua bearer/OAuth scope check. `ownerId` được dẫn xuất từ verified auth context, không nhận trong arguments. Credential chỉ đi trên pairing socket; local persist trước ACK; MCP response/audit chỉ có device metadata và outcome/error code.
+
 ## Device credential
 
 Long-lived credential tách khỏi `Device` record:
@@ -195,7 +199,7 @@ Coordinator không thay thế CAS trong persistence. Cả hai đều cần:
 - coordinator: serialize high-level lifecycle sequence;
 - credential/completion CAS: bảo vệ authoritative store và crash/retry correctness.
 
-Cross-instance **active-session invalidation** là boundary riêng của #33. Registry ở M3.4 phải giữ credential generation của session và dùng shared invalidation/pub-sub event generation-aware. Revoke/rotate ở một instance phải close stale session trên instance khác trong bounded default **≤ 5 giây**; delayed/duplicate event không được close session generation mới.
+Cross-instance **active-session invalidation** được triển khai ở #33. Registry M3.4 giữ credential generation của session và dùng shared invalidation/pub-sub event generation-aware. Revoke/rotate ở một instance phải close stale session trên instance khác trong bounded default **≤ 5 giây**; delayed/duplicate event không được close session generation mới. Router M3.6 tiếp tục xác minh exact active generation ở mỗi lần resolve.
 
 ## Stale completion cache và ACK
 
@@ -278,6 +282,17 @@ Ready session không được giữ active nếu native WebSocket không nhận 
 
 Validation/serialization error của outbound message không được bị nhận nhầm thành socket failure và không được tự đóng một socket khỏe mạnh.
 
+## Public MCP và OIDC (M4)
+
+- `/mcp` là OAuth resource server. Token do authorization server OIDC bên ngoài phát; local MCP/bridge credential không được dùng làm user token.
+- Kiểm tra chữ ký bằng key từ HTTPS OIDC discovery/JWKS, exact issuer, configured audience, `exp`, `sub` và scope `mcp`. Sai token nhận generic Bearer 401; thiếu scope nhận 403.
+- `ownerId` là hash domain-separated ổn định của `issuer + sub`; không dùng email, display name hoặc OAuth `client_id` làm owner key.
+- RFC 9728 Protected Resource Metadata và Bearer challenge được phục vụ công khai để client khám phá authorization server; chúng không chứa secret.
+- Public tool alias chứa `deviceId` canonical đầy đủ. Mỗi callback kiểm tra owner và active credential generation lại; tool alias không được route theo device name hoặc fallback sang session khác.
+- Cache MCP tool catalog chỉ là metadata trong process. Offline cache chỉ cho phép trả mã `DEVICE_OFFLINE`; nó không cho phép gửi lệnh tới session cũ.
+- Audit không ghi bearer token, JWT claims, arguments, file content, command output hoặc tool result.
+- `/mcp` fail-closed khi OIDC config thiếu hoặc verifier không khởi tạo được. Mặc định in-memory repository không phù hợp cho production restart/multi-process.
+
 ## Audit
 
 Audit mặc định chỉ lưu metadata cần thiết:
@@ -312,4 +327,4 @@ Security-sensitive changes phải có denied/race-path test. M3.3 hiện giữ r
 
 CI/head/test count mới nhất được ghi ở PR thay vì hard-code trong security contract.
 
-#33 tiếp tục chịu trách nhiệm authoritative device-session registry, duplicate-session policy, generation-aware cross-instance invalidation, heartbeat/liveness và online/offline state.
+M3.4/#33 cung cấp authoritative device-session registry, duplicate-session policy, generation-aware cross-instance invalidation, heartbeat/liveness và online/offline state. M3.6/#35 owner-scope mọi lookup và từ chối route khi credential generation không còn active. M3.7 khóa expired/reused/concurrent pairing, sai device credential, routed MCP flow, reconnect và secret-redaction qua `bun run test:m3`.

@@ -34,6 +34,20 @@ class FailFirstFinishRepository
     private readonly delegate: PairingCredentialCompletionRepository,
   ) {}
 
+  reserve(pairingSessionId: string) {
+    return this.delegate.reserve(pairingSessionId);
+  }
+
+  transferReservation(
+    fromPairingSessionId: string,
+    toPairingSessionId: string,
+  ) {
+    return this.delegate.transferReservation(
+      fromPairingSessionId,
+      toPairingSessionId,
+    );
+  }
+
   get(pairingSessionId: string) {
     return this.delegate.get(pairingSessionId);
   }
@@ -76,6 +90,10 @@ class FailFirstFinishRepository
     input: Parameters<PairingCredentialCompletionRepository["acknowledge"]>[0],
   ) {
     return this.delegate.acknowledge(input);
+  }
+
+  delete(pairingSessionId: string) {
+    return this.delegate.delete(pairingSessionId);
   }
 }
 

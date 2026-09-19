@@ -7,9 +7,12 @@ Pairing thuộc M3, sau khi M1 local MCP và M2 server → local đã hoạt đ�
 - M3.1: device identity + persistence contract — hoàn tất.
 - M3.2 (#31): pairing session/code lifecycle + atomic claim — hoàn tất qua PR #38.
 - M3.3 (#32): long-lived device credential + authenticated bridge handshake — hoàn tất qua PR #39 (`163fb899`).
-- M3.4 (#33): device session registry, heartbeat, online/offline state và cross-instance invalidation — đang triển khai.
+- M3.4 (#33): device session registry, heartbeat, online/offline state và cross-instance invalidation — hoàn tất qua PR #40.
+- M3.5 (#34): local reconnect/backoff và credential resume — hoàn tất qua PR #41.
+- M3.6 (#35): owner-scoped multi-device registry và routing theo `deviceId` — implementation/target tests hoàn tất trong nhánh hiện tại.
+- M3.7 (#36): vertical acceptance/security suite — `bun run test:m3` xanh local; CI/cross-platform gate xanh trong [run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097).
 
-Tài liệu này mô tả contract đã triển khai của M3.2/M3.3 và các boundary mà M3.4 phải tiếp tục giữ.
+Tài liệu này mô tả contract pairing/authentication đã triển khai và các boundary session/routing M3.4–M3.7 tiếp tục giữ.
 
 ## Luồng tổng thể
 
@@ -290,3 +293,11 @@ Regression suite phải giữ ít nhất các case sau:
 - multi-device routing (#35);
 - public MCP endpoint và user OAuth (M4);
 - OS keychain packaging.
+
+## M5 — Pairing qua local CLI
+
+M5 bổ sung kênh điều khiển pairing dùng WebSocket route `/pairing` riêng trên cùng Bun listener với `/bridge`. Local chủ động gửi `POST /pairing/sessions` qua HTTPS, gắn socket bằng channel proof ngẫu nhiên 256-bit, và chỉ hiển thị pairing code sau `pairing.attached`. Server chỉ lưu SHA-256 digest có domain prefix của proof. Plain HTTP chỉ được chấp nhận khi request đến loopback; TLS proxy ở peer khác chỉ được tin qua `TRUSTED_PROXY_ADDRESSES` với `X-Forwarded-Proto=https`.
+
+Public MCP tool `devices_pair` bắt buộc OAuth scope `mcp`. Owner lấy từ verified principal; arguments chỉ nhận `pairingCode` và `deviceName`. Server claim atomic, gửi credential đến đúng pairing socket, chờ ACK khớp session/device/credential generation, rồi mới trả device metadata. MCP result và audit không chứa credential, pairing code hoặc proof.
+
+Local CLI lưu credential qua atomic file provider trước khi gửi ACK, rồi khởi động `LocalBridgeReconnectController`. Workspace capability thiếu mặc định `false`; quyền tiếp tục được enforce ở local MCP runtime. Device/session/repository/rate state hiện mặc định in-memory; pairing repository có giới hạn record và runtime dọn session hết hạn định kỳ. Production nhiều instance cần adapter persistence và guard/coordinator dùng chung. Hướng dẫn config/kiểm thử nằm ở [M5 acceptance](testing/m5-chatgpt.md).

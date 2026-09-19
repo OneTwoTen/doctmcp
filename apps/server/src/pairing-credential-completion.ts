@@ -62,6 +62,11 @@ interface BeginRecoveryInput extends CompletionGenerationInput {
 }
 
 export interface PairingCredentialCompletionRepository {
+  reserve(pairingSessionId: string): Promise<boolean>;
+  transferReservation(
+    fromPairingSessionId: string,
+    toPairingSessionId: string,
+  ): Promise<boolean>;
   get(
     pairingSessionId: string,
   ): Promise<PairingCredentialCompletionRecord | null>;
@@ -94,6 +99,7 @@ export interface PairingCredentialCompletionRepository {
     readonly expectedCredentialId: string;
     readonly expectedCredentialVersion: number;
   }): Promise<PairingCredentialCompletionRecord | null>;
+  delete(pairingSessionId: string): Promise<void>;
 }
 
 function completionSnapshot(
@@ -125,24 +131,112 @@ function isReservedRecoveryTarget(
   );
 }
 
+export const DEFAULT_PAIRING_COMPLETION_MAX_RECORDS = 1_024;
+export const DEFAULT_PAIRING_COMPLETION_RETENTION_MS = 5 * 60_000;
+
+export interface InMemoryPairingCredentialCompletionRepositoryOptions {
+  readonly now?: () => Date;
+  readonly maxRecords?: number;
+  readonly retentionMs?: number;
+}
+
+interface StoredPairingCredentialCompletionRecord {
+  readonly record: PairingCredentialCompletionRecord;
+  readonly expiresAtMs: number;
+}
+
 export class InMemoryPairingCredentialCompletionRepository
   implements PairingCredentialCompletionRepository
 {
-  readonly #records = new Map<string, PairingCredentialCompletionRecord>();
+  readonly #records = new Map<
+    string,
+    StoredPairingCredentialCompletionRecord
+  >();
+  readonly #reservations = new Map<string, number>();
+  readonly #now: () => Date;
+  readonly #maxRecords: number;
+  readonly #retentionMs: number;
   #tail: Promise<void> = Promise.resolve();
+
+  constructor(
+    options: InMemoryPairingCredentialCompletionRepositoryOptions = {},
+  ) {
+    this.#now = options.now ?? (() => new Date());
+    this.#maxRecords =
+      options.maxRecords ?? DEFAULT_PAIRING_COMPLETION_MAX_RECORDS;
+    this.#retentionMs =
+      options.retentionMs ?? DEFAULT_PAIRING_COMPLETION_RETENTION_MS;
+    if (
+      !Number.isSafeInteger(this.#maxRecords) ||
+      this.#maxRecords <= 0 ||
+      !Number.isSafeInteger(this.#retentionMs) ||
+      this.#retentionMs <= 0
+    ) {
+      throw new Error(
+        "Pairing completion repository limits must be positive safe integers.",
+      );
+    }
+  }
+
+  get size(): number {
+    this.#pruneExpired();
+    return this.#records.size + this.#reservations.size;
+  }
+
+  async reserve(pairingSessionId: string): Promise<boolean> {
+    return this.#exclusive(async () => {
+      this.#pruneExpired();
+      if (
+        this.#records.has(pairingSessionId) ||
+        this.#reservations.has(pairingSessionId)
+      ) {
+        return true;
+      }
+      if (this.#records.size + this.#reservations.size >= this.#maxRecords) {
+        return false;
+      }
+      this.#reservations.set(
+        pairingSessionId,
+        this.#nowMs() + this.#retentionMs,
+      );
+      return true;
+    });
+  }
+
+  async transferReservation(
+    fromPairingSessionId: string,
+    toPairingSessionId: string,
+  ): Promise<boolean> {
+    return this.#exclusive(async () => {
+      this.#pruneExpired();
+      const expiresAtMs = this.#reservations.get(fromPairingSessionId);
+      if (
+        expiresAtMs === undefined ||
+        this.#records.has(toPairingSessionId) ||
+        this.#reservations.has(toPairingSessionId)
+      ) {
+        return false;
+      }
+      this.#reservations.delete(fromPairingSessionId);
+      this.#reservations.set(toPairingSessionId, expiresAtMs);
+      return true;
+    });
+  }
 
   async get(
     pairingSessionId: string,
   ): Promise<PairingCredentialCompletionRecord | null> {
-    const record = this.#records.get(pairingSessionId);
-    return record ? completionSnapshot(record) : null;
+    this.#pruneExpired();
+    const stored = this.#records.get(pairingSessionId);
+    return stored ? completionSnapshot(stored.record) : null;
   }
 
   async setPending(
     input: CompletionGenerationInput,
   ): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
-      const existing = this.#records.get(input.pairingSessionId);
+      this.#pruneExpired();
+      const existing = this.#records.get(input.pairingSessionId)?.record;
       if (existing) {
         if (
           existing.state === "pending" &&
@@ -153,12 +247,18 @@ export class InMemoryPairingCredentialCompletionRepository
         }
         return null;
       }
+      if (
+        !this.#reservations.has(input.pairingSessionId) &&
+        this.#records.size + this.#reservations.size >= this.#maxRecords
+      ) {
+        return null;
+      }
 
       const record = Object.freeze({
         ...input,
         state: "pending" as const,
       });
-      this.#records.set(input.pairingSessionId, record);
+      this.#store(record);
       return completionSnapshot(record);
     });
   }
@@ -167,7 +267,8 @@ export class InMemoryPairingCredentialCompletionRepository
     input: BeginRecoveryInput,
   ): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
-      const existing = this.#records.get(input.pairingSessionId);
+      this.#pruneExpired();
+      const existing = this.#records.get(input.pairingSessionId)?.record;
       if (existing?.state === "delivered") return null;
       if (
         existing?.deviceId !== undefined &&
@@ -177,6 +278,13 @@ export class InMemoryPairingCredentialCompletionRepository
       }
       if (existing?.state === "recovering") {
         return completionSnapshot(existing);
+      }
+      if (
+        !existing &&
+        !this.#reservations.has(input.pairingSessionId) &&
+        this.#records.size + this.#reservations.size >= this.#maxRecords
+      ) {
+        return null;
       }
 
       const source = existing?.state === "pending" ? existing : input;
@@ -188,7 +296,7 @@ export class InMemoryPairingCredentialCompletionRepository
         recoveryTargetCredentialId: input.recoveryTargetCredentialId,
         state: "recovering" as const,
       });
-      this.#records.set(input.pairingSessionId, recovering);
+      this.#store(recovering);
       return completionSnapshot(recovering);
     });
   }
@@ -203,7 +311,8 @@ export class InMemoryPairingCredentialCompletionRepository
     readonly recoveryTargetCredentialId: string;
   }): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
-      const existing = this.#records.get(input.pairingSessionId);
+      this.#pruneExpired();
+      const existing = this.#records.get(input.pairingSessionId)?.record;
       if (
         existing?.state !== "recovering" ||
         existing.deviceId !== input.deviceId ||
@@ -229,7 +338,7 @@ export class InMemoryPairingCredentialCompletionRepository
         recoveryTargetCredentialId: input.recoveryTargetCredentialId,
         state: "recovering" as const,
       });
-      this.#records.set(input.pairingSessionId, advanced);
+      this.#store(advanced);
       return completionSnapshot(advanced);
     });
   }
@@ -243,7 +352,8 @@ export class InMemoryPairingCredentialCompletionRepository
     readonly credentialVersion: number;
   }): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
-      const existing = this.#records.get(input.pairingSessionId);
+      this.#pruneExpired();
+      const existing = this.#records.get(input.pairingSessionId)?.record;
       if (
         existing?.state !== "recovering" ||
         existing.deviceId !== input.deviceId ||
@@ -268,7 +378,7 @@ export class InMemoryPairingCredentialCompletionRepository
         credentialVersion: input.credentialVersion,
         state: "pending" as const,
       });
-      this.#records.set(input.pairingSessionId, pending);
+      this.#store(pending);
       return completionSnapshot(pending);
     });
   }
@@ -280,7 +390,8 @@ export class InMemoryPairingCredentialCompletionRepository
     readonly expectedCredentialVersion: number;
   }): Promise<PairingCredentialCompletionRecord | null> {
     return this.#exclusive(async () => {
-      const existing = this.#records.get(input.pairingSessionId);
+      this.#pruneExpired();
+      const existing = this.#records.get(input.pairingSessionId)?.record;
       if (
         !existing ||
         existing.deviceId !== input.deviceId ||
@@ -302,9 +413,42 @@ export class InMemoryPairingCredentialCompletionRepository
         ...existing,
         state: "delivered" as const,
       });
-      this.#records.set(input.pairingSessionId, delivered);
+      this.#store(delivered);
       return completionSnapshot(delivered);
     });
+  }
+
+  async delete(pairingSessionId: string): Promise<void> {
+    await this.#exclusive(async () => {
+      this.#records.delete(pairingSessionId);
+      this.#reservations.delete(pairingSessionId);
+    });
+  }
+
+  #store(record: PairingCredentialCompletionRecord): void {
+    this.#reservations.delete(record.pairingSessionId);
+    this.#records.set(record.pairingSessionId, {
+      record,
+      expiresAtMs: this.#nowMs() + this.#retentionMs,
+    });
+  }
+
+  #pruneExpired(): void {
+    const now = this.#nowMs();
+    for (const [pairingSessionId, stored] of this.#records) {
+      if (stored.expiresAtMs <= now) this.#records.delete(pairingSessionId);
+    }
+    for (const [pairingSessionId, expiresAtMs] of this.#reservations) {
+      if (expiresAtMs <= now) this.#reservations.delete(pairingSessionId);
+    }
+  }
+
+  #nowMs(): number {
+    const now = this.#now().getTime();
+    if (!Number.isFinite(now)) {
+      throw new Error("Pairing completion repository clock is invalid.");
+    }
+    return now;
   }
 
   async #exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -388,11 +532,34 @@ export class PairingCredentialCompletionService {
     input: ClaimPairingInput,
     context: PairingClaimContext = {},
   ): Promise<CompletedPairingCredential> {
-    const claimed = await this.#pairingService.claimPairingCode(
-      pairingCode,
-      input,
-      context,
+    const admissionId = `admission:${crypto.randomUUID()}`;
+    const admitted = await this.#completionRepository.reserve(admissionId);
+    if (!admitted) throw completionUnavailable();
+
+    let claimed: Awaited<ReturnType<PairingService["claimPairingCode"]>>;
+    try {
+      claimed = await this.#pairingService.claimPairingCode(
+        pairingCode,
+        input,
+        context,
+      );
+    } catch (error) {
+      await this.#completionRepository
+        .delete(admissionId)
+        .catch(() => undefined);
+      throw error;
+    }
+
+    const transferred = await this.#completionRepository.transferReservation(
+      admissionId,
+      claimed.session.pairingSessionId,
     );
+    if (!transferred) {
+      await this.#completionRepository
+        .delete(admissionId)
+        .catch(() => undefined);
+      throw completionUnavailable();
+    }
     return this.#complete(claimed.session, claimed.device, false);
   }
 
@@ -448,6 +615,16 @@ export class PairingCredentialCompletionService {
     this.#completionBySessionId.delete(input.pairingSessionId);
   }
 
+  async forgetPendingCompletion(
+    pairingSessionId: string,
+    preserveDelivered = false,
+  ): Promise<void> {
+    this.#completionBySessionId.delete(pairingSessionId);
+    if (!preserveDelivered) {
+      await this.#completionRepository.delete(pairingSessionId);
+    }
+  }
+
   async #complete(
     session: PairingSession,
     device: Device,
@@ -467,6 +644,11 @@ export class PairingCredentialCompletionService {
         return completedSnapshot(session, device, issued);
       }
 
+      const admitted = await this.#completionRepository.reserve(
+        session.pairingSessionId,
+      );
+      if (!admitted) throw completionUnavailable();
+
       let issued: IssuedDeviceCredential;
       try {
         issued = await this.#credentialService.issue(device.deviceId);
@@ -476,6 +658,9 @@ export class PairingCredentialCompletionService {
           !(error instanceof DeviceCredentialError) ||
           error.code !== "CREDENTIAL_ALREADY_EXISTS"
         ) {
+          await this.#completionRepository
+            .delete(session.pairingSessionId)
+            .catch(() => undefined);
           throw error;
         }
         const recovered = await this.#recover(session, device, null);

@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-**Đã triển khai trong PR #41; đang chờ merge.**
+**Đã triển khai trên `main` qua PR #41; issue #34 đã đóng.**
 
 Issue này xây trên authenticated bridge handshake của #32 và generation-aware device session/liveness của #33. Không thay đổi policy server `new authenticated session replaces old` và không thêm pairing UI, multi-device routing hoặc public MCP endpoint.
 
