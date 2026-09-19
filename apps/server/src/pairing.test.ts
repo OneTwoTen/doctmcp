@@ -5,6 +5,7 @@ import {
   InMemoryDeviceRepository,
 } from "./device-repository";
 import {
+  DEFAULT_PAIRING_CLAIMED_RETENTION_MS,
   DEFAULT_PAIRING_TTL_MS,
   InMemoryPairingSessionRepository,
   PAIRING_CODE_ENTROPY_BITS,
@@ -434,4 +435,28 @@ describe("PairingService", () => {
     } satisfies Partial<DeviceRepositoryError>);
     expect((await service.getPairingSession(SESSION_A))?.state).toBe("pending");
   });
+  test("claimed session survives claim-code TTL pruning and is pruned only after claimed retention", async () => {
+    let nowMs = Date.parse("2026-09-15T06:00:00.000Z");
+    const { service } = createHarness({
+      now: () => new Date(nowMs),
+      generatePairingCode: sequence([CODE_A, CODE_B]),
+      generatePairingSessionId: sequence([SESSION_A, SESSION_B]),
+      generateDeviceId: sequence([DEVICE_A, DEVICE_B]),
+    });
+    await service.createPairingSession();
+    nowMs += DEFAULT_PAIRING_TTL_MS - 1;
+    await service.claimPairingCode(CODE_A, validClaim());
+
+    nowMs += 2;
+    await service.createPairingSession();
+    await expect(service.getPairingSession(SESSION_A)).resolves.toMatchObject({
+      state: "claimed",
+      deviceId: DEVICE_A,
+    });
+
+    nowMs += DEFAULT_PAIRING_CLAIMED_RETENTION_MS;
+    await service.pruneExpiredPairingSessions();
+    await expect(service.getPairingSession(SESSION_A)).resolves.toBeNull();
+  });
+
 });

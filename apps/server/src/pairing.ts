@@ -17,6 +17,7 @@ export const PAIRING_CODE_GROUP_SIZE = 4;
 export const PAIRING_CODE_ENTROPY_BITS = 60;
 export const PAIRING_CREATE_MAX_ATTEMPTS = 5;
 export const DEFAULT_PAIRING_REPOSITORY_MAX_SESSIONS = 10_000;
+export const DEFAULT_PAIRING_CLAIMED_RETENTION_MS = 10 * 60 * 1000;
 export const DEFAULT_PAIRING_EXPIRED_CODE_TOMBSTONES = 100_000;
 
 const PAIRING_CODE_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
@@ -117,6 +118,7 @@ export interface PairingSessionRepository {
 export interface InMemoryPairingSessionRepositoryOptions {
   readonly now?: PairingClock;
   readonly maxSessions?: number;
+  readonly claimedRetentionMs?: number;
 }
 
 interface StoredPairingSession {
@@ -205,6 +207,7 @@ export class InMemoryPairingSessionRepository
   readonly #deviceRepository: DeviceRepository;
   readonly #now: PairingClock;
   readonly #maxSessions: number;
+  readonly #claimedRetentionMs: number;
   readonly #expiredCodeTombstones = new Set<string>();
   readonly #expiredCodeTombstoneOrder: string[] = [];
   readonly #recordsById = new Map<string, StoredPairingSession>();
@@ -219,8 +222,16 @@ export class InMemoryPairingSessionRepository
     this.#now = options.now ?? (() => new Date());
     this.#maxSessions =
       options.maxSessions ?? DEFAULT_PAIRING_REPOSITORY_MAX_SESSIONS;
+    this.#claimedRetentionMs =
+      options.claimedRetentionMs ?? DEFAULT_PAIRING_CLAIMED_RETENTION_MS;
     if (!Number.isSafeInteger(this.#maxSessions) || this.#maxSessions <= 0) {
       throw new Error("maxSessions must be a positive safe integer.");
+    }
+    if (
+      !Number.isSafeInteger(this.#claimedRetentionMs) ||
+      this.#claimedRetentionMs <= 0
+    ) {
+      throw new Error("claimedRetentionMs must be a positive safe integer.");
     }
   }
 
@@ -402,7 +413,11 @@ export class InMemoryPairingSessionRepository
   #pruneExpiredRecords(expiredAtMs: number): number {
     let count = 0;
     for (const [pairingSessionId, record] of this.#recordsById) {
-      if (record.expiresAtMs > expiredAtMs) continue;
+      const pruneAtMs =
+        record.state === "claimed" && record.claimedAtMs !== undefined
+          ? record.claimedAtMs + this.#claimedRetentionMs
+          : record.expiresAtMs;
+      if (pruneAtMs > expiredAtMs) continue;
       this.#recordsById.delete(pairingSessionId);
       this.#sessionIdByDigest.delete(record.codeDigest);
       this.#expiredCodeTombstones.add(record.codeDigest);
