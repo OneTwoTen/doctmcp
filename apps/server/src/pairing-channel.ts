@@ -487,10 +487,7 @@ export class PairingChannelCoordinator {
     const entry = this.#entries.get(pairingSessionId);
     if (!entry) return;
     if (entry.delivery) {
-      this.#rejectWaiters(
-        entry.delivery,
-        new PairingChannelError("TIMEOUT"),
-      );
+      this.#rejectWaiters(entry.delivery, new PairingChannelError("TIMEOUT"));
     }
     entry.socket?.close(1000, "Pairing expired");
     this.#removeEntry(entry);
