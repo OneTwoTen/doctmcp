@@ -1,14 +1,14 @@
 # M6 — Persistence repository boundary
 
-Trạng thái: đang triển khai (#45, #46). Tài liệu này mô tả contract hiện có và các yêu cầu bắt buộc cho SQLite adapter dự kiến; không tuyên bố SQLite đã được đưa vào production.
+Trạng thái: SQLite adapters #48–#50 đã merge; production wiring #51 triển khai theo decision này. Coolify recreate thực tế cần xác nhận theo checklist deployment.
 
 ## Phạm vi dữ liệu
 
 | Domain | Contract hiện có | In-memory adapter hiện có | SQLite adapter dự kiến |
 | --- | --- | --- | --- |
-| Device identity/metadata | `DeviceRepository` | `InMemoryDeviceRepository` | #48 |
-| Device credential lifecycle | `DeviceCredentialRepository` | `InMemoryDeviceCredentialRepository` | #49 |
-| Pairing session | `PairingSessionRepository` | `InMemoryPairingSessionRepository` | #50 |
+| Device identity/metadata | `DeviceRepository` | `InMemoryDeviceRepository` | `SqliteDeviceRepository` (#48) |
+| Device credential lifecycle | `DeviceCredentialRepository` | `InMemoryDeviceCredentialRepository` | `SqliteDeviceCredentialRepository` (#49) |
+| Pairing session | `PairingSessionRepository` | `InMemoryPairingSessionRepository` | `SqlitePairingSessionRepository` (#50) |
 
 Các interface được export từ `apps/server/src/device-repository.ts`, `device-credential.ts` và `pairing.ts`. Service/runtime tiếp tục nhận interface qua dependency injection; không import `bun:sqlite` vào domain/service. Các test in-memory M1–M5 và signature public MCP hiện tại giữ nguyên.
 
@@ -32,8 +32,8 @@ Luồng M5 còn có `PairingCredentialCompletionRepository`: reservation/pending
 
 ## Contract tests và triển khai
 
-Bộ test nằm riêng tại `apps/server/tests/contracts/`, tách khỏi `apps/server/src/` và không được import bởi production entrypoint. `persistent-repository-contract-suite.ts` định nghĩa bộ test dùng lại cho cả in-memory và SQLite (thiết bị/owner scoping, duplicate, credential CAS, expired/reused/concurrent claim, rollback khi tạo device lỗi). `persistent-repository-contract.test.ts` chạy trên adapter in-memory; #48–#50 sẽ bổ sung SQLite factory độc lập và kiểm thử reopen trên file database thật. Không trộn SQLite pairing với in-memory device repository trong các test transaction.
+Bộ test nằm riêng tại `apps/server/tests/contracts/`, tách khỏi `apps/server/src/` và không được import bởi production entrypoint. `persistent-repository-contract-suite.ts` chạy trên cả InMemory và SQLite adapters (owner isolation, credential CAS, pairing concurrency/expiry/rollback). SQLite integration tests đóng/mở DB file thật, gồm transaction fault-injection sau device insert. Production assembly ở #51 dùng chung một connection cho cả bốn repository, không trộn SQLite pairing với in-memory device.
 
 **Fault-injection gate cho #50:** Test rollback do `DeviceRepository.create` ném lỗi trước khi insert là cần nhưng chưa đủ để chứng minh atomic claim. Khi có SQLite pairing adapter, bắt buộc chạy integration test trên cùng SQLite device/pairing repositories và file database thật: cố ý gây lỗi *sau khi insert device thành công nhưng trước hoặc tại bước cập nhật pairing thành claimed* (ví dụ trigger `RAISE(ABORT, ...)` riêng trong test hoặc hook fault-injection tại storage boundary). Sau lỗi, close/reopen database qua một connection mới và xác nhận pairing vẫn pending, không có orphan device; bỏ fault, retry claim phải tạo đúng một device và chuyển pairing thành claimed. Cần kiểm tra tương tự lỗi commit/rollback nếu adapter có đường xử lý riêng. Test này không được thay thế bằng mock/in-memory hoặc thử lỗi duplicate device chỉ xảy ra trước insert.
 
-Verification bắt buộc trước khi đánh dấu #46 hoàn tất: `bun run check`, `bun run typecheck`, `bun test`; #47–#51 bổ sung SQLite integration, migration upgrade và Coolify restart/recreate acceptance theo issue.
+Các PR #52–#57 đã qua CI Linux/Windows. #51 cần check/typecheck/full test, M1–M5 acceptance và restart/reopen test; kiểm chứng Coolify container recreate thực tế vẫn là bước vận hành riêng, không được suy ra từ CI.
