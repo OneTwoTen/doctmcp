@@ -205,7 +205,7 @@ Public server xác minh bearer access token từ authorization server OIDC bên 
 
 Tool set dành riêng cho principal đã xác thực. Alias có dạng `d_<deviceIdHex32>__<localToolName>` để tên thiết bị trùng không gây va chạm. Callback route lại theo owner, device và active credential generation. Một MCP `Client` được initialize một lần và dùng lại cho đúng `BridgeGatewaySession`; session reconnect tạo client mới. Tool catalog vừa khám phá được giữ trong memory để alias cũ báo `DEVICE_OFFLINE` thay vì đổi thiết bị ngầm.
 
-Audit hook chỉ nhận principal opaque, device/tool id, timestamp/duration và outcome/error code; arguments và results không ghi. Repositories mặc định vẫn in-memory cho development/test. Production cần durable repository adapters và deployment process/coordination tương thích trước khi triển khai dùng thật.
+Audit hook chỉ nhận principal opaque, device/tool id, timestamp/duration và outcome/error code; arguments và results không ghi. Domain/service tiếp tục phụ thuộc repository interfaces. M6.6 nối SQLite repositories vào production entrypoint một instance; development/test có thể chọn in-memory tường minh. OIDC/TLS và Coolify persistent volume vẫn cần cấu hình/kiểm chứng khi triển khai hosted.
 
 ## M5 — CLI local và pairing ChatGPT
 
@@ -213,7 +213,7 @@ Local CLI đọc config strict, validate/canonicalize workspace trước khi m�
 
 Pairing frames là control plane riêng; MCP tool discovery/call vẫn đi qua Streamable HTTP → routed MCP Client → authenticated bridge → local MCP. Credential, code và proof không đi vào MCP result/audit. `/pairing/sessions` dùng body limit, strict keys, server-derived remote address và rate guard; HTTP plaintext chỉ được chấp nhận từ loopback. TLS proxy ngoài loopback cần IP peer chính xác trong `TRUSTED_PROXY_ADDRESSES` và phải ghi đè `X-Forwarded-Proto=https`. Pairing record có capacity bound và runtime pruning định kỳ.
 
-`bun run test:m5` chạy local vertical flow bằng Bun server, WebSocket pairing, OAuth verifier fixture, MCP Client thật, file credential provider, bridge reconnect và workspace permission. OIDC tenant, TLS proxy, ChatGPT registration và durable multi-instance storage là cấu hình deployment bên ngoài, chưa được xác nhận từ repository.
+`bun run test:m5` chạy local vertical flow bằng Bun server, WebSocket pairing, OAuth verifier fixture, MCP Client thật, file credential provider, bridge reconnect và workspace permission. M6 triển khai SQLite single-instance; OIDC tenant, TLS proxy, ChatGPT registration và Coolify volume thực tế vẫn cần vận hành bên ngoài. Multi-instance storage/coordination không thuộc M6.
 
 ## Security boundary
 
@@ -239,10 +239,10 @@ Pairing frames là control plane riêng; MCP tool discovery/call vẫn đi qua S
 
 Các quyết định sau vẫn chưa được khóa:
 
-- production database adapter cho user/device registry;
+- multi-instance database/coordination khi cần vượt quá mô hình SQLite một server;
 - persistence/audit log ngoài Device/credential foundation hiện có;
 - OIDC provider cụ thể, tenant, scope/audience registration và public HTTPS domain;
-- deployment target và persistent database/volume;
+- lựa chọn cấu hình VPS/Coolify thực tế, volume mount và kiểm chứng container recreate;
 - installer/tray/auto-update cho local runtime;
 - UX chọn nhiều thiết bị trong ChatGPT;
 - shell mode/PTY/streaming;
