@@ -458,5 +458,4 @@ describe("PairingService", () => {
     await service.pruneExpiredPairingSessions();
     await expect(service.getPairingSession(SESSION_A)).resolves.toBeNull();
   });
-
 });

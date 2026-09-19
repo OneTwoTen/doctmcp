@@ -575,13 +575,10 @@ describe("public MCP endpoint", () => {
       error: { code: "ROUTING_UNAVAILABLE" },
     });
     await expect(
-      server.pairingService.getPairingSession(
-        pairing.session.pairingSessionId,
-      ),
+      server.pairingService.getPairingSession(pairing.session.pairingSessionId),
     ).resolves.toMatchObject({ state: "pending" });
     expect(await server.deviceRepository.listByOwnerId(OWNER_ID)).toHaveLength(
       100,
     );
   });
-
 });
