@@ -98,7 +98,9 @@ export class SqliteDeviceRepository implements DeviceRepository {
    */
   createInTransaction(database: Database, input: CreateDeviceInput): Device {
     if (database !== this.#database) {
-      throw new Error("Pairing and device repositories must share SQLite connection.");
+      throw new Error(
+        "Pairing and device repositories must share SQLite connection.",
+      );
     }
     const parsed = createDeviceInputSchema.safeParse(input);
     if (!parsed.success) {
