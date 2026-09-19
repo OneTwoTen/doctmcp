@@ -56,6 +56,13 @@ async function readBundledMigrations(): Promise<readonly SqlMigration[]> {
         new URL("./migrations/0001_storage_baseline.sql", import.meta.url),
       ).text(),
     },
+    {
+      version: 2,
+      name: "0002_devices",
+      sql: await Bun.file(
+        new URL("./migrations/0002_devices.sql", import.meta.url),
+      ).text(),
+    },
   ];
 }
 
