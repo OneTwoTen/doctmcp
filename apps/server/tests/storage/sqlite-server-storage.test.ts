@@ -25,10 +25,13 @@ async function dataDirectory(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.allSettled(transports.splice(0).map((transport) => transport.close()));
+  await Promise.allSettled(
+    transports.splice(0).map((transport) => transport.close()),
+  );
   await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.stop()));
-  await Promise.all(roots.splice(0).map((root) =>
-    rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
 });
 
 function runtimeFrom(
@@ -53,7 +56,10 @@ async function waitForSession(
   getSession: () => BridgeGatewaySession | undefined,
 ): Promise<BridgeGatewaySession> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Session timed out")), 2_000);
+    const timeout = setTimeout(
+      () => reject(new Error("Session timed out")),
+      2_000,
+    );
     const check = (): void => {
       const value = getSession();
       if (value === undefined) {
@@ -71,26 +77,35 @@ describe("M6.6 production SQLite assembly and restart", () => {
   test("production defaults to sqlite; memory requires explicit non-production opt-in", () => {
     expect(resolveServerStorageMode({})).toBe("sqlite");
     expect(resolveServerStorageMode({ NODE_ENV: "production" })).toBe("sqlite");
-    expect(resolveServerStorageMode({
-      DOCTMCP_STORAGE_MODE: "sqlite",
-      NODE_ENV: "production",
-    })).toBe("sqlite");
-    expect(resolveServerStorageMode({
-      DOCTMCP_STORAGE_MODE: "memory",
-      NODE_ENV: "test",
-    })).toBe("memory");
-    expect(() => resolveServerStorageMode({
-      DOCTMCP_STORAGE_MODE: "memory",
-      NODE_ENV: "production",
-    })).toThrow("memory chỉ dành cho test/development");
-    expect(() => resolveServerStorageMode({
-      DOCTMCP_STORAGE_MODE: "typo",
-    })).toThrow("DOCTMCP_STORAGE_MODE");
+    expect(
+      resolveServerStorageMode({
+        DOCTMCP_STORAGE_MODE: "sqlite",
+        NODE_ENV: "production",
+      }),
+    ).toBe("sqlite");
+    expect(
+      resolveServerStorageMode({
+        DOCTMCP_STORAGE_MODE: "memory",
+        NODE_ENV: "test",
+      }),
+    ).toBe("memory");
+    expect(() =>
+      resolveServerStorageMode({
+        DOCTMCP_STORAGE_MODE: "memory",
+        NODE_ENV: "production",
+      }),
+    ).toThrow("memory chỉ dành cho test/development");
+    expect(() =>
+      resolveServerStorageMode({
+        DOCTMCP_STORAGE_MODE: "typo",
+      }),
+    ).toThrow("DOCTMCP_STORAGE_MODE");
   });
 
   test("SQLite mode không fallback khi thiếu data directory", async () => {
-    await expect(openSqliteServerStorage({ dataDir: "" }))
-      .rejects.toThrow("DOCTMCP_DATA_DIR");
+    await expect(openSqliteServerStorage({ dataDir: "" })).rejects.toThrow(
+      "DOCTMCP_DATA_DIR",
+    );
   });
 
   test("new runtime and new database connection on same volume retains device/credential and routes a real reconnected bridge", async () => {
@@ -103,14 +118,15 @@ describe("M6.6 production SQLite assembly and restart", () => {
       const pairing = await runtime.pairingService.createPairingSession({
         localCorrelationId: "persistent-runtime",
       });
-      const completed = await runtime.pairingCredentialCompletionService.claimAndIssue(
-        pairing.pairingCode,
-        {
-          ownerId: "owner-persistent",
-          deviceName: "Durable device",
-          metadata: { platform: "linux-x64" },
-        },
-      );
+      const completed =
+        await runtime.pairingCredentialCompletionService.claimAndIssue(
+          pairing.pairingCode,
+          {
+            ownerId: "owner-persistent",
+            deviceName: "Durable device",
+            metadata: { platform: "linux-x64" },
+          },
+        );
       deviceId = completed.device.deviceId;
       rawCredential = completed.secret;
       await runtime.pairingCredentialCompletionService.acknowledgeDelivery({
@@ -119,8 +135,10 @@ describe("M6.6 production SQLite assembly and restart", () => {
         credentialId: completed.credential.credentialId,
         credentialVersion: completed.credential.version,
       });
-      expect((await runtime.deviceRouter.getDevice("owner-persistent", deviceId)).status)
-        .toBe("offline");
+      expect(
+        (await runtime.deviceRouter.getDevice("owner-persistent", deviceId))
+          .status,
+      ).toBe("offline");
       await runtime.stop();
     } finally {
       first.close();
@@ -135,12 +153,18 @@ describe("M6.6 production SQLite assembly and restart", () => {
         connected = session;
       });
       expect(second.path).toBe(first.path);
-      expect((await runtime.deviceRouter.listDevices("owner-persistent"))
-        .map((device) => device.deviceId)).toEqual([deviceId]);
-      expect((await runtime.deviceRouter.getDevice("owner-persistent", deviceId)).status)
-        .toBe("offline");
-      await expect(runtime.deviceRouter.resolve("owner-persistent", deviceId))
-        .rejects.toMatchObject({ code: "DEVICE_OFFLINE" });
+      expect(
+        (await runtime.deviceRouter.listDevices("owner-persistent")).map(
+          (device) => device.deviceId,
+        ),
+      ).toEqual([deviceId]);
+      expect(
+        (await runtime.deviceRouter.getDevice("owner-persistent", deviceId))
+          .status,
+      ).toBe("offline");
+      await expect(
+        runtime.deviceRouter.resolve("owner-persistent", deviceId),
+      ).rejects.toMatchObject({ code: "DEVICE_OFFLINE" });
 
       const transport = new BridgeServerTransport({
         url: runtime.gateway.url,
@@ -151,11 +175,15 @@ describe("M6.6 production SQLite assembly and restart", () => {
       const ready = await waitForSession(() => connected);
       expect(ready.state).toBe("ready");
       expect(ready.identity).toEqual({ ownerId: "owner-persistent", deviceId });
-      const routed = await runtime.deviceRouter.resolve("owner-persistent", deviceId);
+      const routed = await runtime.deviceRouter.resolve(
+        "owner-persistent",
+        deviceId,
+      );
       expect(routed.device.status).toBe("online");
       expect(routed.session).toBe(ready);
-      await expect(runtime.deviceRouter.resolve("owner-other", deviceId))
-        .rejects.toMatchObject({ code: "DEVICE_NOT_FOUND" });
+      await expect(
+        runtime.deviceRouter.resolve("owner-other", deviceId),
+      ).rejects.toMatchObject({ code: "DEVICE_NOT_FOUND" });
       await transport.close();
       await runtime.stop();
     } finally {

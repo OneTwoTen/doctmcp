@@ -283,7 +283,9 @@ async function startDoctmcpServer(): Promise<void> {
   }
 
   if (!storage) {
-    console.warn("DOCTMCP_STORAGE_MODE=memory: dữ liệu device/pairing/credential không bền vững (chỉ development/test).");
+    console.warn(
+      "DOCTMCP_STORAGE_MODE=memory: dữ liệu device/pairing/credential không bền vững (chỉ development/test).",
+    );
   }
   console.log(`${SERVER_COMPONENT}: listening on ${runtime.gateway.url}`);
   if (publicMcp) {

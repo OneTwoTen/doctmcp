@@ -1,10 +1,10 @@
 import type { DeviceCredentialRepository } from "../device-credential";
 import type { DeviceRepository } from "../device-repository";
-import type { PairingCredentialCompletionRepository } from "../pairing-credential-completion";
 import type { PairingSessionRepository } from "../pairing";
+import type { PairingCredentialCompletionRepository } from "../pairing-credential-completion";
 import {
-  openSqliteDatabase,
   type OpenSqliteDatabaseOptions,
+  openSqliteDatabase,
   type SqliteDatabaseHandle,
 } from "./sqlite-database";
 import { SqliteDeviceCredentialRepository } from "./sqlite-device-credential-repository";
@@ -47,8 +47,13 @@ export async function openSqliteServerStorage(
   try {
     const devices = new SqliteDeviceRepository(handle.database);
     const credentials = new SqliteDeviceCredentialRepository(handle.database);
-    const pairings = new SqlitePairingSessionRepository(handle.database, devices);
-    const completions = new SqlitePairingCredentialCompletionRepository(handle.database);
+    const pairings = new SqlitePairingSessionRepository(
+      handle.database,
+      devices,
+    );
+    const completions = new SqlitePairingCredentialCompletionRepository(
+      handle.database,
+    );
     return Object.freeze({
       database: handle,
       deviceRepository: devices,
