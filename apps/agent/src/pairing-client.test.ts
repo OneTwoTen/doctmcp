@@ -366,4 +366,93 @@ describe("LocalPairingClient", () => {
     });
     await fixture.client.close();
   });
+  test("does not ACK a credential on a replacement socket while the old socket write is still finishing", async () => {
+    let releaseWrite!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const writeReleased = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    let saved: LocalDeviceCredential | null = null;
+    const provider: DeviceCredentialProvider = {
+      async load() {
+        return saved;
+      },
+      async replace(value) {
+        markWriteStarted();
+        await writeReleased;
+        saved = value;
+      },
+    };
+    const fixture = createFixture(provider);
+    await attach(fixture.client, fixture.getSocket);
+    const first = await waitFor(fixture.getSocket);
+    const waiting = fixture.client.waitForCredential();
+
+    first.emitMessage({
+      kind: "pairing.credential",
+      pairingSessionId: PAIRING_SESSION_ID,
+      deviceId: DEVICE_ID,
+      credentialId: CREDENTIAL_ID,
+      version: 1,
+      credential: SECRET,
+    });
+    await writeStarted;
+    first.close();
+
+    const second = await waitFor(() => fixture.getSockets()[1]);
+    await waitFor(() =>
+      second.sent.find(({ kind }) => kind === "pairing.attach"),
+    );
+    second.emitMessage({
+      kind: "pairing.attached",
+      pairingSessionId: PAIRING_SESSION_ID,
+      expiresAt: "2026-09-18T12:05:00.000Z",
+    });
+    releaseWrite();
+    await Bun.sleep(5);
+    expect(second.sent.some(({ kind }) => kind === "pairing.ack")).toBe(false);
+
+    second.emitMessage({
+      kind: "pairing.credential",
+      pairingSessionId: PAIRING_SESSION_ID,
+      deviceId: DEVICE_ID,
+      credentialId: CREDENTIAL_ID,
+      version: 1,
+      credential: SECRET,
+    });
+    await expect(waiting).resolves.toEqual({
+      deviceId: DEVICE_ID,
+      credential: SECRET,
+    });
+    expect(second.sent.at(-1)).toMatchObject({ kind: "pairing.ack" });
+    await fixture.client.close();
+  });
+
+  test("close during reconnect backoff does not create another socket", async () => {
+    const provider: DeviceCredentialProvider = {
+      async load() {
+        return null;
+      },
+      async replace() {},
+    };
+    const fixture = createFixture(provider);
+    await attach(fixture.client, fixture.getSocket);
+    const first = await waitFor(fixture.getSocket);
+    first.close();
+
+    const second = await waitFor(() => fixture.getSockets()[1]);
+    await waitFor(() =>
+      second.sent.find(({ kind }) => kind === "pairing.attach"),
+    );
+    second.close();
+    await Promise.resolve();
+    await Promise.resolve();
+    await fixture.client.close();
+    await Bun.sleep(35);
+    expect(fixture.getSockets()).toHaveLength(2);
+  });
+
 });

@@ -260,7 +260,7 @@ export class LocalPairingClient {
       }
     };
     const onMessage = (event: Event | MessageEvent): void => {
-      void this.#handleMessage(event, attached);
+      void this.#handleMessage(event, attached, socket);
     };
     const onError = (): void => {
       if (this.#attached && !this.#completed && !this.#closed) {
@@ -351,9 +351,20 @@ export class LocalPairingClient {
           await new Promise((resolve) =>
             setTimeout(resolve, PAIRING_RECONNECT_DELAY_MS),
           );
+          if (
+            this.#closed ||
+            this.#completed ||
+            !this.#sessionId ||
+            !this.#proof ||
+            !this.#socketUrl
+          ) {
+            return;
+          }
         }
 
-        const socket = this.#createWebSocket(this.#socketUrl as string);
+        const socketUrl = this.#socketUrl;
+        if (!socketUrl) return;
+        const socket = this.#createWebSocket(socketUrl);
         this.#socket = socket;
         this.#attached = false;
         const attached = makeDeferred<void>();
@@ -390,7 +401,7 @@ export class LocalPairingClient {
           }
         };
         const onMessage = (event: Event | MessageEvent): void => {
-          void this.#handleMessage(event, attached);
+          void this.#handleMessage(event, attached, socket);
         };
         const onError = (): void => {
           retryOrReject(new LocalPairingClientError("PAIRING_UNAVAILABLE"));
@@ -438,6 +449,7 @@ export class LocalPairingClient {
   async #handleMessage(
     event: Event | MessageEvent,
     attached: ReturnType<typeof makeDeferred<void>>,
+    sourceSocket: PairingWebSocket,
   ): Promise<void> {
     try {
       const data = decodeMessageData((event as MessageEvent).data);
@@ -485,18 +497,33 @@ export class LocalPairingClient {
       try {
         await this.#options.credentialProvider.replace(credential);
       } catch {
-        this.#socket?.send(
-          JSON.stringify({
-            kind: "pairing.error",
-            code: "PAIRING_STORAGE_FAILED",
-          }),
-        );
+        if (this.#socket === sourceSocket && sourceSocket.readyState === 1) {
+          try {
+            sourceSocket.send(
+              JSON.stringify({
+                kind: "pairing.error",
+                code: "PAIRING_STORAGE_FAILED",
+              }),
+            );
+          } catch {
+            // Storage failure remains authoritative even if the socket is gone.
+          }
+        }
         throw new LocalPairingClientError("PAIRING_STORAGE_FAILED");
       }
-      if (this.#closed || this.#socket === null) {
+      if (this.#closed) {
         throw new LocalPairingClientError("PAIRING_CLOSED");
       }
-      this.#socket.send(
+      if (
+        this.#socket !== sourceSocket ||
+        !this.#attached ||
+        sourceSocket.readyState !== 1
+      ) {
+        // Credential is durable locally. The active/replacement socket will
+        // receive the same pending delivery and perform its own matching ACK.
+        return;
+      }
+      sourceSocket.send(
         JSON.stringify({
           kind: "pairing.ack",
           pairingSessionId: message.pairingSessionId,
