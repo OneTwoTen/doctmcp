@@ -2,7 +2,7 @@
 
 Tài liệu này dành cho người muốn clone repository, chạy doctmcp local, kết nối một máy local với public server và pairing để MCP client/ChatGPT gọi được local MCP runtime.
 
-> Trạng thái: hướng dẫn theo implementation M1–M5 hiện có. OIDC, HTTPS domain, OAuth registration và production persistence vẫn là cấu hình deployment bên ngoài.
+> Trạng thái: M1–M6 có implementation và CI local; OIDC, HTTPS domain, OAuth registration và mount Coolify thực tế vẫn cần cấu hình/xác nhận trong deployment. Xem [Coolify SQLite](deployment/coolify-sqlite.md).
 
 ## 1. Kiến trúc sử dụng
 
@@ -108,8 +108,10 @@ Permission được enforce ở local.
 Public server nằm trong apps/server.
 
 ```sh
-bun run dev:server
+DOCTMCP_STORAGE_MODE=memory bun run dev:server
 ```
+
+Trong PowerShell, đặt `$env:DOCTMCP_STORAGE_MODE = "memory"` trước khi chạy `bun run dev:server`. Local/test chỉ dùng memory khi bật tường minh. Nếu muốn thử SQLite, đặt `DOCTMCP_STORAGE_MODE=sqlite` và `DOCTMCP_DATA_DIR` tới directory có quyền ghi, tách khỏi code/release; production bắt buộc SQLite và persistent volume.
 
 Nếu chưa cấu hình OIDC, gateway/bridge vẫn phục vụ development nhưng public /mcp không được bật.
 
@@ -366,7 +368,7 @@ Kiểm tra credentialPath, quyền ghi file và file ~/.doctmcp/device-credentia
 
 ### Restart server làm mất device/pairing state
 
-Đây là giới hạn hiện tại. Repository mặc định dùng in-memory repositories cho development/test. Production multi-instance/restart cần durable persistence và coordination dùng chung.
+Kiểm tra `DOCTMCP_STORAGE_MODE` (production cần `sqlite`) và persistent volume `DOCTMCP_DATA_DIR`. Nếu chạy `memory`, dữ liệu chỉ tồn tại trong process. Trong Coolify, mount volume riêng vào `/data` và dùng lại volume đó khi redeploy/recreate; xem [hướng dẫn SQLite](deployment/coolify-sqlite.md). Trạng thái online chỉ trở lại sau khi local bridge reconnect.
 
 ## 13. Những gì chưa production-ready
 
@@ -375,8 +377,8 @@ Implementation M1–M5 đã có local acceptance và cross-platform CI, nhưng d
 - OIDC tenant/provider thực tế;
 - public HTTPS domain;
 - OAuth client registration;
-- durable device/pairing/credential persistence;
-- multi-instance deployment coordination;
+- xác nhận persistent volume và container recreate trên Coolify thực tế (code SQLite đã triển khai);
+- multi-instance deployment coordination (không thuộc M6);
 - production reverse proxy/TLS;
 - installer/OS service/auto-update cho local runtime;
 - production monitoring.
@@ -422,3 +424,4 @@ Xem thêm:
 - pairing.md
 - security.md
 - testing/m5-chatgpt.md
+- deployment/coolify-sqlite.md
