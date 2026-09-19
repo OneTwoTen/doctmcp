@@ -454,5 +454,4 @@ describe("LocalPairingClient", () => {
     await Bun.sleep(35);
     expect(fixture.getSockets()).toHaveLength(2);
   });
-
 });

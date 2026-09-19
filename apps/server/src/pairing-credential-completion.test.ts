@@ -328,5 +328,4 @@ describe("PairingCredentialCompletionService", () => {
       state: "active",
     });
   });
-
 });
