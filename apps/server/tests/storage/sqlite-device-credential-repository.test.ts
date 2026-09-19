@@ -28,9 +28,8 @@ async function tempDir(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await Promise.all(roots.splice(0).map((root) =>
+    rm(root, { recursive: true, force: true })));
 });
 
 async function withRepositories(
@@ -41,12 +40,9 @@ async function withRepositories(
 ): Promise<void> {
   const db = await openSqliteDatabase({ dataDir: await tempDir() });
   try {
-    await run(
-      new SqliteDeviceRepository(db.database, {
-        generateDeviceId: () => DEVICE_A,
-      }),
-      new SqliteDeviceCredentialRepository(db.database),
-    );
+    await run(new SqliteDeviceRepository(db.database, {
+      generateDeviceId: () => DEVICE_A,
+    }), new SqliteDeviceCredentialRepository(db.database));
   } finally {
     db.close();
   }
@@ -65,80 +61,50 @@ describe("M6.4 SQLite credential repository", () => {
     await withRepositories(async (device, credentials) => {
       await addDevice(device);
       const first = await credentials.issue({
-        deviceId: DEVICE_A,
-        credentialId: CREDENTIAL_A,
-        secretDigest: DIGEST_A,
-        createdAt: CREATED_AT,
+        deviceId: DEVICE_A, credentialId: CREDENTIAL_A,
+        secretDigest: DIGEST_A, createdAt: CREATED_AT,
       });
       expect(first.version).toBe(1);
       expect(JSON.stringify(first)).not.toContain(DIGEST_A);
-      await expect(
-        credentials.issue({
-          deviceId: DEVICE_A,
-          credentialId: CREDENTIAL_B,
-          secretDigest: DIGEST_B,
-          createdAt: CREATED_AT,
-        }),
-      ).rejects.toMatchObject({ code: "CREDENTIAL_ALREADY_EXISTS" });
+      await expect(credentials.issue({
+        deviceId: DEVICE_A, credentialId: CREDENTIAL_B,
+        secretDigest: DIGEST_B, createdAt: CREATED_AT,
+      })).rejects.toMatchObject({ code: "CREDENTIAL_ALREADY_EXISTS" });
       expect((await credentials.verify(DEVICE_A, DIGEST_A))?.credentialId).toBe(
         CREDENTIAL_A,
       );
       expect(await credentials.verify(DEVICE_A, DIGEST_B)).toBeNull();
-      expect(
-        (
-          await credentials.revoke({
-            deviceId: DEVICE_A,
-            expectedCredentialId: CREDENTIAL_A,
-            expectedVersion: 1,
-            revokedAt: new Date(CREATED_AT.getTime() + 1000),
-          })
-        )?.state,
-      ).toBe("revoked");
+      expect((await credentials.revoke({
+        deviceId: DEVICE_A, expectedCredentialId: CREDENTIAL_A,
+        expectedVersion: 1, revokedAt: new Date(CREATED_AT.getTime() + 1000),
+      }))?.state).toBe("revoked");
       expect(await credentials.verify(DEVICE_A, DIGEST_A)).toBeNull();
-      await expect(
-        credentials.issue({
-          deviceId: DEVICE_A,
-          credentialId: CREDENTIAL_A,
-          secretDigest: DIGEST_B,
-          createdAt: new Date(CREATED_AT.getTime() + 2000),
-        }),
-      ).rejects.toMatchObject({ code: "CREDENTIAL_ID_CONFLICT" });
+      await expect(credentials.issue({
+        deviceId: DEVICE_A, credentialId: CREDENTIAL_A,
+        secretDigest: DIGEST_B, createdAt: new Date(CREATED_AT.getTime() + 2000),
+      })).rejects.toMatchObject({ code: "CREDENTIAL_ID_CONFLICT" });
       const second = await credentials.issue({
-        deviceId: DEVICE_A,
-        credentialId: CREDENTIAL_B,
-        secretDigest: DIGEST_B,
-        createdAt: new Date(CREATED_AT.getTime() + 2000),
+        deviceId: DEVICE_A, credentialId: CREDENTIAL_B,
+        secretDigest: DIGEST_B, createdAt: new Date(CREATED_AT.getTime() + 2000),
       });
       expect(second.version).toBe(2);
-      expect(
-        await credentials.revoke({
-          deviceId: DEVICE_A,
-          expectedCredentialId: CREDENTIAL_A,
-          expectedVersion: 1,
-          revokedAt: new Date(CREATED_AT.getTime() + 3000),
-        }),
-      ).toBeNull();
+      expect((await credentials.revoke({
+        deviceId: DEVICE_A, expectedCredentialId: CREDENTIAL_A,
+        expectedVersion: 1, revokedAt: new Date(CREATED_AT.getTime() + 3000),
+      }))).toBeNull();
       const third = await credentials.rotate({
-        deviceId: DEVICE_A,
-        expectedCredentialId: CREDENTIAL_B,
-        expectedVersion: 2,
-        credentialId: CREDENTIAL_C,
-        secretDigest: DIGEST_C,
-        rotatedAt: new Date(CREATED_AT.getTime() + 3000),
+        deviceId: DEVICE_A, expectedCredentialId: CREDENTIAL_B,
+        expectedVersion: 2, credentialId: CREDENTIAL_C,
+        secretDigest: DIGEST_C, rotatedAt: new Date(CREATED_AT.getTime() + 3000),
       });
       expect(third.version).toBe(3);
       expect(await credentials.verify(DEVICE_A, DIGEST_B)).toBeNull();
       expect((await credentials.verify(DEVICE_A, DIGEST_C))?.version).toBe(3);
-      await expect(
-        credentials.rotate({
-          deviceId: DEVICE_A,
-          expectedCredentialId: CREDENTIAL_B,
-          expectedVersion: 2,
-          credentialId: CREDENTIAL_A,
-          secretDigest: DIGEST_A,
-          rotatedAt: new Date(CREATED_AT.getTime() + 4000),
-        }),
-      ).rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
+      await expect(credentials.rotate({
+        deviceId: DEVICE_A, expectedCredentialId: CREDENTIAL_B,
+        expectedVersion: 2, credentialId: CREDENTIAL_A,
+        secretDigest: DIGEST_A, rotatedAt: new Date(CREATED_AT.getTime() + 4000),
+      })).rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
     });
   });
 
@@ -146,21 +112,12 @@ describe("M6.4 SQLite credential repository", () => {
     await withRepositories(async (device, credentials) => {
       await addDevice(device);
       const issued = await Promise.allSettled([
-        credentials.issue({
-          deviceId: DEVICE_A,
-          credentialId: CREDENTIAL_A,
-          secretDigest: DIGEST_A,
-          createdAt: CREATED_AT,
-        }),
-        credentials.issue({
-          deviceId: DEVICE_A,
-          credentialId: CREDENTIAL_B,
-          secretDigest: DIGEST_B,
-          createdAt: CREATED_AT,
-        }),
+        credentials.issue({ deviceId: DEVICE_A, credentialId: CREDENTIAL_A,
+          secretDigest: DIGEST_A, createdAt: CREATED_AT }),
+        credentials.issue({ deviceId: DEVICE_A, credentialId: CREDENTIAL_B,
+          secretDigest: DIGEST_B, createdAt: CREATED_AT }),
       ]);
-      expect(
-        issued.filter((result) => result.status === "fulfilled"),
+      expect(issued.filter((result) => result.status === "fulfilled")).toHaveLength(1);
       const current = await credentials.getActive(DEVICE_A);
       expect(current?.version).toBe(1);
       if (!current) throw new Error("Missing credential after issue");
