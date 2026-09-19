@@ -536,7 +536,7 @@ export class PairingCredentialCompletionService {
     const admitted = await this.#completionRepository.reserve(admissionId);
     if (!admitted) throw completionUnavailable();
 
-    let claimed;
+    let claimed: Awaited<ReturnType<PairingService["claimPairingCode"]>>;
     try {
       claimed = await this.#pairingService.claimPairingCode(
         pairingCode,
@@ -544,7 +544,9 @@ export class PairingCredentialCompletionService {
         context,
       );
     } catch (error) {
-      await this.#completionRepository.delete(admissionId).catch(() => undefined);
+      await this.#completionRepository
+        .delete(admissionId)
+        .catch(() => undefined);
       throw error;
     }
 
@@ -553,7 +555,9 @@ export class PairingCredentialCompletionService {
       claimed.session.pairingSessionId,
     );
     if (!transferred) {
-      await this.#completionRepository.delete(admissionId).catch(() => undefined);
+      await this.#completionRepository
+        .delete(admissionId)
+        .catch(() => undefined);
       throw completionUnavailable();
     }
     return this.#complete(claimed.session, claimed.device, false);
