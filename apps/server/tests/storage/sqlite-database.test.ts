@@ -60,7 +60,10 @@ describe("M6.2 SQLite bootstrap and migrations", () => {
         opened.database
           .query("SELECT version, name FROM schema_migrations")
           .all(),
-      ).toEqual([{ version: 1, name: "0001_storage_baseline" }]);
+      ).toEqual([
+        { version: 1, name: "0001_storage_baseline" },
+        { version: 2, name: "0002_devices" },
+      ]);
     } finally {
       opened.close();
     }
