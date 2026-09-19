@@ -100,7 +100,9 @@ function applyMigrations(
       try {
         database.exec(migration.sql);
         database
-          .query("INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)")
+          .query(
+            "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
+          )
           .run(migration.version, migration.name);
       } catch (error) {
         throw new Error(
@@ -132,8 +134,10 @@ export async function openSqliteDatabase(
   options: OpenSqliteDatabaseOptions = {},
 ): Promise<SqliteDatabaseHandle> {
   const dataDir = options.dataDir ?? process.env.DOCTMCP_DATA_DIR;
-  if (!dataDir || !dataDir.trim()) {
-    throw new Error("DOCTMCP_DATA_DIR phải là đường dẫn data directory hợp lệ.");
+  if (!dataDir?.trim()) {
+    throw new Error(
+      "DOCTMCP_DATA_DIR phải là đường dẫn data directory hợp lệ.",
+    );
   }
 
   const migrations = options.migrations ?? (await readBundledMigrations());
@@ -149,9 +153,9 @@ export async function openSqliteDatabase(
     database.exec("PRAGMA foreign_keys = ON;");
     database.exec("PRAGMA synchronous = FULL;");
 
-    const journalMode = database.query("PRAGMA journal_mode;").get() as
-      | { journal_mode: string }
-      | null;
+    const journalMode = database.query("PRAGMA journal_mode;").get() as {
+      journal_mode: string;
+    } | null;
     if (journalMode?.journal_mode.toLowerCase() !== "wal") {
       throw new Error("SQLite không thể bật WAL trên data directory đã chọn.");
     }
