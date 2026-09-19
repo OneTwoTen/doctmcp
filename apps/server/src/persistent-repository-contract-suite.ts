@@ -281,7 +281,9 @@ export function describePersistentRepositoryContract(
           (await pairings.cancel(SESSION_A, new Date(CREATED_AT_MS + 1000)))
             .state,
         ).toBe("cancelled");
-        await expect(pairings.claim(claim("owner-a", DIGEST_A))).rejects.toMatchObject({
+        await expect(
+          pairings.claim(claim("owner-a", DIGEST_A)),
+        ).rejects.toMatchObject({
           code: "PAIRING_CODE_UNAVAILABLE",
         });
         setNow(CREATED_AT_MS + 60_000);
