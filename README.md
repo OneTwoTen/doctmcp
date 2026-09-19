@@ -178,10 +178,14 @@ Entrypoint phát triển:
 
 ```sh
 bun run dev:agent
-bun run dev:server
+DOCTMCP_STORAGE_MODE=memory bun run dev:server
 ```
 
-Xem hướng dẫn chi tiết tại [development.md](docs/development.md).
+Production mặc định `DOCTMCP_STORAGE_MODE=sqlite` và bắt buộc
+`DOCTMCP_DATA_DIR` trỏ tới persistent volume nằm ngoài `/app`.
+Triển khai Coolify một instance: mount `/data` và đặt
+`DOCTMCP_DATA_DIR=/data`. Xem [Coolify SQLite](docs/deployment/coolify-sqlite.md)
+và [development.md](docs/development.md).
 
 ## Nguyên tắc kiến trúc
 

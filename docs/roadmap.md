@@ -240,7 +240,7 @@ Phạm vi dự kiến:
 - xử lý offline/timeout/error rõ ràng;
 - audit metadata tối thiểu.
 
-Decision về Bun web-standard listener, Streamable HTTP SDK và OIDC resource server được ghi trong [decision M4](decisions/2026-09-17-public-mcp-endpoint.md). Repositories hiện tại mặc định in-memory; production persistence/deployment vẫn cần adapter bền vững.
+Decision về Bun web-standard listener, Streamable HTTP SDK và OIDC resource server được ghi trong [decision M4](decisions/2026-09-17-public-mcp-endpoint.md). SQLite single-instance production được lắp vào server entrypoint ở M6; external OIDC/TLS/Coolify deployment vẫn cần cấu hình thực tế.
 
 ## M5 — ChatGPT integration
 
@@ -255,7 +255,13 @@ Decision về Bun web-standard listener, Streamable HTTP SDK và OIDC resource s
 - local bridge reconnect, device listing, alias route và permission enforcement;
 - fixture end-to-end chạy public MCP/bridge/local runtime thật.
 
-Giới hạn còn lại trước triển khai hosted: cần OIDC issuer/audience, public HTTPS/TLS proxy, OAuth client/redirect URI do ChatGPT workspace cung cấp và kiểm thử thủ công qua ChatGPT thật. Repository chưa có durable multi-instance adapters; server state mặc định in-memory và chỉ phù hợp dev/test một process. Xem [M5 acceptance](testing/m5-chatgpt.md).
+Giới hạn còn lại trước triển khai hosted: cần OIDC issuer/audience, public HTTPS/TLS proxy, OAuth client/redirect URI do ChatGPT workspace cung cấp và kiểm thử thủ công qua ChatGPT thật. M6 đã bổ sung SQLite cho production một instance; multi-instance coordination ngoài scope M6. Xem [M5 acceptance](testing/m5-chatgpt.md) và [Coolify SQLite](deployment/coolify-sqlite.md).
+
+## M6 — SQLite persistent storage cho production một instance
+
+M6.1–M6.5: repository contracts, migration runner và SQLite device/credential/pairing/completion adapters đã merge qua #52–#57. M6.6/#51 nối bốn repository vào production entrypoint trước khi listener chạy, mặc định SQLite và bắt buộc persistent data directory; memory chỉ được bật tường minh ở dev/test. Contract, transaction fault-injection, close/reopen và authenticated bridge reconnect được kiểm thử trong [M6 acceptance](testing/m6-sqlite-bootstrap.md).
+
+Triển khai Coolify/VPS thật cần người vận hành mount volume /data và xác nhận container recreate giữ dữ liệu theo [checklist Coolify](deployment/coolify-sqlite.md). Không coi CI mô phỏng runtime restart là bằng chứng đã thực thi recreate trên VPS. M6 không gồm PostgreSQL, backup hay multi-instance.
 
 ## Giai đoạn sau
 

@@ -2,7 +2,10 @@ import { createOidcAccessTokenVerifier } from "./public-mcp-auth";
 import { createPublicMcpEndpoint } from "./public-mcp-endpoint";
 import { createPublicPairingEndpoint } from "./public-pairing-endpoint";
 import { createDoctmcpServerRuntime } from "./server-runtime";
-import { openSqliteDatabase } from "./storage/sqlite-database";
+import {
+  openSqliteServerStorage,
+  resolveServerStorageMode,
+} from "./storage/sqlite-server-storage";
 
 export const SERVER_COMPONENT = "doctmcp-server";
 
@@ -192,18 +195,26 @@ async function startDoctmcpServer(): Promise<void> {
     request: Request,
     _context?: import("./gateway").BridgeGatewayHttpContext,
   ): Promise<Response> => publicMcpFetch(request);
-  // Bootstrap/migrations phải hoàn tất trước khi gateway bắt đầu listen.
-  // M6.2 chỉ chuẩn bị schema; production repository wiring thuộc M6.3–M6.6.
+  // Fail closed: production defaults to SQLite and DOCTMCP_DATA_DIR is required.
+  // Migrations complete before gateway listen; memory mode is opt-in for tests/dev.
+  const storageMode = resolveServerStorageMode(process.env);
   const storage =
-    process.env.DOCTMCP_DATA_DIR !== undefined
-      ? await openSqliteDatabase()
-      : undefined;
+    storageMode === "sqlite" ? await openSqliteServerStorage() : undefined;
   let runtime: ReturnType<typeof createDoctmcpServerRuntime>;
   try {
     runtime = createDoctmcpServerRuntime({
       host: process.env.BIND_HOST ?? "127.0.0.1",
       port: Number(process.env.PORT ?? 3000),
       httpHandler: (request, context) => publicHttpFetch(request, context),
+      ...(storage
+        ? {
+            deviceRepository: storage.deviceRepository,
+            credentialRepository: storage.credentialRepository,
+            pairingRepository: storage.pairingRepository,
+            pairingCredentialCompletionRepository:
+              storage.pairingCredentialCompletionRepository,
+          }
+        : {}),
     });
   } catch (error) {
     storage?.close();
@@ -271,9 +282,9 @@ async function startDoctmcpServer(): Promise<void> {
     throw error;
   }
 
-  if (storage) {
+  if (!storage) {
     console.warn(
-      "SQLite schema ready; device/credential/pairing repositories vẫn in-memory cho đến M6.6.",
+      "DOCTMCP_STORAGE_MODE=memory: dữ liệu device/pairing/credential không bền vững (chỉ development/test).",
     );
   }
   console.log(`${SERVER_COMPONENT}: listening on ${runtime.gateway.url}`);

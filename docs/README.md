@@ -51,6 +51,12 @@ Tài liệu chi tiết cho milestone nền:
 - [spec M3.6 device routing](specs/2026-09-17-m3-multidevice-routing-design.md) và [plan #35](plans/2026-09-17-issue-35-multidevice-routing.md): implementation và target verification đã hoàn tất trong nhánh hiện tại.
 - [spec M3.7 vertical acceptance](specs/2026-09-17-m3-vertical-acceptance-design.md), [plan #36](plans/2026-09-17-issue-36-m3-acceptance.md) và [test strategy](testing/m3-acceptance.md): `test:m3` xanh local; CI/cross-platform verification xanh trong [run 35359769097](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097).
 
+## M6 — SQLite production persistence
+
+- [Persistence boundary M6](decisions/2026-09-19-m6-persistence-boundary.md): repository interfaces, atomic pairing/credential recovery và runtime boundary.
+- [M6 SQLite acceptance](testing/m6-sqlite-bootstrap.md): migrations, contract/reopen và authenticated reconnect tests.
+- [Coolify SQLite](deployment/coolify-sqlite.md): /data persistent volume, production config, restart/recreate checklist và giới hạn kiểm chứng VPS thật.
+
 ## Contract và vận hành
 
 - [protocol.md](protocol.md): ranh giới giữa MCP data plane và protocol control plane riêng của doctmcp.

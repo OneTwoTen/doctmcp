@@ -1,29 +1,76 @@
-# M6.2 — SQLite bootstrap và versioned migrations
+# M6 — SQLite bootstrap, repository và restart acceptance
 
-Trạng thái: đang triển khai trong #47. M6.2 chỉ tạo database layer và migration runner; **chưa persist device, credential hoặc pairing**. Production repository wiring và Coolify acceptance thuộc #48–#51.
+Trạng thái: implementation M6.1–M6.6, cần đối chiếu CI của PR #58
+và checklist recreate thực tế trong [Coolify SQLite](../deployment/coolify-sqlite.md).
+Không nhầm CI reopen SQLite trên runner với đã deploy trên VPS.
 
-## Cấu hình và lifecycle
+## Production storage và lifecycle
 
-- Chỉ khi `DOCTMCP_DATA_DIR` được đặt, server entrypoint mới mở SQLite và chạy migrations **trước khi gateway listen**. Nếu migration fail, startup fail, không khởi động gateway.
-- Với môi trường hiện còn chạy M1–M5 in-memory, có thể không đặt biến này. Không có fallback `./data`, `/app` hoặc path build/release.
-- Coolify (đến M6.6): mount persistent volume tại `/data`, đặt `DOCTMCP_DATA_DIR=/data`; không dùng thư mục `/app`. Data directory cần thuộc quyền sở hữu và chỉ được đọc/ghi bởi account chạy server. Đảm bảo volume có quyền tạo file, `-wal` và `-shm` cạnh `doctmcp.db`.
-- Database file: `<DOCTMCP_DATA_DIR>/doctmcp.db`. Database connection được đóng khi server dừng hoặc startup thất bại sau khi bootstrap.
-- SQLite: `journal_mode=WAL`, `foreign_keys=ON`, `synchronous=FULL` và `busy_timeout=5000`. Dữ liệu domain vẫn in-memory cho đến khi các adapters được nối vào runtime ở #51.
+Server entrypoint dùng `DOCTMCP_STORAGE_MODE=sqlite` mặc định.
+`DOCTMCP_DATA_DIR` bắt buộc, trỏ đến volume bền vững nằm ngoài
+release/application directory. `DOCTMCP_STORAGE_MODE=memory` chỉ dành cho
+development/test khi chọn tường minh, bị reject nếu `NODE_ENV=production`.
 
-## Migration contract
+Trước khi gateway listen, mở SQLite, tạo data directory, bật WAL,
+foreign keys, busy timeout, synchronous FULL và apply toàn bộ migrations
+transactional. Bootstrap/migration lỗi khiến startup fail, không fallback
+sang memory. Shutdown/khởi tạo public MCP lỗi vẫn đóng database connection.
 
-Migrations SQL versioned nằm trong `apps/server/src/storage/migrations/` và được liệt kê tường minh theo thứ tự trong `readBundledMigrations`; tạo file mới **không tự động** khiến file đó được chạy. Mỗi migration mới cần tăng version và cập nhật danh sách, không chỉnh sửa lịch sử migration đã phát hành.
+Versioned SQL migrations được đăng ký trong `sqlite-database.ts`:
+- `0001_storage_baseline`: schema migration metadata/index;
+- `0002_devices`: immutable device ID/owner, metadata, timestamps và owner index;
+- `0003_device_credentials`: chỉ lưu digest/generation và global used-ID ledger;
+- `0004_pairing_sessions`: pairing digest/state/expiry, code tombstones, durable
+  completion reservation/recovery/ACK metadata.
 
-`schema_migrations` ghi version/name/time. Bootstrap chạy `BEGIN IMMEDIATE`, so khớp lịch sử đã áp dụng với danh sách bundled, chạy phần mới, ghi version rồi `COMMIT`. Sai thứ tự, thiếu history/version cao hơn release, SQL lỗi hoặc schema không tương thích đều rollback, đóng database và làm startup fail. Không drop/recreate database cũ. Khi triển khai multi-process/multi-instance ngoài phạm vi M6, cần thiết kế lại coordination tương ứng.
+Không sửa migration đã phát hành, không drop/recreate dữ liệu cũ khi upgrade.
 
-Baseline `0001_storage_baseline.sql` chỉ khóa tên migration duy nhất. Các bảng domain sẽ được tạo bằng migration mới khi triển khai #48–#50; không coi việc tạo `doctmcp.db` là bằng chứng đã hoàn tất persistence.
+## Repository và security boundary
 
-## Verification
+`DeviceRepository`, `DeviceCredentialRepository`,
+`PairingSessionRepository` và `PairingCredentialCompletionRepository`
+vẫn là interfaces của domain/service. SQLite adapter dùng cùng một migrated
+database connection. Pairing claim dùng synchronous device insert bên trong
+transaction BEGIN IMMEDIATE của pairing adapter; không `await` giữa
+device insert và cập nhật session.
 
-`apps/server/tests/storage/sqlite-database.test.ts` kiểm thử data directory chưa tồn tại, WAL/foreign key, close/reopen, migration upgrade không mất record, rollback khi SQL lỗi, rejected history/sai thứ tự và concurrent bootstrap. Chạy `bun run check`, `bun run typecheck`, `bun test` và các acceptance suite liên quan trước khi merge.
+Persist device identity/metadata, credential digest/lifecycle, pairing digest
+và completion/recovery metadata. Không persist WebSocket, live status,
+`DeviceSessionRegistry`, raw secret, MCP runtime, local workspace hoặc
+online/offline derived state. Crash trong lúc chưa ACK sẽ khôi phục qua
+credential rotate và phát secret mới; secret cũ không được log hoặc lưu.
 
-## History
+## Test matrix
 
-| Ngày | Thay đổi | Trạng thái |
-| --- | --- | --- |
-| 2026-09-19 | Bổ sung bootstrap SQLite và versioned migration runner cho #47 | đang triển khai |
+- `sqlite-database.test.ts`: fresh/reopen/migration upgrade/order/rollback/
+  concurrent bootstrap và require data directory.
+- `sqlite-device-repository.test.ts`: shared device contract, owner isolation,
+  immutable ID, duplicate hai connections, reopen và V1→V4 upgrade.
+- `sqlite-device-credential-repository.test.ts`: issue/revoke/rotate/CAS,
+  monotonic generation, raw secret không persist, reauthenticate qua reopen.
+- `sqlite-pairing-repository.test.ts`: shared InMemory/SQLite full repository
+  contract, single-use/expiry, post-insert fault-injection SQLite transaction
+  rollback qua close/reopen và resume credential/ACK qua restart.
+- `sqlite-pairing-recovery-crash.test.ts`: SQLite reopen tại các cửa sổ crash
+  sau claim/trước issue, sau issue/trước pending và sau reserved rotate/trước finalize.
+- `sqlite-server-storage.test.ts`: production mode fail-closed,
+  assembly đúng repository, runtime mới với database connection mới dùng
+  cùng volume, authenticated bridge reconnect và owner-scoped routing.
+
+Chạy từ root:
+
+```sh
+bun run check
+bun run typecheck
+bun test
+bun run test:local
+bun run test:m2
+bun run test:m3
+bun run test:m4
+bun run test:m5
+```
+
+CI Linux quality/full suite và Windows M1–M5 acceptance phải đều xanh.
+Việc kiểm chứng **Coolify container recreate thật** là checklist vận hành
+tách biệt trong tài liệu deployment, không được khai báo đã chạy nếu chưa
+có quyền truy cập Coolify/VPS.
