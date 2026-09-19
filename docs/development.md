@@ -45,10 +45,15 @@ Entrypoint scaffold:
 
 ```sh
 bun run dev:agent
-bun run dev:server
+DOCTMCP_STORAGE_MODE=memory bun run dev:server
 ```
 
-M1–M5 implementation và target acceptance đã hoàn tất trong nhánh hiện tại; Linux quality/full suite và Windows acceptance M1–M5 đều xanh trong [CI run](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097). `dev:server` chỉ bật public `/mcp` khi OIDC config hợp lệ; chỉ thấy process listen không chứng minh external OAuth/ChatGPT đã kết nối được. Hosted auth và durable production persistence vẫn cần cấu hình triển khai.
+Local memory là lựa chọn tường minh cho development/test; PowerShell: đặt
+`$env:DOCTMCP_STORAGE_MODE = "memory"` trước khi chạy `bun run dev:server`.
+Production mặc định SQLite và yêu cầu `DOCTMCP_DATA_DIR` trên persistent
+volume. Xem [Coolify SQLite](deployment/coolify-sqlite.md).
+
+M1–M5 implementation và target acceptance đã hoàn tất trong nhánh hiện tại; Linux quality/full suite và Windows acceptance M1–M5 đều xanh trong [CI run](https://github.com/OneTwoTen/doctmcp/actions/runs/35359769097). `dev:server` chỉ bật public `/mcp` khi OIDC config hợp lệ; chỉ thấy process listen không chứng minh external OAuth/ChatGPT đã kết nối được. Hosted auth và persistent volume production vẫn cần cấu hình/xác nhận triển khai, trong khi SQLite repository đã có implementation/acceptance trong M6.
 
 ## Chạy public MCP với authorization server
 
