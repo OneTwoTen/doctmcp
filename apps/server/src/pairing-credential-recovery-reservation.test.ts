@@ -77,6 +77,10 @@ class FailFirstFinishRepository
   ) {
     return this.delegate.acknowledge(input);
   }
+
+  delete(pairingSessionId: string) {
+    return this.delegate.delete(pairingSessionId);
+  }
 }
 
 async function createFixture() {
