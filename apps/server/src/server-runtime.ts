@@ -498,7 +498,7 @@ export function createDoctmcpServerRuntime(
         await pairingCredentialCompletionRepository.reserve(admissionId);
       if (!admitted) throw completionUnavailable();
 
-      let claimed;
+      let claimed: Awaited<ReturnType<PairingService["claimPairingCode"]>>;
       try {
         claimed = await pairingService.claimPairingCode(
           pairingCode,
