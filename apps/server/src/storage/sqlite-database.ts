@@ -70,6 +70,13 @@ async function readBundledMigrations(): Promise<readonly SqlMigration[]> {
         new URL("./migrations/0003_device_credentials.sql", import.meta.url),
       ).text(),
     },
+    {
+      version: 4,
+      name: "0004_pairing_sessions",
+      sql: await Bun.file(
+        new URL("./migrations/0004_pairing_sessions.sql", import.meta.url),
+      ).text(),
+    },
   ];
 }
 

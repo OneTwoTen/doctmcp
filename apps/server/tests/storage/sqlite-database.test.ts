@@ -64,6 +64,7 @@ describe("M6.2 SQLite bootstrap and migrations", () => {
         { version: 1, name: "0001_storage_baseline" },
         { version: 2, name: "0002_devices" },
         { version: 3, name: "0003_device_credentials" },
+        { version: 4, name: "0004_pairing_sessions" },
       ]);
     } finally {
       opened.close();

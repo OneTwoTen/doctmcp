@@ -88,6 +88,20 @@ export class SqliteDeviceRepository implements DeviceRepository {
   }
 
   async create(input: CreateDeviceInput): Promise<Device> {
+    return this.createInTransaction(this.#database, input);
+  }
+
+  /**
+   * Synchronous storage-only entrypoint for an enclosing SQLite pairing claim.
+   * Reject a different connection: the device insert and session update must
+   * commit or roll back as one transaction. Domain/service only uses create().
+   */
+  createInTransaction(database: Database, input: CreateDeviceInput): Device {
+    if (database !== this.#database) {
+      throw new Error(
+        "Pairing and device repositories must share SQLite connection.",
+      );
+    }
     const parsed = createDeviceInputSchema.safeParse(input);
     if (!parsed.success) {
       throw new DeviceRepositoryError(
