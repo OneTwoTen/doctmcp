@@ -1,6 +1,7 @@
 import { InMemoryDeviceCredentialRepository } from "../../src/device-credential";
 import { InMemoryDeviceRepository } from "../../src/device-repository";
 import { InMemoryPairingSessionRepository } from "../../src/pairing";
+import { describeDeviceRepositoryContract } from "./device-repository-contract-suite";
 import { describePersistentRepositoryContract } from "./persistent-repository-contract-suite";
 
 describePersistentRepositoryContract(
@@ -14,3 +15,7 @@ describePersistentRepositoryContract(
     };
   },
 );
+
+describeDeviceRepositoryContract("InMemory", (options) => ({
+  repository: new InMemoryDeviceRepository(options),
+}));
