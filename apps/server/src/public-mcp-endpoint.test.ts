@@ -520,4 +520,68 @@ describe("public MCP endpoint", () => {
     expect(deviceIds).toContain(healthy.device.deviceId);
     expect(deviceIds).toContain(broken.device.deviceId);
   });
+  test("rejects pairing at the device quota without consuming the pairing session", async () => {
+    let publicMcpFetch: (request: Request) => Promise<Response> = async () =>
+      new Response("Public MCP test handler is not ready.", { status: 503 });
+    const server = createDoctmcpServerRuntime({
+      port: 0,
+      idleTimeoutMs: 0,
+      httpHandler: (request) => publicMcpFetch(request),
+    });
+    serverRuntimes.push(server);
+    for (let index = 0; index < 100; index += 1) {
+      await server.deviceRepository.create({
+        ownerId: OWNER_ID,
+        deviceName: `Quota device ${index + 1}`,
+        metadata: { platform: "test" },
+      });
+    }
+    const pairing = await server.pairingService.createPairingSession();
+    const endpoint = createPublicMcpEndpoint({
+      deviceRouter: server.deviceRouter,
+      pairingCredentialCompletionService:
+        server.pairingCredentialCompletionService,
+      pairingChannelCoordinator: server.pairingChannelCoordinator,
+      verifier: makeVerifier(OWNER_ID),
+      oauthMetadata: OAUTH_METADATA,
+      mcpUrl: MCP_URL,
+    });
+    publicEndpoints.push(endpoint);
+    publicMcpFetch = endpoint.fetch;
+    const client = new Client({
+      name: "doctmcp-device-quota",
+      version: "0.1.0",
+    });
+    clients.push(client);
+    const mcpUrl = new URL(server.gateway.url.replace(/^ws:/u, "http:"));
+    mcpUrl.pathname = "/mcp";
+    await client.connect(
+      new StreamableHTTPClientTransport(mcpUrl, {
+        requestInit: {
+          headers: { authorization: "Bearer valid-owner-token" },
+        },
+      }),
+    );
+
+    const result = await client.callTool({
+      name: "devices_pair",
+      arguments: {
+        pairingCode: pairing.pairingCode,
+        deviceName: "Too many",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({
+      error: { code: "ROUTING_UNAVAILABLE" },
+    });
+    await expect(
+      server.pairingService.getPairingSession(
+        pairing.session.pairingSessionId,
+      ),
+    ).resolves.toMatchObject({ state: "pending" });
+    expect(await server.deviceRepository.listByOwnerId(OWNER_ID)).toHaveLength(
+      100,
+    );
+  });
+
 });

@@ -123,6 +123,27 @@ function safeDevice(device: RoutedDeviceSnapshot) {
   };
 }
 
+class OwnerPairingGate {
+  readonly #tails = new Map<string, Promise<void>>();
+
+  async run<T>(ownerId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.#tails.get(ownerId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => current);
+    this.#tails.set(ownerId, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#tails.get(ownerId) === tail) this.#tails.delete(ownerId);
+    }
+  }
+}
+
 function buildCallerServer(
   ownerId: string,
   deviceRouter: DeviceRoutingService,
@@ -130,6 +151,7 @@ function buildCallerServer(
   audit: PublicMcpAuditSink | undefined,
   pairingCredentialCompletionService: CreatePublicMcpEndpointOptions["pairingCredentialCompletionService"],
   pairingChannelCoordinator: CreatePublicMcpEndpointOptions["pairingChannelCoordinator"],
+  pairingGate: OwnerPairingGate,
 ): Promise<McpServer> {
   const server = new McpServer(PUBLIC_SERVER_INFO);
 
@@ -203,8 +225,15 @@ function buildCallerServer(
           deviceName: string;
         };
         try {
-          const completed =
-            await pairingCredentialCompletionService.claimAndIssue(
+          const completed = await pairingGate.run(ownerId, async () => {
+            const devices = await deviceRouter.listDevices(ownerId);
+            if (devices.length >= MAX_DEVICES_PER_OWNER) {
+              throw new DeviceRoutingError(
+                "ROUTING_UNAVAILABLE",
+                "Đã đạt giới hạn số lượng thiết bị.",
+              );
+            }
+            return pairingCredentialCompletionService.claimAndIssue(
               pairInput.pairingCode,
               {
                 ownerId,
@@ -212,6 +241,7 @@ function buildCallerServer(
                 metadata: { platform: "unknown" },
               },
             );
+          });
           await pairingChannelCoordinator.deliver(completed);
           const result = {
             deviceId: completed.device.deviceId,
@@ -370,6 +400,7 @@ export function createPublicMcpEndpoint(
   const protectedResourceUrl = getOAuthProtectedResourceMetadataUrl(
     options.mcpUrl,
   );
+  const pairingGate = new OwnerPairingGate();
   const authenticate = requireBearerAuth({
     verifier: options.verifier,
     requiredScopes: [...REQUIRED_SCOPES],
@@ -384,6 +415,7 @@ export function createPublicMcpEndpoint(
         options.audit,
         options.pairingCredentialCompletionService,
         options.pairingChannelCoordinator,
+        pairingGate,
       ),
     { legacy: "stateless" },
   );
