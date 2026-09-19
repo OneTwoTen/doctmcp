@@ -51,6 +51,8 @@ credential rotate và phát secret mới; secret cũ không được log hoặc 
 - `sqlite-pairing-repository.test.ts`: shared InMemory/SQLite full repository
   contract, single-use/expiry, post-insert fault-injection SQLite transaction
   rollback qua close/reopen và resume credential/ACK qua restart.
+- `sqlite-pairing-recovery-crash.test.ts`: SQLite reopen tại các cửa sổ crash
+  sau claim/trước issue, sau issue/trước pending và sau reserved rotate/trước finalize.
 - `sqlite-server-storage.test.ts`: production mode fail-closed,
   assembly đúng repository, runtime mới với database connection mới dùng
   cùng volume, authenticated bridge reconnect và owner-scoped routing.
