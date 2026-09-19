@@ -147,7 +147,7 @@ describe("M6 SQLite credential crash windows", () => {
         expectedCredentialId: issued.credential.credentialId,
         expectedVersion: issued.credential.version,
         credentialId: TARGET, secretDigest: TEMP_DIGEST,
-        rotatedAt: new Date(Date.now() + 1000),
+        rotatedAt: new Date(),
       });
       expect(target.version).toBe(2);
     } finally {
