@@ -34,7 +34,9 @@ export interface PersistentRepositoryContractOptions {
  */
 export type PersistentRepositoryContractFactory = (
   options: PersistentRepositoryContractOptions,
-) => Promise<PersistentRepositoryContractHarness> | PersistentRepositoryContractHarness;
+) =>
+  | Promise<PersistentRepositoryContractHarness>
+  | PersistentRepositoryContractHarness;
 
 async function withHarness(
   factory: PersistentRepositoryContractFactory,
@@ -90,32 +92,48 @@ export function describePersistentRepositoryContract(
   adapterName: string,
   factory: PersistentRepositoryContractFactory,
 ): void {
-  describe(adapterName + " persistent repository contract", () => {
+  describe(`${adapterName} persistent repository contract`, () => {
     test("device snapshot, immutable identity và owner isolation", async () => {
       let nextId = DEVICE_A;
-      await withHarness(factory, async ({ devices }) => {
-        const created = await devices.create(newDevice("owner-a"));
-        nextId = DEVICE_B;
-        await devices.create(newDevice("owner-b"));
+      await withHarness(
+        factory,
+        async ({ devices }) => {
+          const created = await devices.create(newDevice("owner-a"));
+          nextId = DEVICE_B;
+          await devices.create(newDevice("owner-b"));
 
-        expect(created.deviceId).toBe(DEVICE_A);
-        expect(await devices.getForOwner("owner-b", DEVICE_A)).toBeNull();
-        expect(await devices.isOwnedBy("owner-b", DEVICE_A)).toBe(false);
-        expect((await devices.listByOwnerId("owner-a")).map((device) => device.deviceId)).toEqual([DEVICE_A]);
-        expect(await devices.updateForOwner("owner-b", DEVICE_A, { deviceName: "Forbidden" })).toBeNull();
+          expect(created.deviceId).toBe(DEVICE_A);
+          expect(await devices.getForOwner("owner-b", DEVICE_A)).toBeNull();
+          expect(await devices.isOwnedBy("owner-b", DEVICE_A)).toBe(false);
+          expect(
+            (await devices.listByOwnerId("owner-a")).map(
+              (device) => device.deviceId,
+            ),
+          ).toEqual([DEVICE_A]);
+          expect(
+            await devices.updateForOwner("owner-b", DEVICE_A, {
+              deviceName: "Forbidden",
+            }),
+          ).toBeNull();
 
-        const updated = await devices.updateForOwner("owner-a", DEVICE_A, { deviceName: "Renamed" });
-        expect(updated?.deviceId).toBe(DEVICE_A);
-        expect(updated?.ownerId).toBe("owner-a");
-        expect(updated?.deviceName).toBe("Renamed");
-        expect((await devices.getById(DEVICE_A))?.deviceName).toBe("Renamed");
-      }, () => nextId);
+          const updated = await devices.updateForOwner("owner-a", DEVICE_A, {
+            deviceName: "Renamed",
+          });
+          expect(updated?.deviceId).toBe(DEVICE_A);
+          expect(updated?.ownerId).toBe("owner-a");
+          expect(updated?.deviceName).toBe("Renamed");
+          expect((await devices.getById(DEVICE_A))?.deviceName).toBe("Renamed");
+        },
+        () => nextId,
+      );
     });
 
     test("duplicate device identity không overwrite record cũ", async () => {
       await withHarness(factory, async ({ devices }) => {
         await devices.create(newDevice("owner-a"));
-        await expect(devices.create(newDevice("owner-b"))).rejects.toMatchObject({
+        await expect(
+          devices.create(newDevice("owner-b")),
+        ).rejects.toMatchObject({
           code: "DEVICE_ALREADY_EXISTS",
         });
         expect((await devices.getById(DEVICE_A))?.ownerId).toBe("owner-a");
@@ -133,8 +151,10 @@ export function describePersistentRepositoryContract(
         });
         expect(issued.version).toBe(1);
         expect(JSON.stringify(issued)).not.toContain(DIGEST_A);
-        expect((await credentials.verify(DEVICE_A, DIGEST_B))).toBeNull();
-        expect((await credentials.verify(DEVICE_A, DIGEST_A))?.credentialId).toBe(CREDENTIAL_A);
+        expect(await credentials.verify(DEVICE_A, DIGEST_B)).toBeNull();
+        expect(
+          (await credentials.verify(DEVICE_A, DIGEST_A))?.credentialId,
+        ).toBe(CREDENTIAL_A);
 
         const revoked = await credentials.revoke({
           deviceId: DEVICE_A,
@@ -174,7 +194,9 @@ export function describePersistentRepositoryContract(
             rotatedAt: new Date(CREATED_AT_MS + 1000),
           }),
         ]);
-        expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        expect(
+          results.filter((result) => result.status === "fulfilled"),
+        ).toHaveLength(1);
         expect((await credentials.getActive(DEVICE_A))?.version).toBe(2);
         expect(await credentials.verify(DEVICE_A, DIGEST_A)).toBeNull();
         const winner = await credentials.getActive(DEVICE_A);
@@ -192,7 +214,9 @@ export function describePersistentRepositoryContract(
           pairings.claim(claim("owner-a", DIGEST_A)),
           pairings.claim(claim("owner-b", DIGEST_A)),
         ]);
-        const successes = results.filter((result) => result.status === "fulfilled");
+        const successes = results.filter(
+          (result) => result.status === "fulfilled",
+        );
         expect(successes).toHaveLength(1);
         const claimed = await pairings.getById(SESSION_A);
         expect(claimed?.state).toBe("claimed");
@@ -200,8 +224,12 @@ export function describePersistentRepositoryContract(
         const ownerA = await devices.listByOwnerId("owner-a");
         const ownerB = await devices.listByOwnerId("owner-b");
         expect(ownerA.length + ownerB.length).toBe(1);
-        expect(ownerA[0]?.deviceId ?? ownerB[0]?.deviceId).toBe(claimed?.deviceId);
-        await expect(pairings.claim(claim("owner-c", DIGEST_A))).rejects.toMatchObject({
+        expect(ownerA[0]?.deviceId ?? ownerB[0]?.deviceId).toBe(
+          claimed?.deviceId,
+        );
+        await expect(
+          pairings.claim(claim("owner-c", DIGEST_A)),
+        ).rejects.toMatchObject({
           code: "PAIRING_CODE_UNAVAILABLE",
         });
       });
@@ -211,7 +239,9 @@ export function describePersistentRepositoryContract(
       await withHarness(factory, async ({ devices, pairings }, setNow) => {
         await pairings.create(newPairing(SESSION_A, DIGEST_A));
         setNow(CREATED_AT_MS + 60_000);
-        await expect(pairings.claim(claim("owner-a", DIGEST_A))).rejects.toMatchObject({
+        await expect(
+          pairings.claim(claim("owner-a", DIGEST_A)),
+        ).rejects.toMatchObject({
           code: "PAIRING_CODE_UNAVAILABLE",
         });
         expect(await devices.listByOwnerId("owner-a")).toHaveLength(0);
@@ -221,19 +251,25 @@ export function describePersistentRepositoryContract(
 
     test("device create lỗi phải giữ pairing pending để claim retry", async () => {
       let nextId = DEVICE_A;
-      await withHarness(factory, async ({ devices, pairings }, setNow) => {
-        await devices.create(newDevice("owner-a"));
-        await pairings.create(newPairing(SESSION_A, DIGEST_A));
-        setNow(CREATED_AT_MS + 1000);
-        await expect(pairings.claim(claim("owner-b", DIGEST_A))).rejects.toMatchObject({
-          code: "DEVICE_ALREADY_EXISTS",
-        });
-        expect((await pairings.getById(SESSION_A))?.state).toBe("pending");
-        nextId = DEVICE_B;
-        const result = await pairings.claim(claim("owner-b", DIGEST_A));
-        expect(result.device.deviceId).toBe(DEVICE_B);
-        expect(result.session.state).toBe("claimed");
-      }, () => nextId);
+      await withHarness(
+        factory,
+        async ({ devices, pairings }, setNow) => {
+          await devices.create(newDevice("owner-a"));
+          await pairings.create(newPairing(SESSION_A, DIGEST_A));
+          setNow(CREATED_AT_MS + 1000);
+          await expect(
+            pairings.claim(claim("owner-b", DIGEST_A)),
+          ).rejects.toMatchObject({
+            code: "DEVICE_ALREADY_EXISTS",
+          });
+          expect((await pairings.getById(SESSION_A))?.state).toBe("pending");
+          nextId = DEVICE_B;
+          const result = await pairings.claim(claim("owner-b", DIGEST_A));
+          expect(result.device.deviceId).toBe(DEVICE_B);
+          expect(result.session.state).toBe("claimed");
+        },
+        () => nextId,
+      );
     });
 
     test("cancel và expire giữ nguyên single-use pairing semantics", async () => {
@@ -241,7 +277,10 @@ export function describePersistentRepositoryContract(
         await pairings.create(newPairing(SESSION_A, DIGEST_A));
         await pairings.create(newPairing(SESSION_B, DIGEST_B));
         setNow(CREATED_AT_MS + 1000);
-        expect((await pairings.cancel(SESSION_A, new Date(CREATED_AT_MS + 1000))).state).toBe("cancelled");
+        expect(
+          (await pairings.cancel(SESSION_A, new Date(CREATED_AT_MS + 1000)))
+            .state,
+        ).toBe("cancelled");
         await expect(pairings.claim(claim("owner-a", DIGEST_A))).rejects.toMatchObject({
           code: "PAIRING_CODE_UNAVAILABLE",
         });
