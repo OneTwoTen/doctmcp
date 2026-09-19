@@ -74,12 +74,8 @@ describe("M6.3 SQLite device integration", () => {
         metadata: { platform: "darwin-arm64" },
       });
       expect(device?.metadata.appVersion).toBeUndefined();
-      expect(device?.createdAt.toISOString()).toBe(
-        "2026-09-19T04:00:00.000Z",
-      );
-      expect(device?.updatedAt.toISOString()).toBe(
-        "2026-09-19T04:00:00.000Z",
-      );
+      expect(device?.createdAt.toISOString()).toBe("2026-09-19T04:00:00.000Z");
+      expect(device?.updatedAt.toISOString()).toBe("2026-09-19T04:00:00.000Z");
       expect(await repository.getForOwner("owner-b", DEVICE_A)).toBeNull();
     } finally {
       second.close();
@@ -101,16 +97,18 @@ describe("M6.3 SQLite device integration", () => {
         ownerA.create(sample("owner-a")),
         ownerB.create(sample("owner-b")),
       ]);
-      expect(attempts.filter((item) => item.status === "fulfilled")).toHaveLength(1);
       expect(
-        attempts.find((item) => item.status === "rejected"),
-      ).toMatchObject({
-        status: "rejected",
-        reason: { code: "DEVICE_ALREADY_EXISTS" },
-      });
-      const allRows = first.database.query(
-        "SELECT device_id, owner_id FROM devices",
-      ).all() as { device_id: string; owner_id: string }[];
+        attempts.filter((item) => item.status === "fulfilled"),
+      ).toHaveLength(1);
+      expect(attempts.find((item) => item.status === "rejected")).toMatchObject(
+        {
+          status: "rejected",
+          reason: { code: "DEVICE_ALREADY_EXISTS" },
+        },
+      );
+      const allRows = first.database
+        .query("SELECT device_id, owner_id FROM devices")
+        .all() as { device_id: string; owner_id: string }[];
       expect(allRows).toHaveLength(1);
       expect(allRows[0]?.device_id).toBe(DEVICE_A);
     } finally {
@@ -122,7 +120,10 @@ describe("M6.3 SQLite device integration", () => {
   test("upgrade V1 -> V2 không xóa dữ liệu cũ và index owner có mặt", async () => {
     const dataDir = await temporaryDataDirectory();
     const baselineSql = await Bun.file(
-      new URL("../../src/storage/migrations/0001_storage_baseline.sql", import.meta.url),
+      new URL(
+        "../../src/storage/migrations/0001_storage_baseline.sql",
+        import.meta.url,
+      ),
     ).text();
     const baseline: SqlMigration = {
       version: 1,
@@ -131,7 +132,9 @@ describe("M6.3 SQLite device integration", () => {
     };
     const first = await openSqliteDatabase({ dataDir, migrations: [baseline] });
     first.database.exec("CREATE TABLE legacy_records (value TEXT NOT NULL)");
-    first.database.query("INSERT INTO legacy_records (value) VALUES ('keep')").run();
+    first.database
+      .query("INSERT INTO legacy_records (value) VALUES ('keep')")
+      .run();
     first.close();
 
     const second = await openSqliteDatabase({ dataDir });
@@ -140,7 +143,9 @@ describe("M6.3 SQLite device integration", () => {
         second.database.query("SELECT value FROM legacy_records").all(),
       ).toEqual([{ value: "keep" }]);
       expect(
-        second.database.query("SELECT version FROM schema_migrations ORDER BY version").all(),
+        second.database
+          .query("SELECT version FROM schema_migrations ORDER BY version")
+          .all(),
       ).toEqual([{ version: 1 }, { version: 2 }]);
       const repo = new SqliteDeviceRepository(second.database, {
         generateDeviceId: () => DEVICE_B,
