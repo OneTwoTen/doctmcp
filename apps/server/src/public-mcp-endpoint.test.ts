@@ -572,7 +572,7 @@ describe("public MCP endpoint", () => {
     });
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toEqual({
-      error: { code: "ROUTING_UNAVAILABLE" },
+      error: { code: "PAIRING_UNAVAILABLE" },
     });
     await expect(
       server.pairingService.getPairingSession(pairing.session.pairingSessionId),
