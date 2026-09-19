@@ -6,8 +6,8 @@ import {
   DeviceCredentialService,
   type IssuedDeviceCredential,
 } from "../../src/device-credential";
-import { PairingCredentialCompletionService } from "../../src/pairing-credential-completion";
 import { PairingService } from "../../src/pairing";
+import { PairingCredentialCompletionService } from "../../src/pairing-credential-completion";
 import {
   openSqliteServerStorage,
   type SqliteServerStorage,
@@ -25,8 +25,9 @@ async function directory(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) =>
-    rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
 });
 
 function services(storage: SqliteServerStorage) {
@@ -72,12 +73,22 @@ describe("M6 SQLite credential crash windows", () => {
     const second = await openSqliteServerStorage({ dataDir });
     try {
       const { completion, credentials } = services(second);
-      const resumed = await completion.resumeClaimedPairing(pairingSessionId, OWNER);
+      const resumed = await completion.resumeClaimedPairing(
+        pairingSessionId,
+        OWNER,
+      );
       expect(resumed.device.deviceId).toBe(deviceId);
       expect(resumed.credential.version).toBe(1);
-      expect((await credentials.verify(deviceId, resumed.secret)).credential.version).toBe(1);
-      expect((await second.pairingCredentialCompletionRepository.get(pairingSessionId))?.state)
-        .toBe("pending");
+      expect(
+        (await credentials.verify(deviceId, resumed.secret)).credential.version,
+      ).toBe(1);
+      expect(
+        (
+          await second.pairingCredentialCompletionRepository.get(
+            pairingSessionId,
+          )
+        )?.state,
+      ).toBe("pending");
     } finally {
       second.close();
     }
@@ -94,23 +105,31 @@ describe("M6 SQLite credential crash windows", () => {
       pairingSessionId = claimed.session.pairingSessionId;
       deviceId = claimed.device.deviceId;
       issued = await services(first).credentials.issue(deviceId);
-      expect(await first.pairingCredentialCompletionRepository.get(pairingSessionId))
-        .toBeNull();
+      expect(
+        await first.pairingCredentialCompletionRepository.get(pairingSessionId),
+      ).toBeNull();
     } finally {
       first.close();
     }
     const second = await openSqliteServerStorage({ dataDir });
     try {
       const { completion, credentials } = services(second);
-      const resumed = await completion.resumeClaimedPairing(pairingSessionId, OWNER);
+      const resumed = await completion.resumeClaimedPairing(
+        pairingSessionId,
+        OWNER,
+      );
       expect(resumed.credential.version).toBe(issued.credential.version + 1);
-      await expect(credentials.verify(deviceId, issued.secret)).rejects.toMatchObject({
+      await expect(
+        credentials.verify(deviceId, issued.secret),
+      ).rejects.toMatchObject({
         code: "CREDENTIAL_UNAVAILABLE",
       });
-      expect((await credentials.verify(deviceId, resumed.secret)).credential.version)
-        .toBe(2);
+      expect(
+        (await credentials.verify(deviceId, resumed.secret)).credential.version,
+      ).toBe(2);
       await completion.acknowledgeDelivery({
-        pairingSessionId, ownerId: OWNER,
+        pairingSessionId,
+        ownerId: OWNER,
         credentialId: resumed.credential.credentialId,
         credentialVersion: resumed.credential.version,
       });
@@ -130,23 +149,32 @@ describe("M6 SQLite credential crash windows", () => {
       pairingSessionId = claimed.session.pairingSessionId;
       deviceId = claimed.device.deviceId;
       issued = await services(first).credentials.issue(deviceId);
-      await first.pairingCredentialCompletionRepository.reserve(pairingSessionId);
+      await first.pairingCredentialCompletionRepository.reserve(
+        pairingSessionId,
+      );
       await first.pairingCredentialCompletionRepository.setPending({
-        pairingSessionId, deviceId,
+        pairingSessionId,
+        deviceId,
         credentialId: issued.credential.credentialId,
         credentialVersion: issued.credential.version,
       });
-      expect((await first.pairingCredentialCompletionRepository.beginRecovery({
-        pairingSessionId, deviceId,
-        credentialId: issued.credential.credentialId,
-        credentialVersion: issued.credential.version,
-        recoveryTargetCredentialId: TARGET,
-      }))?.state).toBe("recovering");
+      expect(
+        (
+          await first.pairingCredentialCompletionRepository.beginRecovery({
+            pairingSessionId,
+            deviceId,
+            credentialId: issued.credential.credentialId,
+            credentialVersion: issued.credential.version,
+            recoveryTargetCredentialId: TARGET,
+          })
+        )?.state,
+      ).toBe("recovering");
       const target = await first.credentialRepository.rotate({
         deviceId,
         expectedCredentialId: issued.credential.credentialId,
         expectedVersion: issued.credential.version,
-        credentialId: TARGET, secretDigest: TEMP_DIGEST,
+        credentialId: TARGET,
+        secretDigest: TEMP_DIGEST,
         rotatedAt: new Date(),
       });
       expect(target.version).toBe(2);
@@ -156,14 +184,21 @@ describe("M6 SQLite credential crash windows", () => {
     const second = await openSqliteServerStorage({ dataDir });
     try {
       const { completion, credentials } = services(second);
-      const resumed = await completion.resumeClaimedPairing(pairingSessionId, OWNER);
+      const resumed = await completion.resumeClaimedPairing(
+        pairingSessionId,
+        OWNER,
+      );
       expect(resumed.credential.version).toBe(3);
       expect(resumed.credential.credentialId).not.toBe(TARGET);
-      await expect(credentials.verify(deviceId, issued.secret))
-        .rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
-      expect(await second.credentialRepository.verify(deviceId, TEMP_DIGEST)).toBeNull();
-      expect((await credentials.verify(deviceId, resumed.secret)).credential.version)
-        .toBe(3);
+      await expect(
+        credentials.verify(deviceId, issued.secret),
+      ).rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
+      expect(
+        await second.credentialRepository.verify(deviceId, TEMP_DIGEST),
+      ).toBeNull();
+      expect(
+        (await credentials.verify(deviceId, resumed.secret)).credential.version,
+      ).toBe(3);
     } finally {
       second.close();
     }
