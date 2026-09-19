@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { InMemoryDeviceRepositoryOptions, DeviceRepository } from "../../src/device-repository";
+import type {
+  DeviceRepository,
+  InMemoryDeviceRepositoryOptions,
+} from "../../src/device-repository";
 
 const DEVICE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DEVICE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -68,7 +71,9 @@ export function describeDeviceRepositoryContract(
         expect(await repository.isOwnedBy("owner-b", DEVICE_A)).toBe(false);
         expect(await repository.isOwnedBy("owner-a", DEVICE_A)).toBe(true);
         expect(
-          (await repository.listByOwnerId("owner-a")).map((item) => item.deviceId),
+          (await repository.listByOwnerId("owner-a")).map(
+            (item) => item.deviceId,
+          ),
         ).toEqual([DEVICE_A]);
         expect(
           await repository.updateForOwner("owner-b", DEVICE_A, {
@@ -83,10 +88,12 @@ export function describeDeviceRepositoryContract(
           ownerId: "owner-a",
           deviceName: "Renamed",
         });
-        expect((await repository.getById(DEVICE_A))?.deviceName).toBe("Renamed");
-        expect((await repository.getForOwner("owner-b", DEVICE_B))?.ownerId).toBe(
-          "owner-b",
+        expect((await repository.getById(DEVICE_A))?.deviceName).toBe(
+          "Renamed",
         );
+        expect(
+          (await repository.getForOwner("owner-b", DEVICE_B))?.ownerId,
+        ).toBe("owner-b");
       });
     });
 
@@ -95,13 +102,15 @@ export function describeDeviceRepositoryContract(
         setId(DEVICE_A.toUpperCase());
         const first = await repository.create(input());
         expect(first.deviceId).toBe(DEVICE_A);
-        expect((await repository.getById(DEVICE_A.toUpperCase()))?.deviceId).toBe(
-          DEVICE_A,
-        );
+        expect(
+          (await repository.getById(DEVICE_A.toUpperCase()))?.deviceId,
+        ).toBe(DEVICE_A);
         setId(DEVICE_A);
-        await expect(repository.create(input("owner-b"))).rejects.toMatchObject({
-          code: "DEVICE_ALREADY_EXISTS",
-        });
+        await expect(repository.create(input("owner-b"))).rejects.toMatchObject(
+          {
+            code: "DEVICE_ALREADY_EXISTS",
+          },
+        );
         expect((await repository.getById(DEVICE_A))?.ownerId).toBe("owner-a");
         expect(await repository.listByOwnerId("owner-b")).toHaveLength(0);
       });
@@ -124,7 +133,11 @@ export function describeDeviceRepositoryContract(
 
         setNow(INITIAL_TIME + 1000);
         const patch = { metadata: { platform: "win32-x64" } };
-        const updated = await repository.updateForOwner("owner-a", DEVICE_A, patch);
+        const updated = await repository.updateForOwner(
+          "owner-a",
+          DEVICE_A,
+          patch,
+        );
         patch.metadata.platform = "linux-x64";
         expect(updated?.metadata.platform).toBe("win32-x64");
         expect(updated?.metadata.appVersion).toBeUndefined();
@@ -146,7 +159,9 @@ export function describeDeviceRepositoryContract(
         setId(DEVICE_A);
         await repository.create(input());
         expect(
-          (await repository.listByOwnerId("owner-a")).map((item) => item.deviceId),
+          (await repository.listByOwnerId("owner-a")).map(
+            (item) => item.deviceId,
+          ),
         ).toEqual([DEVICE_A, DEVICE_B]);
       });
     });
@@ -188,7 +203,9 @@ export function describeDeviceRepositoryContract(
             deviceName: "Still not persisted",
           }),
         ).rejects.toMatchObject({ code: "INVALID_CLOCK" });
-        expect((await repository.getById(DEVICE_A))?.deviceName).toBe("Original");
+        expect((await repository.getById(DEVICE_A))?.deviceName).toBe(
+          "Original",
+        );
         expect((await repository.getById(DEVICE_A))?.updatedAt.getTime()).toBe(
           INITIAL_TIME,
         );
