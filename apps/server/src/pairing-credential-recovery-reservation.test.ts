@@ -34,6 +34,10 @@ class FailFirstFinishRepository
     private readonly delegate: PairingCredentialCompletionRepository,
   ) {}
 
+  reserve(pairingSessionId: string) {
+    return this.delegate.reserve(pairingSessionId);
+  }
+
   get(pairingSessionId: string) {
     return this.delegate.get(pairingSessionId);
   }

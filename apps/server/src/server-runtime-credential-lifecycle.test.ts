@@ -70,6 +70,10 @@ class BlockingCompletionRepository
     this.#resolveReleaseFinishRecovery?.();
   }
 
+  reserve(pairingSessionId: string) {
+    return this.delegate.reserve(pairingSessionId);
+  }
+
   get(pairingSessionId: string) {
     return this.delegate.get(pairingSessionId);
   }

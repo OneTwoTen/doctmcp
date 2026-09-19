@@ -6,6 +6,7 @@ import {
 import { InMemoryDeviceRepository } from "./device-repository";
 import { InMemoryPairingSessionRepository, PairingService } from "./pairing";
 import {
+  InMemoryPairingCredentialCompletionRepository,
   PairingCredentialCompletionService,
   toPairingCredentialDelivery,
 } from "./pairing-credential-completion";
@@ -17,7 +18,12 @@ const RECOVERED_CREDENTIAL_ID = "22222222-2222-4222-8222-222222222222";
 const RAW_CREDENTIAL = "issued-only-once-secret";
 const RECOVERED_RAW_CREDENTIAL = "recovered-after-restart-secret";
 
-async function createFixture(options: { failFirstIssue?: boolean } = {}) {
+async function createFixture(
+  options: {
+    failFirstIssue?: boolean;
+    completionRepository?: InMemoryPairingCredentialCompletionRepository;
+  } = {},
+) {
   let now = new Date("2026-09-15T08:00:00.000Z");
   let secretAttempts = 0;
   const devices = new InMemoryDeviceRepository({
@@ -51,6 +57,9 @@ async function createFixture(options: { failFirstIssue?: boolean } = {}) {
     pairingService,
     credentialService,
     deviceRepository: devices,
+    ...(options.completionRepository
+      ? { completionRepository: options.completionRepository }
+      : {}),
   });
 
   const created = await pairingService.createPairingSession({
@@ -283,4 +292,41 @@ describe("PairingCredentialCompletionService", () => {
       state: "active",
     });
   });
+  test("completion capacity is admitted before credential issue and remains recoverable", async () => {
+    const completionRepository =
+      new InMemoryPairingCredentialCompletionRepository({ maxRecords: 1 });
+    const occupiedSessionId = "99999999-9999-4999-8999-999999999999";
+    await completionRepository.setPending({
+      pairingSessionId: occupiedSessionId,
+      deviceId: "88888888-8888-4888-8888-888888888888",
+      credentialId: "77777777-7777-4777-8777-777777777777",
+      credentialVersion: 1,
+    });
+    const fixture = await createFixture({ completionRepository });
+
+    await expect(
+      fixture.completionService.claimAndIssue(fixture.created.pairingCode, {
+        ownerId: "owner-a",
+        deviceName: "Capacity device",
+        metadata: { platform: "linux-x64" },
+      }),
+    ).rejects.toMatchObject({ code: "PAIRING_COMPLETION_UNAVAILABLE" });
+    await expect(
+      fixture.credentialRepository.getActive(DEVICE_ID),
+    ).resolves.toBeNull();
+    await expect(
+      fixture.pairingService.getPairingSession(PAIRING_SESSION_ID),
+    ).resolves.toMatchObject({ state: "claimed", deviceId: DEVICE_ID });
+
+    await completionRepository.delete(occupiedSessionId);
+    const resumed = await fixture.completionService.resumeClaimedPairing(
+      PAIRING_SESSION_ID,
+      "owner-a",
+    );
+    expect(resumed.credential).toMatchObject({
+      deviceId: DEVICE_ID,
+      state: "active",
+    });
+  });
+
 });
