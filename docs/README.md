@@ -4,6 +4,7 @@ Thư mục này là nguồn tài liệu chính của dự án. Tài liệu mặc
 
 ## Bắt đầu từ đâu
 
+- [Getting started](getting-started.md): cài đặt từ đầu, chạy local, cấu hình public server/OIDC, pairing và sử dụng với ChatGPT.
 - [architecture.md](architecture.md): kiến trúc mục tiêu, ranh giới module và trạng thái đã/dự kiến.
 - [roadmap.md](roadmap.md): thứ tự milestone và tiêu chí hoàn tất từng giai đoạn.
 - [development.md](development.md): chuẩn bị máy, lệnh local, test và quy ước phát triển.

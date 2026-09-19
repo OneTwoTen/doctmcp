@@ -92,6 +92,10 @@ AGENTS.md        Quy tắc chung cho contributor và AI agent
 
 Tên thư mục `apps/agent` được giữ để tránh thay đổi scaffold không cần thiết. Về mặt kiến trúc, thành phần này là **local MCP runtime**, không phải một RPC agent tự định nghĩa protocol riêng.
 
+## Bắt đầu nhanh
+
+Nếu bạn mới clone repository, đọc [Getting started](docs/getting-started.md) trước. Tài liệu này bao phủ từ `bun install`, chạy local MCP, cấu hình public server/OIDC, tạo `doctmcp.json`, pairing device và flow ChatGPT end-to-end.
+
 ## Chuẩn bị máy
 
 Yêu cầu:
