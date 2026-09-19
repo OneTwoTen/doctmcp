@@ -261,9 +261,9 @@ describe("PairingChannelCoordinator", () => {
     await expect(coordinator.deliver(completed)).rejects.toMatchObject({
       code: "TIMEOUT",
     });
-    expect(coordinator.pendingCount).toBe(1);
+    expect(coordinator.pendingCount).toBe(0);
+    expect(socket.closeCode).toBe(1000);
     await coordinator.close();
-    expect(socket.closeCode).toBe(1012);
     expect(coordinator.pendingCount).toBe(0);
   });
 
