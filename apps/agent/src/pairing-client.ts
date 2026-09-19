@@ -51,6 +51,9 @@ interface PairingStartResponse {
   readonly expiresAt: Date;
 }
 
+const MAX_PAIRING_RECONNECT_ATTEMPTS = 3;
+const PAIRING_RECONNECT_DELAY_MS = 25;
+
 function parseServerUrl(value: string): URL {
   let url: URL;
   try {
@@ -143,11 +146,14 @@ export class LocalPairingClient {
     typeof makeDeferred<LocalDeviceCredential>
   > | null = makeDeferred<LocalDeviceCredential>();
   #socket: PairingWebSocket | null = null;
+  #socketUrl: string | null = null;
   #sessionId: string | null = null;
   #proof = "";
   #attachWaiter: ReturnType<typeof makeDeferred<void>> | null = null;
   #startPromise: Promise<void> | null = null;
+  #reconnectPromise: Promise<void> | null = null;
   #removeSocketListeners: (() => void) | null = null;
+  #attached = false;
   #completed = false;
   #closed = false;
 
@@ -183,6 +189,8 @@ export class LocalPairingClient {
     this.#attachWaiter?.reject(new LocalPairingClientError("PAIRING_CLOSED"));
     this.#attachWaiter = null;
     this.#proof = "";
+    this.#socketUrl = null;
+    this.#attached = false;
     this.#removeSocketListeners?.();
     this.#removeSocketListeners = null;
     this.#socket?.close(1000, "Pairing client closed");
@@ -233,7 +241,8 @@ export class LocalPairingClient {
     this.#sessionId = startResponse.pairingSessionId;
     const socketUrl = new URL("/pairing", serverUrl);
     socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
-    const socket = this.#createWebSocket(socketUrl.href);
+    this.#socketUrl = socketUrl.href;
+    const socket = this.#createWebSocket(this.#socketUrl);
     this.#socket = socket;
     const attached = makeDeferred<void>();
     this.#attachWaiter = attached;
@@ -254,6 +263,15 @@ export class LocalPairingClient {
       void this.#handleMessage(event, attached);
     };
     const onError = (): void => {
+      if (this.#attached && !this.#completed && !this.#closed) {
+        this.#attached = false;
+        this.#removeSocketListeners?.();
+        this.#removeSocketListeners = null;
+        if (this.#socket === socket) this.#socket = null;
+        socket.close(1011, "Pairing reconnect");
+        this.#reconnect();
+        return;
+      }
       attached.reject(new LocalPairingClientError("PAIRING_UNAVAILABLE"));
       if (!this.#completed) {
         this.#credentialWaiter?.reject(
@@ -263,6 +281,13 @@ export class LocalPairingClient {
     };
     const onClose = (): void => {
       if (this.#socket === socket) this.#socket = null;
+      if (this.#attached && !this.#completed && !this.#closed) {
+        this.#attached = false;
+        this.#removeSocketListeners?.();
+        this.#removeSocketListeners = null;
+        this.#reconnect();
+        return;
+      }
       if (!this.#completed) {
         const error = new LocalPairingClientError("PAIRING_CLOSED");
         attached.reject(error);
@@ -288,7 +313,6 @@ export class LocalPairingClient {
         socket.removeEventListener("error", onError);
         socket.removeEventListener("close", onClose);
       };
-      this.#proof = "";
       this.#options.onPairingCode?.(
         startResponse.pairingCode,
         startResponse.expiresAt,
@@ -301,6 +325,114 @@ export class LocalPairingClient {
         ? error
         : new LocalPairingClientError("PAIRING_UNAVAILABLE");
     }
+  }
+
+  #reconnect(): void {
+    if (
+      this.#reconnectPromise ||
+      this.#closed ||
+      this.#completed ||
+      !this.#sessionId ||
+      !this.#proof ||
+      !this.#socketUrl
+    ) {
+      return;
+    }
+
+    const reconnect = (async () => {
+      let lastError = new LocalPairingClientError("PAIRING_UNAVAILABLE");
+      for (
+        let attempt = 0;
+        attempt < MAX_PAIRING_RECONNECT_ATTEMPTS;
+        attempt += 1
+      ) {
+        if (this.#closed || this.#completed) return;
+        if (attempt > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, PAIRING_RECONNECT_DELAY_MS),
+          );
+        }
+
+        const socket = this.#createWebSocket(this.#socketUrl as string);
+        this.#socket = socket;
+        this.#attached = false;
+        const attached = makeDeferred<void>();
+        this.#attachWaiter = attached;
+
+        const cleanup = (): void => {
+          socket.removeEventListener("open", onOpen);
+          socket.removeEventListener("message", onMessage);
+          socket.removeEventListener("error", onError);
+          socket.removeEventListener("close", onClose);
+        };
+        const retryOrReject = (error: LocalPairingClientError): void => {
+          if (this.#attached && !this.#completed && !this.#closed) {
+            this.#attached = false;
+            cleanup();
+            if (this.#socket === socket) this.#socket = null;
+            this.#reconnectPromise = null;
+            this.#reconnect();
+            return;
+          }
+          attached.reject(error);
+        };
+        const onOpen = (): void => {
+          try {
+            socket.send(
+              JSON.stringify({
+                kind: "pairing.attach",
+                pairingSessionId: this.#sessionId,
+                channelProof: this.#proof,
+              }),
+            );
+          } catch {
+            retryOrReject(new LocalPairingClientError("PAIRING_UNAVAILABLE"));
+          }
+        };
+        const onMessage = (event: Event | MessageEvent): void => {
+          void this.#handleMessage(event, attached);
+        };
+        const onError = (): void => {
+          retryOrReject(new LocalPairingClientError("PAIRING_UNAVAILABLE"));
+        };
+        const onClose = (): void => {
+          if (this.#socket === socket) this.#socket = null;
+          retryOrReject(new LocalPairingClientError("PAIRING_CLOSED"));
+        };
+
+        socket.addEventListener("open", onOpen);
+        socket.addEventListener("message", onMessage);
+        socket.addEventListener("error", onError);
+        socket.addEventListener("close", onClose);
+        try {
+          await attached.promise;
+          if (this.#attachWaiter === attached) this.#attachWaiter = null;
+          socket.removeEventListener("open", onOpen);
+          this.#removeSocketListeners = () => {
+            socket.removeEventListener("message", onMessage);
+            socket.removeEventListener("error", onError);
+            socket.removeEventListener("close", onClose);
+          };
+          return;
+        } catch (error) {
+          cleanup();
+          if (this.#socket === socket) this.#socket = null;
+          lastError =
+            error instanceof LocalPairingClientError
+              ? error
+              : new LocalPairingClientError("PAIRING_UNAVAILABLE");
+        }
+      }
+
+      if (!this.#closed && !this.#completed) {
+        this.#credentialWaiter?.reject(lastError);
+      }
+    })();
+
+    this.#reconnectPromise = reconnect.finally(() => {
+      if (this.#reconnectPromise) this.#reconnectPromise = null;
+    });
+    void this.#reconnectPromise;
   }
 
   async #handleMessage(
@@ -318,6 +450,7 @@ export class LocalPairingClient {
         if (message.pairingSessionId !== this.#sessionId) {
           throw new LocalPairingClientError("PAIRING_PROTOCOL_FAILED");
         }
+        this.#attached = true;
         attached.resolve();
         return;
       }
@@ -373,6 +506,9 @@ export class LocalPairingClient {
         }),
       );
       this.#completed = true;
+      this.#attached = false;
+      this.#proof = "";
+      this.#socketUrl = null;
       this.#sessionId = null;
       this.#removeSocketListeners?.();
       this.#removeSocketListeners = null;

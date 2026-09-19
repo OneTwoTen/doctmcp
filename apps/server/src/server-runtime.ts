@@ -569,9 +569,13 @@ export function createDoctmcpServerRuntime(
     claimAndIssue,
     resumeClaimedPairing,
     acknowledgeDelivery,
-    forgetPendingCompletion: (pairingSessionId: string) =>
+    forgetPendingCompletion: (
+      pairingSessionId: string,
+      preserveDelivered = false,
+    ) =>
       rawPairingCredentialCompletionService.forgetPendingCompletion(
         pairingSessionId,
+        preserveDelivered,
       ),
   });
 
@@ -581,9 +585,10 @@ export function createDoctmcpServerRuntime(
     cancelPairingSession: async (pairingSessionId) => {
       await pairingService.cancelPairingSession(pairingSessionId);
     },
-    forgetPendingCompletion: (pairingSessionId) =>
+    forgetPendingCompletion: (pairingSessionId, preserveDelivered) =>
       pairingCredentialCompletionService.forgetPendingCompletion(
         pairingSessionId,
+        preserveDelivered,
       ),
   });
 

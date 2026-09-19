@@ -13,9 +13,13 @@ import { BridgeServerTransport } from "../../agent/src/bridge-server-transport";
 import { createLocalMcpRuntime } from "../../agent/src/local-mcp-runtime";
 import type { LocalMcpServerInstance } from "../../agent/src/server";
 import { WorkspaceRegistry } from "../../agent/src/workspace";
-import type { DeviceRoutingService } from "./device-routing";
+import {
+  DeviceRoutingError,
+  type DeviceRoutingService,
+} from "./device-routing";
 import type { PublicMcpEndpoint } from "./public-mcp-endpoint";
 import { createPublicMcpEndpoint } from "./public-mcp-endpoint";
+import { RoutedDeviceMcpClientRegistry } from "./routed-device-mcp-client-registry";
 import {
   createDoctmcpServerRuntime,
   type DoctmcpServerRuntime,
@@ -75,6 +79,7 @@ describe("public MCP endpoint", () => {
   const transports: BridgeServerTransport[] = [];
   const localRuntimes: LocalMcpServerInstance[] = [];
   const serverRuntimes: DoctmcpServerRuntime[] = [];
+  const clientRegistries: RoutedDeviceMcpClientRegistry[] = [];
 
   afterEach(async () => {
     const cleanups = await Promise.allSettled([
@@ -82,6 +87,7 @@ describe("public MCP endpoint", () => {
       ...publicEndpoints.splice(0).map((endpoint) => endpoint.close()),
       ...transports.splice(0).map((transport) => transport.close()),
       ...localRuntimes.splice(0).map((runtime) => runtime.close()),
+      ...clientRegistries.splice(0).map((registry) => registry.close()),
       ...serverRuntimes.splice(0).map((runtime) => runtime.stop()),
     ]);
     expect(cleanups.filter(({ status }) => status === "rejected")).toEqual([]);
@@ -426,4 +432,93 @@ describe("public MCP endpoint", () => {
       workspaces: [{ id: "office-workspace" }],
     });
   });
+  test("keeps healthy devices usable when one ready device fails tool discovery", async () => {
+    let publicMcpFetch: (request: Request) => Promise<Response> = async () =>
+      new Response("Public MCP test handler is not ready.", { status: 503 });
+    const server = createDoctmcpServerRuntime({
+      port: 0,
+      idleTimeoutMs: 0,
+      httpHandler: (request) => publicMcpFetch(request),
+    });
+    serverRuntimes.push(server);
+    const { paired: healthy } = await createConnectedDevice(
+      server,
+      "healthy-workspace",
+    );
+    const { paired: broken } = await createConnectedDevice(
+      server,
+      "broken-workspace",
+    );
+
+    class FaultInjectingRegistry extends RoutedDeviceMcpClientRegistry {
+      constructor(
+        router: DeviceRoutingService,
+        readonly failingDeviceId: string,
+      ) {
+        super(router);
+      }
+
+      override async listTools(ownerId: string, deviceId: string) {
+        if (deviceId === this.failingDeviceId) {
+          throw new DeviceRoutingError(
+            "ROUTING_UNAVAILABLE",
+            "Injected listTools failure.",
+          );
+        }
+        return super.listTools(ownerId, deviceId);
+      }
+    }
+
+    const registry = new FaultInjectingRegistry(
+      server.deviceRouter,
+      broken.device.deviceId,
+    );
+    clientRegistries.push(registry);
+    const endpoint = createPublicMcpEndpoint({
+      deviceRouter: server.deviceRouter,
+      clientRegistry: registry,
+      verifier: makeVerifier(OWNER_ID),
+      oauthMetadata: OAUTH_METADATA,
+      mcpUrl: MCP_URL,
+    });
+    publicEndpoints.push(endpoint);
+    publicMcpFetch = endpoint.fetch;
+
+    const client = new Client({
+      name: "doctmcp-m4-discovery-isolation",
+      version: "0.1.0",
+    });
+    clients.push(client);
+    const mcpUrl = new URL(server.gateway.url.replace(/^ws:/u, "http:"));
+    mcpUrl.pathname = "/mcp";
+    await client.connect(
+      new StreamableHTTPClientTransport(mcpUrl, {
+        requestInit: {
+          headers: { authorization: "Bearer valid-owner-token" },
+        },
+      }),
+    );
+
+    const listed = await client.listTools();
+    const healthyPrefix = `d_${healthy.device.deviceId.replaceAll("-", "")}__`;
+    const brokenPrefix = `d_${broken.device.deviceId.replaceAll("-", "")}__`;
+    expect(listed.tools.map(({ name }) => name)).toContain(
+      `${healthyPrefix}workspace`,
+    );
+    expect(
+      listed.tools.some(({ name }) => name.startsWith(brokenPrefix)),
+    ).toBe(false);
+    expect(listed.tools.map(({ name }) => name)).toContain("devices_list");
+
+    const devices = await client.callTool({ name: "devices_list" });
+    expect(devices.isError).toBeFalsy();
+    const deviceIds = (
+      devices.structuredContent as {
+        devices: Array<{ deviceId: string; status: string }>;
+      }
+    ).devices.map(({ deviceId }) => deviceId);
+    expect(deviceIds).toContain(healthy.device.deviceId);
+    expect(deviceIds).toContain(broken.device.deviceId);
+  });
+
 });

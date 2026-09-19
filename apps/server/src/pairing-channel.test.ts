@@ -2,9 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { PairingChannelMessage } from "@doctmcp/protocol";
 import type { GatewayWebSocketConnection } from "./gateway";
 import {
+  DEFAULT_PAIRING_DELIVERY_TIMEOUT_MS,
   PairingChannelCoordinator,
   PairingChannelError,
 } from "./pairing-channel";
+import { InMemoryPairingCredentialCompletionRepository } from "./pairing-credential-completion";
 import {
   createDoctmcpServerRuntime,
   type DoctmcpServerRuntime,
@@ -291,7 +293,11 @@ describe("PairingChannelCoordinator", () => {
     const delivery = coordinator.deliver(completed);
     await waitForFrame(socket, "pairing.credential");
 
-    now = new Date(pending.session.expiresAt.getTime() + 1);
+    now = new Date(
+      pending.session.expiresAt.getTime() +
+        DEFAULT_PAIRING_DELIVERY_TIMEOUT_MS +
+        1,
+    );
     await expect(
       coordinator.attach(
         pending.session.pairingSessionId,
@@ -311,4 +317,80 @@ describe("PairingChannelCoordinator", () => {
     expect(recovered.secret).not.toBe(completed.secret);
     expect(recovered.credential.version).toBe(completed.credential.version + 1);
   });
+  test("allows delivery and ACK after the pairing code TTL when claim already won", async () => {
+    const runtime = createDoctmcpServerRuntime({ host: "127.0.0.1", port: 0 });
+    runtimes.push(runtime);
+    const pending = await runtime.pairingService.createPairingSession();
+    let now = new Date(pending.session.createdAt);
+    const claimTtlMs =
+      pending.session.expiresAt.getTime() - pending.session.createdAt.getTime();
+    const coordinator = new PairingChannelCoordinator({
+      acknowledgeDelivery: (input) =>
+        runtime.pairingCredentialCompletionService.acknowledgeDelivery(input),
+      forgetPendingCompletion: (pairingSessionId, preserveDelivered) =>
+        runtime.pairingCredentialCompletionService.forgetPendingCompletion(
+          pairingSessionId,
+          preserveDelivered,
+        ),
+      now: () => now,
+      deliveryTimeoutMs: claimTtlMs + 10_000,
+    });
+    coordinators.push(coordinator);
+    await coordinator.register(pending.session, CHANNEL_PROOF);
+    const socket = new FakePairingSocket();
+    await coordinator.attach(
+      pending.session.pairingSessionId,
+      CHANNEL_PROOF,
+      socket,
+    );
+
+    const completed = await claim(runtime, pending);
+    expect(completed.session.claimedAt?.getTime()).toBeLessThan(
+      completed.session.expiresAt.getTime(),
+    );
+    now = new Date(pending.session.expiresAt.getTime() + 1);
+
+    const delivered = coordinator.deliver(completed);
+    await waitForFrame(socket, "pairing.credential");
+    await coordinator.acknowledge(socket, {
+      kind: "pairing.ack",
+      pairingSessionId: completed.session.pairingSessionId,
+      deviceId: completed.device.deviceId,
+      credentialId: completed.credential.credentialId,
+      version: completed.credential.version,
+    });
+    await expect(delivered).resolves.toBeUndefined();
+  });
+
+  test("bounds and prunes in-memory pairing completion state", async () => {
+    let nowMs = Date.parse("2026-09-19T00:00:00.000Z");
+    const repository = new InMemoryPairingCredentialCompletionRepository({
+      now: () => new Date(nowMs),
+      maxRecords: 1,
+      retentionMs: 10,
+    });
+    const first = {
+      pairingSessionId: "11111111-1111-4111-8111-111111111111",
+      deviceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      credentialId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      credentialVersion: 1,
+    };
+    const second = {
+      pairingSessionId: "22222222-2222-4222-8222-222222222222",
+      deviceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      credentialId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      credentialVersion: 1,
+    };
+
+    expect(await repository.setPending(first)).not.toBeNull();
+    expect(repository.size).toBe(1);
+    expect(await repository.setPending(second)).toBeNull();
+    nowMs += 11;
+    expect(await repository.get(first.pairingSessionId)).toBeNull();
+    expect(repository.size).toBe(0);
+    expect(await repository.setPending(second)).not.toBeNull();
+    await repository.delete(second.pairingSessionId);
+    expect(repository.size).toBe(0);
+  });
+
 });

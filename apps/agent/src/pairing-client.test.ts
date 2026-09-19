@@ -68,6 +68,7 @@ function createFixture(
   overrides: Partial<LocalPairingClientOptions> = {},
 ) {
   let socket: FakePairingSocket | undefined;
+  const sockets: FakePairingSocket[] = [];
   let requestedUrl = "";
   const client = new LocalPairingClient({
     serverUrl: "https://api.example.test",
@@ -87,6 +88,7 @@ function createFixture(
     },
     createWebSocket: () => {
       socket = new FakePairingSocket();
+      sockets.push(socket);
       return socket;
     },
     ...overrides,
@@ -94,6 +96,7 @@ function createFixture(
   return {
     client,
     getSocket: () => socket,
+    getSockets: () => [...sockets],
     getRequestedUrl: () => requestedUrl,
   };
 }
@@ -310,4 +313,58 @@ describe("LocalPairingClient", () => {
 
     await expect(started).rejects.toMatchObject({ code: "PAIRING_CLOSED" });
   });
+  test("re-attaches with the same proof after a pre-credential disconnect", async () => {
+    let saved: LocalDeviceCredential | null = null;
+    const provider: DeviceCredentialProvider = {
+      async load() {
+        return saved;
+      },
+      async replace(value) {
+        saved = value;
+      },
+    };
+    const fixture = createFixture(provider);
+    await attach(fixture.client, fixture.getSocket);
+    const first = await waitFor(fixture.getSocket);
+    const waiting = fixture.client.waitForCredential();
+
+    first.close();
+
+    const second = await waitFor(() => fixture.getSockets()[1]);
+    const attachFrame = await waitFor(() =>
+      second.sent.find(({ kind }) => kind === "pairing.attach"),
+    );
+    expect(attachFrame).toMatchObject({
+      pairingSessionId: PAIRING_SESSION_ID,
+      channelProof: "A".repeat(43),
+    });
+
+    second.emitMessage({
+      kind: "pairing.attached",
+      pairingSessionId: PAIRING_SESSION_ID,
+      expiresAt: "2026-09-18T12:05:00.000Z",
+    });
+    second.emitMessage({
+      kind: "pairing.credential",
+      pairingSessionId: PAIRING_SESSION_ID,
+      deviceId: DEVICE_ID,
+      credentialId: CREDENTIAL_ID,
+      version: 1,
+      credential: SECRET,
+    });
+
+    await expect(waiting).resolves.toEqual({
+      deviceId: DEVICE_ID,
+      credential: SECRET,
+    });
+    expect(second.sent.at(-1)).toMatchObject({
+      kind: "pairing.ack",
+      pairingSessionId: PAIRING_SESSION_ID,
+      deviceId: DEVICE_ID,
+      credentialId: CREDENTIAL_ID,
+      version: 1,
+    });
+    await fixture.client.close();
+  });
+
 });

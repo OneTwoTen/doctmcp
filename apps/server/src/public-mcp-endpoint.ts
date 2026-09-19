@@ -269,12 +269,10 @@ function buildCallerServer(
       if (device.status === "online") {
         try {
           discovered = await clientRegistry.listTools(ownerId, device.deviceId);
-        } catch (error) {
-          const becameUnavailable =
-            error instanceof DeviceRoutingError &&
-            (error.code === "DEVICE_OFFLINE" ||
-              error.code === "DEVICE_CREDENTIAL_UNAVAILABLE");
-          if (!becameUnavailable) throw error;
+        } catch {
+          // Discovery is best-effort per device. Keep a previous catalog when
+          // available; otherwise omit only this device's dynamic tools so one
+          // broken local MCP cannot take down the owner's whole public MCP.
         }
       }
       if (!discovered) continue;

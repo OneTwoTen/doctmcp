@@ -33,7 +33,10 @@ export interface PairingChannelCoordinatorOptions {
     input: AcknowledgePairingCredentialDeliveryInput,
   ) => Promise<void>;
   readonly cancelPairingSession?: (pairingSessionId: string) => Promise<void>;
-  readonly forgetPendingCompletion?: (pairingSessionId: string) => void;
+  readonly forgetPendingCompletion?: (
+    pairingSessionId: string,
+    preserveDelivered: boolean,
+  ) => void | Promise<void>;
   readonly now?: () => Date;
   readonly maxPendingSessions?: number;
   readonly deliveryTimeoutMs?: number;
@@ -55,7 +58,8 @@ interface PendingDelivery {
 interface PairingChannelEntry {
   readonly session: PairingSession;
   proofDigest: string;
-  readonly expiryTimer: ReturnType<typeof setTimeout>;
+  expiryTimer: ReturnType<typeof setTimeout>;
+  deadlineMs: number;
   socket: GatewayWebSocketConnection | null;
   attaching: boolean;
   delivery: PendingDelivery | null;
@@ -161,13 +165,15 @@ export class PairingChannelCoordinator {
     }
 
     const pairingSessionId = session.pairingSessionId;
+    const deadlineMs = expiresAt + this.#deliveryTimeoutMs;
     const entry: PairingChannelEntry = {
       session,
       proofDigest,
       expiryTimer: setTimeout(
         () => this.#expire(pairingSessionId),
-        Math.max(0, expiresAt - readTimestamp(this.#now())),
+        Math.max(0, deadlineMs - readTimestamp(this.#now())),
       ),
+      deadlineMs,
       socket: null,
       attaching: false,
       delivery: null,
@@ -274,6 +280,13 @@ export class PairingChannelCoordinator {
     ) {
       throw new PairingChannelError("PAIRING_UNAVAILABLE");
     }
+    const claimedAt = completed.session.claimedAt;
+    if (
+      !claimedAt ||
+      readTimestamp(claimedAt) >= readTimestamp(completed.session.expiresAt)
+    ) {
+      throw new PairingChannelError("PAIRING_UNAVAILABLE");
+    }
     const entry = this.#liveEntry(completed.session.pairingSessionId);
     if (entry.session.pairingSessionId !== completed.session.pairingSessionId) {
       throw new PairingChannelError("PAIRING_UNAVAILABLE");
@@ -281,6 +294,13 @@ export class PairingChannelCoordinator {
 
     let delivery = entry.delivery;
     if (!delivery) {
+      const deliveryDeadlineMs =
+        readTimestamp(claimedAt) + this.#deliveryTimeoutMs;
+      if (deliveryDeadlineMs <= readTimestamp(this.#now())) {
+        this.#expire(entry.session.pairingSessionId);
+        throw new PairingChannelError("TIMEOUT");
+      }
+      this.#setDeadline(entry, deliveryDeadlineMs);
       delivery = {
         completed,
         waiters: new Set(),
@@ -340,7 +360,7 @@ export class PairingChannelCoordinator {
 
     const waiters = [...delivery.waiters];
     delivery.waiters.clear();
-    this.#removeEntry(entry);
+    this.#removeEntry(entry, true);
     for (const waiter of waiters) {
       clearTimeout(waiter.timer);
       waiter.resolve();
@@ -447,7 +467,7 @@ export class PairingChannelCoordinator {
     }
     const entry = this.#entries.get(parsedSessionId.data);
     if (!entry) throw new PairingChannelError("PAIRING_UNAVAILABLE");
-    if (readTimestamp(entry.session.expiresAt) <= readTimestamp(this.#now())) {
+    if (entry.deadlineMs <= readTimestamp(this.#now())) {
       this.#expire(entry.session.pairingSessionId);
       throw new PairingChannelError("PAIRING_UNAVAILABLE");
     }
@@ -457,7 +477,7 @@ export class PairingChannelCoordinator {
   #pruneExpired(): void {
     const now = readTimestamp(this.#now());
     for (const entry of this.#entries.values()) {
-      if (readTimestamp(entry.session.expiresAt) <= now) {
+      if (entry.deadlineMs <= now) {
         this.#expire(entry.session.pairingSessionId);
       }
     }
@@ -476,10 +496,27 @@ export class PairingChannelCoordinator {
     this.#removeEntry(entry);
   }
 
-  #removeEntry(entry: PairingChannelEntry): void {
+  #setDeadline(entry: PairingChannelEntry, deadlineMs: number): void {
+    clearTimeout(entry.expiryTimer);
+    entry.deadlineMs = deadlineMs;
+    entry.expiryTimer = setTimeout(
+      () => this.#expire(entry.session.pairingSessionId),
+      Math.max(0, deadlineMs - readTimestamp(this.#now())),
+    );
+  }
+
+  #removeEntry(
+    entry: PairingChannelEntry,
+    preserveDeliveredCompletion = false,
+  ): void {
     clearTimeout(entry.expiryTimer);
     this.#entries.delete(entry.session.pairingSessionId);
-    this.#forgetPendingCompletion?.(entry.session.pairingSessionId);
+    void Promise.resolve(
+      this.#forgetPendingCompletion?.(
+        entry.session.pairingSessionId,
+        preserveDeliveredCompletion,
+      ),
+    ).catch(() => undefined);
     entry.proofDigest = "";
     if (entry.delivery) {
       this.#rejectWaiters(
