@@ -489,7 +489,7 @@ export class PairingChannelCoordinator {
     if (entry.delivery) {
       this.#rejectWaiters(
         entry.delivery,
-        new PairingChannelError("PAIRING_UNAVAILABLE"),
+        new PairingChannelError("TIMEOUT"),
       );
     }
     entry.socket?.close(1000, "Pairing expired");

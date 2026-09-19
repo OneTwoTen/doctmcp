@@ -366,5 +366,4 @@ describe("LocalPairingClient", () => {
     });
     await fixture.client.close();
   });
-
 });

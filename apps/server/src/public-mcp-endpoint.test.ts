@@ -505,9 +505,9 @@ describe("public MCP endpoint", () => {
     expect(listed.tools.map(({ name }) => name)).toContain(
       `${healthyPrefix}workspace`,
     );
-    expect(
-      listed.tools.some(({ name }) => name.startsWith(brokenPrefix)),
-    ).toBe(false);
+    expect(listed.tools.some(({ name }) => name.startsWith(brokenPrefix))).toBe(
+      false,
+    );
     expect(listed.tools.map(({ name }) => name)).toContain("devices_list");
 
     const devices = await client.callTool({ name: "devices_list" });
@@ -520,5 +520,4 @@ describe("public MCP endpoint", () => {
     expect(deviceIds).toContain(healthy.device.deviceId);
     expect(deviceIds).toContain(broken.device.deviceId);
   });
-
 });

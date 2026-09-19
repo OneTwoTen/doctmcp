@@ -306,7 +306,7 @@ describe("PairingChannelCoordinator", () => {
       ),
     ).rejects.toMatchObject({ code: "PAIRING_UNAVAILABLE" });
     await expect(delivery).rejects.toMatchObject({
-      code: "PAIRING_UNAVAILABLE",
+      code: "TIMEOUT",
     });
 
     const recovered =
@@ -392,5 +392,4 @@ describe("PairingChannelCoordinator", () => {
     await repository.delete(second.pairingSessionId);
     expect(repository.size).toBe(0);
   });
-
 });
