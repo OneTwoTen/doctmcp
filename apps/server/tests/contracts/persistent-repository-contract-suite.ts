@@ -140,6 +140,57 @@ export function describePersistentRepositoryContract(
       });
     });
 
+    test("device snapshot không chia sẻ Date hoặc metadata với input/storage", async () => {
+      await withHarness(factory, async ({ devices }) => {
+        const input = {
+          ownerId: "owner-a",
+          deviceName: "Original",
+          metadata: { platform: "darwin-arm64" },
+        };
+        const created = await devices.create(input);
+        input.metadata.platform = "linux-x64";
+        created.createdAt.setTime(0);
+        created.updatedAt.setTime(0);
+
+        const fetched = await devices.getById(DEVICE_A);
+        expect(fetched?.metadata.platform).toBe("darwin-arm64");
+        expect(fetched?.createdAt.getTime()).toBe(CREATED_AT_MS);
+        expect(fetched?.updatedAt.getTime()).toBe(CREATED_AT_MS);
+        expect(fetched?.metadata).not.toBe(created.metadata);
+
+        const listed = await devices.listByOwnerId("owner-a");
+        listed[0]?.createdAt.setTime(0);
+        expect((await devices.getById(DEVICE_A))?.createdAt.getTime()).toBe(
+          CREATED_AT_MS,
+        );
+
+        const patch = { metadata: { platform: "win32-x64" } };
+        await devices.updateForOwner("owner-a", DEVICE_A, patch);
+        patch.metadata.platform = "linux-x64";
+        expect((await devices.getById(DEVICE_A))?.metadata.platform).toBe(
+          "win32-x64",
+        );
+      });
+    });
+
+    test("listByOwnerId sắp theo createdAt rồi deviceId khi cùng timestamp", async () => {
+      let nextId = DEVICE_B;
+      await withHarness(
+        factory,
+        async ({ devices }) => {
+          await devices.create(newDevice("owner-a"));
+          nextId = DEVICE_A;
+          await devices.create(newDevice("owner-a"));
+          expect(
+            (await devices.listByOwnerId("owner-a")).map(
+              (device) => device.deviceId,
+            ),
+          ).toEqual([DEVICE_A, DEVICE_B]);
+        },
+        () => nextId,
+      );
+    });
+
     test("credential lưu digest, verify không trả secret, revoke chặn auth", async () => {
       await withHarness(factory, async ({ devices, credentials }) => {
         await devices.create(newDevice("owner-a"));
@@ -206,6 +257,138 @@ export function describePersistentRepositoryContract(
       });
     });
 
+    test("credential issue đồng thời chỉ một generation active", async () => {
+      await withHarness(factory, async ({ devices, credentials }) => {
+        await devices.create(newDevice("owner-a"));
+        const results = await Promise.allSettled([
+          credentials.issue({
+            deviceId: DEVICE_A,
+            credentialId: CREDENTIAL_A,
+            secretDigest: DIGEST_A,
+            createdAt: new Date(CREATED_AT_MS),
+          }),
+          credentials.issue({
+            deviceId: DEVICE_A,
+            credentialId: CREDENTIAL_B,
+            secretDigest: DIGEST_B,
+            createdAt: new Date(CREATED_AT_MS),
+          }),
+        ]);
+        expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        expect(
+          results.find((result) => result.status === "rejected"),
+        ).toMatchObject({
+          status: "rejected",
+          reason: { code: "CREDENTIAL_ALREADY_EXISTS" },
+        });
+        const winner = await credentials.getActive(DEVICE_A);
+        expect(winner?.version).toBe(1);
+        expect(winner?.credentialId).toBe(
+          results[0]?.status === "fulfilled" ? CREDENTIAL_A : CREDENTIAL_B,
+        );
+        expect(await credentials.verify(
+          DEVICE_A,
+          results[0]?.status === "fulfilled" ? DIGEST_B : DIGEST_A,
+        )).toBeNull();
+      });
+    });
+
+    test("credential reissue sau revoke tăng version và không tái sử dụng ID", async () => {
+      let nextDeviceId = DEVICE_A;
+      await withHarness(
+        factory,
+        async ({ devices, credentials }) => {
+          await devices.create(newDevice("owner-a"));
+          await credentials.issue({
+            deviceId: DEVICE_A,
+            credentialId: CREDENTIAL_A,
+            secretDigest: DIGEST_A,
+            createdAt: new Date(CREATED_AT_MS),
+          });
+          await credentials.revoke({
+            deviceId: DEVICE_A,
+            expectedCredentialId: CREDENTIAL_A,
+            expectedVersion: 1,
+            revokedAt: new Date(CREATED_AT_MS + 1000),
+          });
+          await expect(
+            credentials.issue({
+              deviceId: DEVICE_A,
+              credentialId: CREDENTIAL_A,
+              secretDigest: DIGEST_B,
+              createdAt: new Date(CREATED_AT_MS + 2000),
+            }),
+          ).rejects.toMatchObject({ code: "CREDENTIAL_ID_CONFLICT" });
+
+          const reissued = await credentials.issue({
+            deviceId: DEVICE_A,
+            credentialId: CREDENTIAL_B,
+            secretDigest: DIGEST_B,
+            createdAt: new Date(CREATED_AT_MS + 2000),
+          });
+          expect(reissued.version).toBe(2);
+          expect(await credentials.verify(DEVICE_A, DIGEST_A)).toBeNull();
+
+          const rotated = await credentials.rotate({
+            deviceId: DEVICE_A,
+            expectedCredentialId: CREDENTIAL_B,
+            expectedVersion: 2,
+            credentialId: CREDENTIAL_C,
+            secretDigest: DIGEST_C,
+            rotatedAt: new Date(CREATED_AT_MS + 3000),
+          });
+          expect(rotated.version).toBe(3);
+          expect(await credentials.verify(DEVICE_A, DIGEST_B)).toBeNull();
+          nextDeviceId = DEVICE_B;
+          await devices.create(newDevice("owner-b"));
+          await expect(
+            credentials.issue({
+              deviceId: DEVICE_B,
+              credentialId: CREDENTIAL_B,
+              secretDigest: DIGEST_B,
+              createdAt: new Date(CREATED_AT_MS + 4000),
+            }),
+          ).rejects.toMatchObject({ code: "CREDENTIAL_ID_CONFLICT" });
+          expect(await credentials.verify(DEVICE_A, DIGEST_C)).toMatchObject({
+            credentialId: CREDENTIAL_C,
+            version: 3,
+          });
+        },
+        () => nextDeviceId,
+      );
+    });
+
+    test("stale revoke không vô hiệu hóa credential đã rotate", async () => {
+      await withHarness(factory, async ({ devices, credentials }) => {
+        await devices.create(newDevice("owner-a"));
+        await credentials.issue({
+          deviceId: DEVICE_A,
+          credentialId: CREDENTIAL_A,
+          secretDigest: DIGEST_A,
+          createdAt: new Date(CREATED_AT_MS),
+        });
+        await credentials.rotate({
+          deviceId: DEVICE_A,
+          expectedCredentialId: CREDENTIAL_A,
+          expectedVersion: 1,
+          credentialId: CREDENTIAL_B,
+          secretDigest: DIGEST_B,
+          rotatedAt: new Date(CREATED_AT_MS + 1000),
+        });
+        expect(await credentials.revoke({
+          deviceId: DEVICE_A,
+          expectedCredentialId: CREDENTIAL_A,
+          expectedVersion: 1,
+          revokedAt: new Date(CREATED_AT_MS + 2000),
+        })).toBeNull();
+        expect(await credentials.verify(DEVICE_A, DIGEST_B)).toMatchObject({
+          credentialId: CREDENTIAL_B,
+          version: 2,
+          state: "active",
+        });
+      });
+    });
+
     test("pairing concurrent claim chỉ một request tạo device", async () => {
       await withHarness(factory, async ({ devices, pairings }, setNow) => {
         await pairings.create(newPairing(SESSION_A, DIGEST_A));
@@ -263,6 +446,7 @@ export function describePersistentRepositoryContract(
             code: "DEVICE_ALREADY_EXISTS",
           });
           expect((await pairings.getById(SESSION_A))?.state).toBe("pending");
+          expect(await devices.listByOwnerId("owner-b")).toHaveLength(0);
           nextId = DEVICE_B;
           const result = await pairings.claim(claim("owner-b", DIGEST_A));
           expect(result.device.deviceId).toBe(DEVICE_B);
