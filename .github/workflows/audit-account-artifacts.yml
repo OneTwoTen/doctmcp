@@ -30,6 +30,9 @@ jobs:
       - name: Checkout read-only audit script
         uses: actions/checkout@v5
 
+      - name: Offline audit checks
+        run: python -m unittest discover -s scripts -p 'test_github_artifact_audit.py' -v
+
       - name: Inventory current artifacts without creating an artifact
         shell: bash
         env:
