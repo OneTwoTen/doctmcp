@@ -148,8 +148,9 @@ def render(rows, owner, include_private):
         "",
         "**Largest current artifact storage:** %s" %
         (("%s (%.2f MiB)" % (rows[0]["repository"], rows[0]["bytes"] / 1048576))
-         if rows and isinstance(rows[0]["bytes"], int) and not errors
-         else "Not determined: no repositories, incomplete scan or errors."),
+         if rows and isinstance(rows[0]["bytes"], int) and rows[0]["bytes"] > 0 and not errors
+         else ("No current artifacts." if rows and not errors else
+               "Not determined: no repositories, incomplete scan or errors.")),
         "",
         "This is a snapshot of existing artifacts, not the historical GB-hours "
         "reported by GitHub Billing. No artifacts were created or deleted.",
