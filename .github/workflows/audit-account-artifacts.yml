@@ -1,0 +1,62 @@
+name: Audit account artifact storage
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_private:
+        description: "Include private repos? Results will be PUBLIC in this repository's Actions logs."
+        type: boolean
+        default: false
+        required: true
+      public_report_confirmation:
+        description: "If including private repos, type PUBLIC_LOGS_OK to acknowledge public disclosure"
+        type: string
+        required: false
+        default: ""
+      expected_min_repositories:
+        description: "Minimum number of owned repos visible when scanning private repos (0 disables coverage check)"
+        type: number
+        required: true
+        default: 52
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout read-only audit script
+        uses: actions/checkout@v5
+
+      - name: Offline audit checks
+        run: python -m unittest discover -s scripts -p 'test_github_artifact_audit.py' -v
+
+      - name: Inventory current artifacts without creating an artifact
+        shell: bash
+        env:
+          INCLUDE_PRIVATE: ${{ inputs.include_private }}
+          PUBLIC_REPORT_CONFIRMATION: ${{ inputs.public_report_confirmation }}
+          EXPECTED_MIN: ${{ inputs.expected_min_repositories }}
+          GH_AUDIT_TOKEN: ${{ secrets.GH_AUDIT_TOKEN }}
+          REPO_SCOPED_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$INCLUDE_PRIVATE" == "true" ]]; then
+            if [[ "$PUBLIC_REPORT_CONFIRMATION" != "PUBLIC_LOGS_OK" ]]; then
+              echo "::error::This is a PUBLIC repo: private repository names/sizes would be visible to everyone. To opt in, enter PUBLIC_LOGS_OK. Alternatively, run the script locally." >&2
+              exit 1
+            fi
+            if [[ -z "$GH_AUDIT_TOKEN" ]]; then
+              echo "::error::Set the repository secret GH_AUDIT_TOKEN with Actions:read and access to all owned repositories." >&2
+              exit 1
+            fi
+            export AUDIT_API_TOKEN="$GH_AUDIT_TOKEN"
+            python scripts/github_artifact_audit.py \
+              --owner "$GITHUB_REPOSITORY_OWNER" --include-private \
+              --expected-min "$EXPECTED_MIN"
+          else
+            export AUDIT_API_TOKEN="$REPO_SCOPED_TOKEN"
+            python scripts/github_artifact_audit.py --owner "$GITHUB_REPOSITORY_OWNER"
+          fi
