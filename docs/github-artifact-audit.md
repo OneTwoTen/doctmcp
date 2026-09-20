@@ -40,11 +40,11 @@ Run locally in a private terminal (Python 3; no dependencies) after checking out
 ```bash
 export AUDIT_API_TOKEN='YOUR_READ_ONLY_FINE_GRAINED_PAT'
 python3 scripts/github_artifact_audit.py --owner OneTwoTen \
-  --include-private --expected-min 52 --csv artifact-inventory.csv
+  --include-private --expected-min 52 --csv "$HOME/artifact-inventory.csv"
 unset AUDIT_API_TOKEN
 ```
 
-Keep `artifact-inventory.csv` private; it contains private repository names.
+Keep `$HOME/artifact-inventory.csv` private and outside the repository checkout; it contains private repository names.
 On PowerShell, set the environment variable using
 `$env:AUDIT_API_TOKEN = 'YOUR_READ_ONLY_FINE_GRAINED_PAT'`, then clear it
 using `Remove-Item Env:AUDIT_API_TOKEN`. A token pasted in a terminal may
