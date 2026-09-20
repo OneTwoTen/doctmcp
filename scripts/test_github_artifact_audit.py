@@ -39,7 +39,7 @@ class AuditTests(unittest.TestCase):
 
     def test_pagination_over_100(self):
         api = object.__new__(GitHubAPI)
-        api.get = lambda path: {"total_count": 101, "artifacts": [{}] * (100 if "page=1" in path else 1)}
+        api.get = lambda path: {"total_count": 101, "artifacts": [{}] * (100 if path.endswith("&page=1") else 1)}
         self.assertEqual(len(api.pages("/repos/OneTwoTen/a/actions/artifacts", "artifacts")), 101)
 
 
